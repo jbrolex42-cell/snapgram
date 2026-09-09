@@ -6,15 +6,14 @@ This is an [Expo](https://expo.dev) project created with [`create-expo-app`](htt
 
 1. Install dependencies
 
-   ```bash
+   bash
    npm install
-   ```
+   
 
 2. Start the app
 
-   ```bash
+   bash
    npx expo start
-   ```
 
 In the output, you'll find options to open the app in a
 
@@ -28,10 +27,8 @@ You can start developing by editing the files inside the **app** directory. This
 ## Get a fresh project
 
 When you're ready, run:
-
-```bash
+bash
 npm run reset-project
-```
 
 This command will move the starter code to the **app-example** directory and create a blank **app** directory where you can start developing.
 

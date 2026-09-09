@@ -1,0 +1,47 @@
+{
+  "project_info": {
+    "project_number": "436379056114",
+    "project_id": "snapgram-e8377",
+    "storage_bucket": "snapgram-e8377.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:436379056114:android:fd43bc583d8699e2415d6b",
+        "android_client_info": {
+          "package_name": "com.emsapp254.snapgramapp"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "436379056114-1nipggnd4atqmnl6qdre074tstlp014u.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.emsapp254.snapgramapp",
+            "certificate_hash": "5e8f16062ea3cd2c4a0d547876baa6f38cabf625"
+          }
+        },
+        {
+          "client_id": "436379056114-1orit4e0gsarm1n7hs6tprcrvsvm5oh0.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCzE180fDe_PC83tsloTcQqaVsQlK3vLms"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "436379056114-1orit4e0gsarm1n7hs6tprcrvsvm5oh0.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
