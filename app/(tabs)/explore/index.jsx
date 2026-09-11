@@ -11,6 +11,7 @@ import {
   Dimensions,
   FlatList,
   Image,
+  Keyboard,
   Pressable,
   RefreshControl,
   StyleSheet,
@@ -31,16 +32,16 @@ import {
 import VerifiedBadge from "../../../components/common/VerifiedBadge";
 
 const COLORS = {
-  black: "#000000",
-  white: "#FFFFFF",
+  black: "#000",
+  white: "#fff",
   text: "#262626",
   secondary: "#737373",
-  border: "#DBDBDB",
-  background: "#FFFFFF",
-  placeholder: "#8E8E8E",
-  surface: "#F2F2F2",
-  danger: "#ED4956",
-  placeholderImage: "#EFEFEF",
+  border: "#dbdbdb",
+  background: "#fff",
+  searchBackground: "#efefef",
+  placeholder: "#8e8e8e",
+  tileBackground: "#efefef",
+  danger: "#ed4956",
 };
 
 const GRID_COLUMNS = 3;
@@ -49,43 +50,79 @@ const PAGE_LIMIT = 30;
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
 
-// One small square tile's side length across 3 columns with 2 gaps.
 const TILE_SIZE =
   (SCREEN_WIDTH - GRID_GAP * (GRID_COLUMNS - 1)) /
   GRID_COLUMNS;
 
-// A "big" tile spans 2 columns + the gap between them.
-const BIG_TILE_SIZE = TILE_SIZE * 2 + GRID_GAP;
+const BIG_TILE_SIZE =
+  TILE_SIZE * 2 + GRID_GAP;
 
-// Instagram's explore grid repeats in groups of 6 posts:
-// 2 stacked small tiles + 1 big tile, then a plain row of 3.
 const GRID_BLOCK_SIZE = 6;
 
-const chunkPostsForGrid = (items) => {
-  const blocks = [];
+/* -------------------------------------------------------------------------- */
+/* Helpers                                                                    */
+/* -------------------------------------------------------------------------- */
 
-  for (
-    let i = 0;
-    i < items.length;
-    i += GRID_BLOCK_SIZE
-  ) {
-    blocks.push(
-      items.slice(i, i + GRID_BLOCK_SIZE)
-    );
-  }
-
-  return blocks;
-};
-
-const getPostId = (post, index = 0) =>
-  String(
+function getPostId(post, index = 0) {
+  return String(
     post?._id ||
       post?.id ||
       post?.postId ||
       `explore-post-${index}`
   );
+}
 
-const getPostMedia = (post) => {
+function getUserId(user) {
+  return (
+    user?._id ||
+    user?.id ||
+    user?.userId ||
+    user?.uid ||
+    null
+  );
+}
+
+function getUsername(user) {
+  return (
+    user?.username ||
+    user?.handle ||
+    null
+  );
+}
+
+function getDisplayName(user) {
+  return (
+    user?.name ||
+    user?.displayName ||
+    user?.fullName ||
+    user?.username ||
+    user?.handle ||
+    "User"
+  );
+}
+
+function getAvatar(user) {
+  return (
+    user?.avatar ||
+    user?.avatarUrl ||
+    user?.profilePicture ||
+    user?.profileImage ||
+    user?.photoURL ||
+    user?.photoUrl ||
+    user?.image ||
+    null
+  );
+}
+
+function isVerified(user) {
+  return Boolean(
+    user?.isVerified ??
+      user?.verified ??
+      user?.verification?.isVerified
+  );
+}
+
+function getPostMedia(post) {
   if (!post) {
     return null;
   }
@@ -122,8 +159,8 @@ const getPostMedia = (post) => {
   if (typeof item === "string") {
     return {
       url: item,
-      type: "image",
       thumbnail: item,
+      type: "image",
     };
   }
 
@@ -144,11 +181,6 @@ const getPostMedia = (post) => {
 
     return {
       url,
-      type:
-        item?.type ||
-        item?.resource_type ||
-        item?.mediaType ||
-        "image",
       thumbnail:
         item?.thumbnail ||
         item?.thumbnailUrl ||
@@ -156,139 +188,163 @@ const getPostMedia = (post) => {
         item?.secureUrl ||
         item?.url ||
         null,
+      type:
+        item?.type ||
+        item?.resource_type ||
+        item?.mediaType ||
+        "image",
     };
   }
 
   return null;
-};
+}
 
-const isVideoMedia = (media) => {
+function isVideoMedia(media) {
   if (!media) {
     return false;
   }
 
-  const type = String(media.type || "").toLowerCase();
+  const type = String(
+    media?.type || ""
+  ).toLowerCase();
 
   if (
     type.includes("video") ||
-    type.includes("reel") ||
-    type.includes("mp4")
+    type.includes("reel")
   ) {
     return true;
   }
 
   return /\.(mp4|mov|m4v|webm)(\?.*)?$/i.test(
-    media.url || ""
+    String(media?.url || "")
   );
-};
+}
 
-const getAvatar = (user) =>
-  user?.avatar ||
-  user?.avatarUrl ||
-  user?.profilePicture ||
-  user?.profileImage ||
-  user?.photoURL ||
-  user?.photoUrl ||
-  user?.image ||
-  null;
+function getMediaCount(post) {
+  if (Array.isArray(post?.media)) {
+    return post.media.length;
+  }
 
-const getDisplayName = (user) =>
-  user?.name ||
-  user?.displayName ||
-  user?.fullName ||
-  user?.username ||
-  user?.handle ||
-  "User";
+  if (Array.isArray(post?.images)) {
+    return post.images.length;
+  }
 
-const getUsername = (user) =>
-  user?.username ||
-  user?.handle ||
-  null;
+  if (Array.isArray(post?.photos)) {
+    return post.photos.length;
+  }
 
-const getUserId = (user) =>
-  user?._id ||
-  user?.id ||
-  user?.userId ||
-  user?.uid ||
-  null;
+  if (Array.isArray(post?.attachments)) {
+    return post.attachments.length;
+  }
 
-const isUserVerified = (user) =>
-  Boolean(
-    user?.isVerified ??
-      user?.verified ??
-      user?.verification?.isVerified
-  );
+  return 1;
+}
+
+function chunkPosts(items) {
+  const blocks = [];
+
+  for (
+    let index = 0;
+    index < items.length;
+    index += GRID_BLOCK_SIZE
+  ) {
+    blocks.push(
+      items.slice(
+        index,
+        index + GRID_BLOCK_SIZE
+      )
+    );
+  }
+
+  return blocks;
+}
+
+/* -------------------------------------------------------------------------- */
+/* Skeleton                                                                    */
+/* -------------------------------------------------------------------------- */
 
 function ExploreSkeleton() {
   return (
     <View style={styles.skeletonContainer}>
-      {Array.from({ length: 15 }).map((_, index) => (
-        <View
-          key={`skeleton-${index}`}
-          style={styles.skeletonTile}
-        />
-      ))}
+      {Array.from({ length: 15 }).map(
+        (_, index) => (
+          <View
+            key={`skeleton-${index}`}
+            style={styles.skeletonTile}
+          />
+        )
+      )}
     </View>
   );
 }
 
-function ExploreTile({ post, onPress, size, style }) {
-  const media = getPostMedia(post);
-  const tileStyle = size
-    ? { width: size, height: size }
-    : styles.gridTile;
+/* -------------------------------------------------------------------------- */
+/* Explore tile                                                                */
+/* -------------------------------------------------------------------------- */
 
-  if (!media?.url) {
-    return (
-      <Pressable
-        style={[tileStyle, style]}
-        onPress={() => onPress?.(post)}
-      >
-        <View style={styles.emptyTile}>
-          <Ionicons
-            name="image-outline"
-            size={28}
-            color="#A0A0A0"
-          />
-        </View>
-      </Pressable>
-    );
-  }
+function ExploreTile({
+  post,
+  size,
+  onPress,
+  style,
+}) {
+  const media = getPostMedia(post);
+
+  const width = size || TILE_SIZE;
+  const height = size || TILE_SIZE;
 
   const video = isVideoMedia(media);
-
-  const hasMultipleMedia =
-    Array.isArray(post?.media) &&
-    post.media.length > 1;
+  const mediaCount = getMediaCount(post);
 
   return (
     <Pressable
-      style={[tileStyle, style]}
+      style={[
+        {
+          width,
+          height,
+        },
+        styles.tile,
+        style,
+      ]}
       onPress={() => onPress?.(post)}
       android_ripple={{
         color: "rgba(255,255,255,0.15)",
       }}
     >
-      <Image
-        source={{
-          uri: media.thumbnail || media.url,
-        }}
-        style={styles.gridImage}
-        resizeMode="cover"
-      />
+      {media?.url ? (
+        <Image
+          source={{
+            uri:
+              media.thumbnail ||
+              media.url,
+          }}
+          style={styles.tileImage}
+          resizeMode="cover"
+        />
+      ) : (
+        <View
+          style={styles.emptyTile}
+        >
+          <Ionicons
+            name="image-outline"
+            size={27}
+            color="#a0a0a0"
+          />
+        </View>
+      )}
 
       {video && (
-        <View style={styles.mediaBadge}>
+        <View style={styles.mediaIcon}>
           <Ionicons
             name="play"
-            size={14}
+            size={13}
             color={COLORS.white}
           />
         </View>
       )}
 
-      {!video && hasMultipleMedia && (
-        <View style={styles.mediaBadge}>
+      {!video && mediaCount > 1 && (
+        <View style={styles.mediaIcon}>
           <Ionicons
             name="copy-outline"
             size={15}
@@ -300,84 +356,111 @@ function ExploreTile({ post, onPress, size, style }) {
   );
 }
 
+/* -------------------------------------------------------------------------- */
+/* Instagram-style repeating grid                                             */
+/* -------------------------------------------------------------------------- */
+
 function ExploreGridBlock({
   items,
   blockIndex,
   onPress,
 }) {
-  if (items.length < GRID_BLOCK_SIZE) {
+  if (items.length < 6) {
     return (
       <View style={styles.plainRow}>
-        {items.map((post, index) => (
-          <ExploreTile
-            key={getPostId(post, index)}
-            post={post}
-            onPress={onPress}
-            size={TILE_SIZE}
-            style={
-              index < items.length - 1
-                ? styles.tileSpacing
-                : null
-            }
-          />
-        ))}
+        {items.map(
+          (post, index) => (
+            <ExploreTile
+              key={getPostId(
+                post,
+                index
+              )}
+              post={post}
+              size={TILE_SIZE}
+              onPress={onPress}
+              style={
+                index !==
+                items.length - 1
+                  ? styles.rightGap
+                  : null
+              }
+            />
+          )
+        )}
       </View>
     );
   }
 
-  const [a, b, big, c, d, e] = items;
-  const bigOnRight = blockIndex % 2 === 0;
+  const [
+    first,
+    second,
+    large,
+    fourth,
+    fifth,
+    sixth,
+  ] = items;
+
+  const largeOnRight =
+    blockIndex % 2 === 0;
 
   return (
-    <View style={styles.blockContainer}>
+    <View>
       <View style={styles.mixedRow}>
-        {bigOnRight ? (
+        {largeOnRight ? (
           <>
             <View
               style={[
                 styles.stackColumn,
-                styles.tileSpacing,
+                styles.rightGap,
               ]}
             >
               <ExploreTile
-                post={a}
-                onPress={onPress}
+                post={first}
                 size={TILE_SIZE}
-                style={styles.stackTileSpacing}
+                onPress={onPress}
+                style={
+                  styles.bottomGap
+                }
               />
+
               <ExploreTile
-                post={b}
-                onPress={onPress}
+                post={second}
                 size={TILE_SIZE}
+                onPress={onPress}
               />
             </View>
 
             <ExploreTile
-              post={big}
-              onPress={onPress}
+              post={large}
               size={BIG_TILE_SIZE}
+              onPress={onPress}
             />
           </>
         ) : (
           <>
             <ExploreTile
-              post={big}
-              onPress={onPress}
+              post={large}
               size={BIG_TILE_SIZE}
-              style={styles.tileSpacing}
+              onPress={onPress}
+              style={styles.rightGap}
             />
 
-            <View style={styles.stackColumn}>
+            <View
+              style={styles.stackColumn}
+            >
               <ExploreTile
-                post={a}
-                onPress={onPress}
+                post={first}
                 size={TILE_SIZE}
-                style={styles.stackTileSpacing}
+                onPress={onPress}
+                style={
+                  styles.bottomGap
+                }
               />
+
               <ExploreTile
-                post={b}
-                onPress={onPress}
+                post={second}
                 size={TILE_SIZE}
+                onPress={onPress}
               />
             </View>
           </>
@@ -386,40 +469,51 @@ function ExploreGridBlock({
 
       <View style={styles.plainRow}>
         <ExploreTile
-          post={c}
-          onPress={onPress}
+          post={fourth}
           size={TILE_SIZE}
-          style={styles.tileSpacing}
+          onPress={onPress}
+          style={styles.rightGap}
         />
+
         <ExploreTile
-          post={d}
-          onPress={onPress}
+          post={fifth}
           size={TILE_SIZE}
-          style={styles.tileSpacing}
+          onPress={onPress}
+          style={styles.rightGap}
         />
+
         <ExploreTile
-          post={e}
-          onPress={onPress}
+          post={sixth}
           size={TILE_SIZE}
+          onPress={onPress}
         />
       </View>
     </View>
   );
 }
 
-function SearchUserRow({ user, onPress }) {
+/* -------------------------------------------------------------------------- */
+/* Search user                                                                 */
+/* -------------------------------------------------------------------------- */
+
+function SearchUserRow({
+  user,
+  onPress,
+}) {
   const avatar = getAvatar(user);
-  const displayName = getDisplayName(user);
   const username = getUsername(user);
-  const verified = isUserVerified(user);
+  const name = getDisplayName(user);
 
   return (
     <Pressable
+      onPress={() =>
+        onPress?.(user)
+      }
       style={({ pressed }) => [
         styles.userRow,
-        pressed && styles.pressedRow,
+        pressed &&
+          styles.pressed,
       ]}
-      onPress={() => onPress?.(user)}
     >
       {avatar ? (
         <Image
@@ -427,38 +521,52 @@ function SearchUserRow({ user, onPress }) {
           style={styles.userAvatar}
         />
       ) : (
-        <View style={styles.userAvatarPlaceholder}>
+        <View
+          style={
+            styles.userAvatarFallback
+          }
+        >
           <Ionicons
             name="person"
-            size={25}
+            size={23}
             color={COLORS.secondary}
           />
         </View>
       )}
 
-      <View style={styles.userInfo}>
-        <View style={styles.nameRow}>
+      <View
+        style={styles.userInfo}
+      >
+        <View
+          style={styles.nameRow}
+        >
           <Text
             style={styles.name}
             numberOfLines={1}
           >
-            {displayName}
+            {name}
           </Text>
 
-          {verified && (
+          {isVerified(user) && (
             <VerifiedBadge
-              size={17}
-              style={styles.verifiedBadge}
+              size={16}
+              style={
+                styles.verifiedBadge
+              }
             />
           )}
         </View>
 
-        <Text
-          style={styles.username}
-          numberOfLines={1}
-        >
-          @{username || "user"}
-        </Text>
+        {username ? (
+          <Text
+            style={
+              styles.searchUsername
+            }
+            numberOfLines={1}
+          >
+            @{username}
+          </Text>
+        ) : null}
       </View>
 
       <Ionicons
@@ -470,93 +578,167 @@ function SearchUserRow({ user, onPress }) {
   );
 }
 
-function SectionHeader({ title }) {
-  return (
-    <View style={styles.sectionHeader}>
-      <Text style={styles.sectionTitle}>
-        {title}
-      </Text>
-    </View>
-  );
-}
+/* -------------------------------------------------------------------------- */
+/* Empty state                                                                 */
+/* -------------------------------------------------------------------------- */
 
 function EmptyState({
-  icon = "search-outline",
+  icon,
   title,
   message,
   actionLabel,
   onAction,
 }) {
   return (
-    <View style={styles.emptyState}>
-      <View style={styles.emptyIconCircle}>
+    <View
+      style={styles.emptyState}
+    >
+      <View
+        style={
+          styles.emptyIconCircle
+        }
+      >
         <Ionicons
-          name={icon}
-          size={32}
+          name={
+            icon ||
+            "images-outline"
+          }
+          size={31}
           color={COLORS.text}
         />
       </View>
 
-      <Text style={styles.emptyTitle}>
+      <Text
+        style={styles.emptyTitle}
+      >
         {title}
       </Text>
 
-      {!!message && (
-        <Text style={styles.emptyMessage}>
+      {message ? (
+        <Text
+          style={
+            styles.emptyMessage
+          }
+        >
           {message}
         </Text>
-      )}
+      ) : null}
 
-      {!!actionLabel && (
+      {actionLabel ? (
         <Pressable
-          style={({ pressed }) => [
-            styles.emptyAction,
-            pressed && styles.emptyActionPressed,
-          ]}
           onPress={onAction}
+          style={({ pressed }) => [
+            styles.emptyButton,
+            pressed &&
+              styles.emptyButtonPressed,
+          ]}
         >
-          <Text style={styles.emptyActionText}>
+          <Text
+            style={
+              styles.emptyButtonText
+            }
+          >
             {actionLabel}
           </Text>
         </Pressable>
-      )}
+      ) : null}
     </View>
   );
 }
 
+/* -------------------------------------------------------------------------- */
+/* Search section                                                             */
+/* -------------------------------------------------------------------------- */
+
+function SearchSectionTitle({
+  children,
+}) {
+  return (
+    <View
+      style={
+        styles.sectionHeader
+      }
+    >
+      <Text
+        style={
+          styles.sectionTitle
+        }
+      >
+        {children}
+      </Text>
+    </View>
+  );
+}
+
+/* -------------------------------------------------------------------------- */
+/* Main screen                                                                */
+/* -------------------------------------------------------------------------- */
+
 export default function ExploreScreen() {
   const router = useRouter();
 
-  const [query, setQuery] = useState("");
-  const [posts, setPosts] = useState([]);
-  const [users, setUsers] = useState([]);
-  const [hashtags, setHashtags] = useState([]);
-  const [searchPosts, setSearchPosts] = useState([]);
+  const [query, setQuery] =
+    useState("");
 
-  const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
-  const [searching, setSearching] = useState(false);
-  const [loadingMore, setLoadingMore] = useState(false);
-  const [error, setError] = useState("");
+  const [posts, setPosts] =
+    useState([]);
 
-  const [page, setPage] = useState(1);
-  const [searchPage, setSearchPage] = useState(1);
+  const [users, setUsers] =
+    useState([]);
 
-  const [hasMore, setHasMore] = useState(false);
-  const [searchHasMore, setSearchHasMore] =
+  const [hashtags, setHashtags] =
+    useState([]);
+
+  const [searchPosts, setSearchPosts] =
+    useState([]);
+
+  const [loading, setLoading] =
+    useState(true);
+
+  const [searching, setSearching] =
     useState(false);
 
-  const searchTimeoutRef = useRef(null);
-  const pageRef = useRef(1);
-  const searchPageRef = useRef(1);
+  const [refreshing, setRefreshing] =
+    useState(false);
 
-  const loadingMoreRef = useRef(false);
-  const searchLoadingMoreRef = useRef(false);
+  const [loadingMore, setLoadingMore] =
+    useState(false);
 
-  const mountedRef = useRef(true);
+  const [error, setError] =
+    useState("");
+
+  const [hasMore, setHasMore] =
+    useState(false);
+
+  const [
+    searchHasMore,
+    setSearchHasMore,
+  ] = useState(false);
+
+  const pageRef =
+    useRef(1);
+
+  const searchPageRef =
+    useRef(1);
+
+  const mountedRef =
+    useRef(true);
+
+  const searchTimerRef =
+    useRef(null);
+
+  const loadingMoreRef =
+    useRef(false);
+
+  const searchLoadingMoreRef =
+    useRef(false);
 
   const isSearching =
     query.trim().length > 0;
+
+  /* ---------------------------------------------------------------------- */
+  /* Cleanup                                                                 */
+  /* ---------------------------------------------------------------------- */
 
   useEffect(() => {
     mountedRef.current = true;
@@ -564,36 +746,33 @@ export default function ExploreScreen() {
     return () => {
       mountedRef.current = false;
 
-      if (searchTimeoutRef.current) {
-        clearTimeout(searchTimeoutRef.current);
+      if (
+        searchTimerRef.current
+      ) {
+        clearTimeout(
+          searchTimerRef.current
+        );
       }
     };
   }, []);
 
-  const normalizePosts = useCallback(
-    (items) => {
-      if (!Array.isArray(items)) {
-        return [];
-      }
+  /* ---------------------------------------------------------------------- */
+  /* Load Explore                                                             */
+  /* ---------------------------------------------------------------------- */
 
-      return items.filter(Boolean);
-    },
-    []
-  );
+  const loadExplore =
+    useCallback(
+      async (
+        requestedPage = 1,
+        append = false
+      ) => {
+        if (
+          append &&
+          loadingMoreRef.current
+        ) {
+          return;
+        }
 
-  const loadExplore = useCallback(
-    async (
-      requestedPage = 1,
-      append = false
-    ) => {
-      if (
-        append &&
-        loadingMoreRef.current
-      ) {
-        return;
-      }
-
-      try {
         if (append) {
           loadingMoreRef.current = true;
           setLoadingMore(true);
@@ -602,100 +781,116 @@ export default function ExploreScreen() {
           setError("");
         }
 
-        const result =
-          await getExplorePosts(
-            requestedPage,
-            PAGE_LIMIT
+        try {
+          const result =
+            await getExplorePosts(
+              requestedPage,
+              PAGE_LIMIT
+            );
+
+          if (
+            !mountedRef.current
+          ) {
+            return;
+          }
+
+          const incoming =
+            Array.isArray(
+              result?.posts
+            )
+              ? result.posts.filter(
+                  Boolean
+                )
+              : [];
+
+          const pagination =
+            result?.pagination ||
+            {};
+
+          const more = Boolean(
+            pagination?.hasMore ??
+              pagination?.has_more ??
+              false
           );
 
-        if (!mountedRef.current) {
-          return;
-        }
-
-        const nextPosts =
-          normalizePosts(result?.posts);
-
-        const pagination =
-          result?.pagination || {};
-
-        const nextHasMore = Boolean(
-          pagination?.hasMore ??
-            pagination?.has_more ??
-            false
-        );
-
-        setPosts((current) =>
-          append
-            ? [...current, ...nextPosts]
-            : nextPosts
-        );
-
-        setHasMore(nextHasMore);
-
-        pageRef.current =
-          requestedPage;
-
-        setPage(requestedPage);
-      } catch (err) {
-        if (!mountedRef.current) {
-          return;
-        }
-
-        console.error(
-          "EXPLORE LOAD ERROR:",
-          err?.response?.data || err
-        );
-
-        if (!append) {
-          setPosts([]);
-
-          setError(
-            err?.response?.data?.message ||
-              "Unable to load Explore right now."
+          setPosts(
+            (current) =>
+              append
+                ? [
+                    ...current,
+                    ...incoming,
+                  ]
+                : incoming
           );
+
+          setHasMore(more);
+
+          pageRef.current =
+            requestedPage;
+        } catch (err) {
+          console.error(
+            "EXPLORE LOAD ERROR:",
+            err?.response?.data ||
+              err
+          );
+
+          if (
+            mountedRef.current &&
+            !append
+          ) {
+            setPosts([]);
+            setError(
+              err?.response?.data
+                ?.message ||
+                "Unable to load Explore right now."
+            );
+          }
+        } finally {
+          if (
+            !mountedRef.current
+          ) {
+            return;
+          }
+
+          setLoading(false);
+          setLoadingMore(false);
+          loadingMoreRef.current =
+            false;
         }
-      } finally {
-        if (!mountedRef.current) {
+      },
+      []
+    );
+
+  /* ---------------------------------------------------------------------- */
+  /* Search                                                                   */
+  /* ---------------------------------------------------------------------- */
+
+  const executeSearch =
+    useCallback(
+      async (
+        value,
+        requestedPage = 1,
+        append = false
+      ) => {
+        const cleanQuery =
+          String(value || "").trim();
+
+        if (!cleanQuery) {
+          setUsers([]);
+          setHashtags([]);
+          setSearchPosts([]);
+          setSearchHasMore(false);
+          setSearching(false);
           return;
         }
 
-        setLoading(false);
-        setLoadingMore(false);
+        if (
+          append &&
+          searchLoadingMoreRef.current
+        ) {
+          return;
+        }
 
-        loadingMoreRef.current =
-          false;
-      }
-    },
-    [normalizePosts]
-  );
-
-  const executeSearch = useCallback(
-    async (
-      value,
-      requestedPage = 1,
-      append = false
-    ) => {
-      const cleanQuery = String(
-        value || ""
-      ).trim();
-
-      if (!cleanQuery) {
-        setUsers([]);
-        setHashtags([]);
-        setSearchPosts([]);
-        setSearching(false);
-        setSearchHasMore(false);
-        return;
-      }
-
-      if (
-        append &&
-        searchLoadingMoreRef.current
-      ) {
-        return;
-      }
-
-      try {
         if (append) {
           searchLoadingMoreRef.current =
             true;
@@ -710,107 +905,127 @@ export default function ExploreScreen() {
           setSearchPosts([]);
         }
 
-        const result =
-          await searchExplore(
-            cleanQuery,
-            requestedPage,
-            PAGE_LIMIT
+        try {
+          const result =
+            await searchExplore(
+              cleanQuery,
+              requestedPage,
+              PAGE_LIMIT
+            );
+
+          if (
+            !mountedRef.current
+          ) {
+            return;
+          }
+
+          const incomingUsers =
+            Array.isArray(
+              result?.users
+            )
+              ? result.users
+              : [];
+
+          const incomingHashtags =
+            Array.isArray(
+              result?.hashtags
+            )
+              ? result.hashtags
+              : [];
+
+          const incomingPosts =
+            Array.isArray(
+              result?.posts
+            )
+              ? result.posts.filter(
+                  Boolean
+                )
+              : [];
+
+          const pagination =
+            result?.pagination ||
+            {};
+
+          const more = Boolean(
+            pagination?.hasMore ??
+              pagination?.has_more ??
+              false
           );
 
-        if (!mountedRef.current) {
-          return;
-        }
-
-        const nextUsers =
-          Array.isArray(result?.users)
-            ? result.users
-            : [];
-
-        const nextHashtags =
-          Array.isArray(result?.hashtags)
-            ? result.hashtags
-            : [];
-
-        const nextPosts =
-          normalizePosts(result?.posts);
-
-        const pagination =
-          result?.pagination || {};
-
-        const nextHasMore = Boolean(
-          pagination?.hasMore ??
-            pagination?.has_more ??
-            false
-        );
-
-        setUsers((current) =>
-          append
-            ? [...current, ...nextUsers]
-            : nextUsers
-        );
-
-        setHashtags((current) =>
-          append
-            ? [
-                ...current,
-                ...nextHashtags,
-              ]
-            : nextHashtags
-        );
-
-        setSearchPosts((current) =>
-          append
-            ? [
-                ...current,
-                ...nextPosts,
-              ]
-            : nextPosts
-        );
-
-        setSearchHasMore(
-          nextHasMore
-        );
-
-        searchPageRef.current =
-          requestedPage;
-
-        setSearchPage(
-          requestedPage
-        );
-      } catch (err) {
-        if (!mountedRef.current) {
-          return;
-        }
-
-        console.error(
-          "EXPLORE SEARCH ERROR:",
-          err?.response?.data || err
-        );
-
-        if (!append) {
-          setUsers([]);
-          setHashtags([]);
-          setSearchPosts([]);
-
-          setError(
-            err?.response?.data?.message ||
-              "Search failed. Please try again."
+          setUsers(
+            (current) =>
+              append
+                ? [
+                    ...current,
+                    ...incomingUsers,
+                  ]
+                : incomingUsers
           );
-        }
-      } finally {
-        if (!mountedRef.current) {
-          return;
-        }
 
-        setSearching(false);
-        setLoadingMore(false);
+          setHashtags(
+            (current) =>
+              append
+                ? [
+                    ...current,
+                    ...incomingHashtags,
+                  ]
+                : incomingHashtags
+          );
 
-        searchLoadingMoreRef.current =
-          false;
-      }
-    },
-    [normalizePosts]
-  );
+          setSearchPosts(
+            (current) =>
+              append
+                ? [
+                    ...current,
+                    ...incomingPosts,
+                  ]
+                : incomingPosts
+          );
+
+          setSearchHasMore(more);
+
+          searchPageRef.current =
+            requestedPage;
+        } catch (err) {
+          console.error(
+            "EXPLORE SEARCH ERROR:",
+            err?.response?.data ||
+              err
+          );
+
+          if (
+            mountedRef.current &&
+            !append
+          ) {
+            setUsers([]);
+            setHashtags([]);
+            setSearchPosts([]);
+
+            setError(
+              err?.response?.data
+                ?.message ||
+                "Search failed. Please try again."
+            );
+          }
+        } finally {
+          if (
+            !mountedRef.current
+          ) {
+            return;
+          }
+
+          setSearching(false);
+          setLoadingMore(false);
+          searchLoadingMoreRef.current =
+            false;
+        }
+      },
+      []
+    );
+
+  /* ---------------------------------------------------------------------- */
+  /* Search input                                                            */
+  /* ---------------------------------------------------------------------- */
 
   const handleQueryChange =
     useCallback(
@@ -818,63 +1033,64 @@ export default function ExploreScreen() {
         setQuery(value);
         setError("");
 
-        if (searchTimeoutRef.current) {
+        if (
+          searchTimerRef.current
+        ) {
           clearTimeout(
-            searchTimeoutRef.current
+            searchTimerRef.current
           );
         }
 
-        const cleanValue =
+        const clean =
           value.trim();
 
-        if (!cleanValue) {
+        if (!clean) {
           setUsers([]);
           setHashtags([]);
           setSearchPosts([]);
           setSearchHasMore(false);
           setSearching(false);
-
           searchPageRef.current = 1;
-          setSearchPage(1);
-
           return;
         }
 
-        searchTimeoutRef.current =
+        searchTimerRef.current =
           setTimeout(() => {
             searchPageRef.current = 1;
-            setSearchPage(1);
 
             executeSearch(
-              cleanValue,
+              clean,
               1,
               false
             );
-          }, 350);
+          }, 300);
       },
       [executeSearch]
     );
 
-  const handleSubmitSearch =
+  const submitSearch =
     useCallback(() => {
-      const cleanQuery =
+      const clean =
         query.trim();
 
-      if (!cleanQuery) {
+      if (!clean) {
         return;
       }
 
-      if (searchTimeoutRef.current) {
+      Keyboard.dismiss();
+
+      if (
+        searchTimerRef.current
+      ) {
         clearTimeout(
-          searchTimeoutRef.current
+          searchTimerRef.current
         );
       }
 
       searchPageRef.current = 1;
-      setSearchPage(1);
 
       executeSearch(
-        cleanQuery,
+        clean,
         1,
         false
       );
@@ -883,13 +1099,17 @@ export default function ExploreScreen() {
       query,
     ]);
 
-  const handleClearSearch =
+  const clearSearch =
     useCallback(() => {
-      if (searchTimeoutRef.current) {
+      if (
+        searchTimerRef.current
+      ) {
         clearTimeout(
-          searchTimeoutRef.current
+          searchTimerRef.current
         );
       }
+
+      Keyboard.dismiss();
 
       setQuery("");
       setUsers([]);
@@ -900,17 +1120,19 @@ export default function ExploreScreen() {
       setError("");
 
       searchPageRef.current = 1;
-      setSearchPage(1);
     }, []);
 
-  const handleRefresh =
+  /* ---------------------------------------------------------------------- */
+  /* Refresh                                                                  */
+  /* ---------------------------------------------------------------------- */
+
+  const refresh =
     useCallback(async () => {
       setRefreshing(true);
 
       try {
         if (isSearching) {
           searchPageRef.current = 1;
-          setSearchPage(1);
 
           await executeSearch(
             query.trim(),
@@ -919,7 +1141,6 @@ export default function ExploreScreen() {
           );
         } else {
           pageRef.current = 1;
-          setPage(1);
 
           await loadExplore(
             1,
@@ -927,7 +1148,9 @@ export default function ExploreScreen() {
           );
         }
       } finally {
-        if (mountedRef.current) {
+        if (
+          mountedRef.current
+        ) {
           setRefreshing(false);
         }
       }
@@ -938,53 +1161,56 @@ export default function ExploreScreen() {
       query,
     ]);
 
-  const loadMore = useCallback(() => {
-    if (isSearching) {
+  /* ---------------------------------------------------------------------- */
+  /* Pagination                                                               */
+  /* ---------------------------------------------------------------------- */
+
+  const loadMore =
+    useCallback(() => {
+      if (isSearching) {
+        if (
+          !searchHasMore ||
+          searching ||
+          searchLoadingMoreRef.current
+        ) {
+          return;
+        }
+
+        executeSearch(
+          query.trim(),
+          searchPageRef.current + 1,
+          true
+        );
+
+        return;
+      }
+
       if (
-        !searchHasMore ||
-        searching ||
-        searchLoadingMoreRef.current
+        !hasMore ||
+        loading ||
+        loadingMoreRef.current
       ) {
         return;
       }
 
-      const nextPage =
-        searchPageRef.current + 1;
-
-      executeSearch(
-        query.trim(),
-        nextPage,
+      loadExplore(
+        pageRef.current + 1,
         true
       );
+    }, [
+      executeSearch,
+      hasMore,
+      isSearching,
+      loadExplore,
+      loading,
+      query,
+      searchHasMore,
+      searching,
+    ]);
 
-      return;
-    }
-
-    if (
-      !hasMore ||
-      loading ||
-      loadingMoreRef.current
-    ) {
-      return;
-    }
-
-    const nextPage =
-      pageRef.current + 1;
-
-    loadExplore(
-      nextPage,
-      true
-    );
-  }, [
-    executeSearch,
-    hasMore,
-    isSearching,
-    loadExplore,
-    loading,
-    query,
-    searchHasMore,
-    searching,
-  ]);
+  /* ---------------------------------------------------------------------- */
+  /* Initial / focus load                                                    */
+  /* ---------------------------------------------------------------------- */
 
   useFocusEffect(
     useCallback(() => {
@@ -993,7 +1219,6 @@ export default function ExploreScreen() {
         posts.length === 0
       ) {
         pageRef.current = 1;
-        setPage(1);
 
         loadExplore(
           1,
@@ -1007,25 +1232,24 @@ export default function ExploreScreen() {
     ])
   );
 
-  const handlePostPress =
+  /* ---------------------------------------------------------------------- */
+  /* Navigation                                                               */
+  /* ---------------------------------------------------------------------- */
+
+  const openPost =
     useCallback(
       (post) => {
-        const postId =
+        const id =
           getPostId(post);
 
-        console.log(
-          "Explore post selected:",
-          postId
-        );
-
         if (
-          !postId ||
-          postId.startsWith(
+          !id ||
+          id.startsWith(
             "explore-post-"
           )
         ) {
           console.warn(
-            "Cannot open post: missing real post ID.",
+            "Cannot open Explore post: missing real post ID.",
             post
           );
 
@@ -1033,35 +1257,25 @@ export default function ExploreScreen() {
         }
 
         router.push({
-          pathname: "/post/[id]",
+          pathname:
+            "/post/[id]",
           params: {
-            id: postId,
+            id,
           },
         });
       },
       [router]
     );
 
-  const handleUserPress =
+  const openUser =
     useCallback(
       (user) => {
         const username =
           getUsername(user);
 
-        const userId =
-          getUserId(user);
-
-        console.log(
-          "Explore user selected:",
-          {
-            username,
-            userId,
-          }
-        );
-
         if (!username) {
           console.warn(
-            "Cannot open profile: selected user has no username.",
+            "Cannot open profile: missing username.",
             user
           );
 
@@ -1069,273 +1283,271 @@ export default function ExploreScreen() {
         }
 
         router.push({
-          pathname: "/profile/[username]",
+          pathname:
+            "/profile/[username]",
           params: {
-            username: String(username),
+            username: String(
+              username
+            ),
           },
         });
       },
       [router]
     );
 
-  const handleHashtagPress =
-    useCallback(
-      (hashtag) => {
-        const value =
-          typeof hashtag === "string"
-            ? hashtag
-            : hashtag?.name ||
-              hashtag?.tag ||
-              hashtag?.hashtag ||
-              "";
+  /* ---------------------------------------------------------------------- */
+  /* Grid data                                                               */
+  /* ---------------------------------------------------------------------- */
 
-        if (!value) {
-          return;
-        }
-
-        const normalized =
-          value.startsWith("#")
-            ? value
-            : `#${value}`;
-
-        handleQueryChange(
-          normalized
-        );
-      },
-      [handleQueryChange]
+  const exploreBlocks =
+    useMemo(
+      () => chunkPosts(posts),
+      [posts]
     );
 
-  const exploreBlocks = useMemo(
-    () => chunkPostsForGrid(posts),
-    [posts]
-  );
-
-  const renderExploreBlock = useCallback(
-    ({ item, index }) => (
-      <ExploreGridBlock
-        items={item}
-        blockIndex={index}
-        onPress={handlePostPress}
-      />
-    ),
-    [handlePostPress]
-  );
+  const renderBlock =
+    useCallback(
+      ({ item, index }) => (
+        <ExploreGridBlock
+          items={item}
+          blockIndex={index}
+          onPress={openPost}
+        />
+      ),
+      [openPost]
+    );
 
   const renderSearchPost =
     useCallback(
       ({ item }) => (
         <ExploreTile
           post={item}
-          onPress={
-            handlePostPress
-          }
+          size={TILE_SIZE}
+          onPress={openPost}
         />
       ),
-      [handlePostPress]
+      [openPost]
     );
 
-  const searchHeader = useMemo(() => {
-    const hasResults =
-      users.length > 0 ||
-      hashtags.length > 0 ||
-      searchPosts.length > 0;
+  /* ---------------------------------------------------------------------- */
+  /* Search header                                                           */
+  /* ---------------------------------------------------------------------- */
 
-    if (
-      searching &&
-      !hasResults
-    ) {
-      return (
-        <View
-          style={
-            styles.searchLoading
-          }
-        >
-          <ActivityIndicator
-            size="small"
-            color={COLORS.text}
-          />
+  const searchHeader =
+    useMemo(() => {
+      const hasResults =
+        users.length > 0 ||
+        hashtags.length > 0 ||
+        searchPosts.length > 0;
 
-          <Text
+      if (
+        searching &&
+        !hasResults
+      ) {
+        return (
+          <View
             style={
-              styles.searchLoadingText
+              styles.searchLoading
             }
           >
-            Searching...
-          </Text>
-        </View>
-      );
-    }
-
-    if (
-      !searching &&
-      !hasResults &&
-      query.trim()
-    ) {
-      return (
-        <EmptyState
-          icon="search-outline"
-          title="No results found"
-          message={`We couldn't find anything for "${query.trim()}".`}
-          actionLabel="Clear search"
-          onAction={
-            handleClearSearch
-          }
-        />
-      );
-    }
-
-    return (
-      <View>
-        {users.length > 0 && (
-          <View>
-            <SectionHeader
-              title="People"
+            <ActivityIndicator
+              size="small"
+              color={
+                COLORS.secondary
+              }
             />
 
-            {users.map(
-              (user, index) => (
-                <SearchUserRow
-                  key={
-                    user?._id ||
-                    user?.id ||
-                    user?.username ||
-                    `user-${index}`
-                  }
-                  user={user}
-                  onPress={
-                    handleUserPress
-                  }
-                />
-              )
-            )}
+            <Text
+              style={
+                styles.searchLoadingText
+              }
+            >
+              Searching...
+            </Text>
           </View>
-        )}
+        );
+      }
 
-        {hashtags.length > 0 && (
-          <View>
-            <SectionHeader
-              title="Hashtags"
-            />
+      if (
+        !searching &&
+        !hasResults &&
+        query.trim()
+      ) {
+        return (
+          <EmptyState
+            icon="search-outline"
+            title="No results found"
+            message={`We couldn't find anything for "${query.trim()}".`}
+            actionLabel="Clear search"
+            onAction={
+              clearSearch
+            }
+          />
+        );
+      }
 
-            {hashtags.map(
-              (hashtag, index) => {
-                const value =
-                  typeof hashtag ===
-                  "string"
-                    ? hashtag
-                    : hashtag?.name ||
-                      hashtag?.tag ||
-                      hashtag?.hashtag ||
-                      "";
+      return (
+        <View>
+          {users.length > 0 && (
+            <View>
+              <SearchSectionTitle>
+                People
+              </SearchSectionTitle>
 
-                if (!value) {
-                  return null;
-                }
-
-                const displayValue =
-                  value.startsWith("#")
-                    ? value
-                    : `#${value}`;
-
-                const count =
-                  hashtag?.count ??
-                  hashtag?.postsCount ??
-                  hashtag?.postCount ??
-                  null;
-
-                return (
-                  <Pressable
-                    key={`${value}-${index}`}
-                    style={({ pressed }) => [
-                      styles.hashtagRow,
-                      pressed &&
-                        styles.pressedRow,
-                    ]}
-                    onPress={() =>
-                      handleHashtagPress(
-                        hashtag
-                      )
+              {users.map(
+                (user, index) => (
+                  <SearchUserRow
+                    key={
+                      getUserId(
+                        user
+                      ) ||
+                      getUsername(
+                        user
+                      ) ||
+                      `user-${index}`
                     }
-                  >
-                    <View
-                      style={
-                        styles.hashtagIcon
-                      }
-                    >
-                      <Ionicons
-                        name="pricetag-outline"
-                        size={20}
-                        color={
-                          COLORS.text
-                        }
-                      />
-                    </View>
+                    user={user}
+                    onPress={
+                      openUser
+                    }
+                  />
+                )
+              )}
+            </View>
+          )}
 
-                    <View
-                      style={
-                        styles.hashtagInfo
-                      }
+          {hashtags.length > 0 && (
+            <View>
+              <SearchSectionTitle>
+                Hashtags
+              </SearchSectionTitle>
+
+              {hashtags.map(
+                (
+                  hashtag,
+                  index
+                ) => {
+                  const value =
+                    typeof hashtag ===
+                    "string"
+                      ? hashtag
+                      : hashtag?.name ||
+                        hashtag?.tag ||
+                        hashtag?.hashtag ||
+                        "";
+
+                  if (!value) {
+                    return null;
+                  }
+
+                  const display =
+                    value.startsWith(
+                      "#"
+                    )
+                      ? value
+                      : `#${value}`;
+
+                  const count =
+                    hashtag?.count ??
+                    hashtag?.postsCount ??
+                    hashtag?.postCount ??
+                    null;
+
+                  return (
+                    <Pressable
+                      key={`${display}-${index}`}
+                      style={({ pressed }) => [
+                        styles.hashtagRow,
+                        pressed &&
+                          styles.pressed,
+                      ]}
+                      onPress={() => {
+                        handleQueryChange(
+                          display
+                        );
+                      }}
                     >
-                      <Text
+                      <View
                         style={
-                          styles.hashtagName
+                          styles.hashtagIcon
                         }
                       >
-                        {displayValue}
-                      </Text>
+                        <Ionicons
+                          name="pricetag-outline"
+                          size={20}
+                          color={
+                            COLORS.text
+                          }
+                        />
+                      </View>
 
-                      {count !== null && (
+                      <View
+                        style={
+                          styles.hashtagInfo
+                        }
+                      >
                         <Text
                           style={
-                            styles.hashtagCount
+                            styles.hashtagName
                           }
                         >
-                          {count}{" "}
-                          {count === 1
-                            ? "post"
-                            : "posts"}
+                          {display}
                         </Text>
-                      )}
-                    </View>
 
-                    <Ionicons
-                      name="chevron-forward"
-                      size={18}
-                      color={
-                        COLORS.secondary
-                      }
-                    />
-                  </Pressable>
-                );
-              }
-            )}
-          </View>
-        )}
+                        {count !==
+                          null && (
+                          <Text
+                            style={
+                              styles.hashtagCount
+                            }
+                          >
+                            {count}{" "}
+                            {count ===
+                            1
+                              ? "post"
+                              : "posts"}
+                          </Text>
+                        )}
+                      </View>
 
-        {searchPosts.length > 0 && (
-          <SectionHeader
-            title="Posts"
-          />
-        )}
-      </View>
-    );
-  }, [
-    handleClearSearch,
-    handleHashtagPress,
-    handleUserPress,
-    hashtags,
-    query,
-    searchPosts.length,
-    searching,
-    users,
-  ]);
+                      <Ionicons
+                        name="chevron-forward"
+                        size={18}
+                        color={
+                          COLORS.secondary
+                        }
+                      />
+                    </Pressable>
+                  );
+                }
+              )}
+            </View>
+          )}
 
-  const listFooter = useMemo(() => {
-    if (!loadingMore) {
-      return null;
-    }
+          {searchPosts.length > 0 && (
+            <SearchSectionTitle>
+              Posts
+            </SearchSectionTitle>
+          )}
+        </View>
+      );
+    }, [
+      clearSearch,
+      handleQueryChange,
+      hashtags,
+      openUser,
+      query,
+      searchPosts.length,
+      searching,
+      users,
+    ]);
 
-    return (
+  /* ---------------------------------------------------------------------- */
+  /* Footer                                                                   */
+  /* ---------------------------------------------------------------------- */
+
+  const footer =
+    loadingMore ? (
       <View
         style={
           styles.footerLoader
@@ -1343,11 +1555,16 @@ export default function ExploreScreen() {
       >
         <ActivityIndicator
           size="small"
-          color={COLORS.secondary}
+          color={
+            COLORS.secondary
+          }
         />
       </View>
-    );
-  }, [loadingMore]);
+    ) : null;
+
+  /* ---------------------------------------------------------------------- */
+  /* Loading screen                                                           */
+  /* ---------------------------------------------------------------------- */
 
   if (
     loading &&
@@ -1358,9 +1575,13 @@ export default function ExploreScreen() {
         style={styles.safeArea}
         edges={["top"]}
       >
-        <View style={styles.header}>
+        <View
+          style={styles.header}
+        >
           <Text
-            style={styles.headerTitle}
+            style={
+              styles.headerTitle
+            }
           >
             Explore
           </Text>
@@ -1377,7 +1598,9 @@ export default function ExploreScreen() {
             <Ionicons
               name="search-outline"
               size={20}
-              color={COLORS.secondary}
+              color={
+                COLORS.secondary
+              }
             />
 
             <TextInput
@@ -1386,7 +1609,7 @@ export default function ExploreScreen() {
                 handleQueryChange
               }
               onSubmitEditing={
-                handleSubmitSearch
+                submitSearch
               }
               placeholder="Search"
               placeholderTextColor={
@@ -1407,14 +1630,22 @@ export default function ExploreScreen() {
     );
   }
 
+  /* ---------------------------------------------------------------------- */
+  /* Main UI                                                                  */
+  /* ---------------------------------------------------------------------- */
+
   return (
     <SafeAreaView
       style={styles.safeArea}
       edges={["top"]}
     >
-      <View style={styles.header}>
+      <View
+        style={styles.header}
+      >
         <Text
-          style={styles.headerTitle}
+          style={
+            styles.headerTitle
+          }
         >
           Explore
         </Text>
@@ -1431,7 +1662,9 @@ export default function ExploreScreen() {
           <Ionicons
             name="search-outline"
             size={20}
-            color={COLORS.secondary}
+            color={
+              COLORS.secondary
+            }
           />
 
           <TextInput
@@ -1440,7 +1673,7 @@ export default function ExploreScreen() {
               handleQueryChange
             }
             onSubmitEditing={
-              handleSubmitSearch
+              submitSearch
             }
             placeholder="Search"
             placeholderTextColor={
@@ -1454,10 +1687,10 @@ export default function ExploreScreen() {
             autoCapitalize="none"
           />
 
-          {!!query && (
+          {query.length > 0 && (
             <Pressable
               onPress={
-                handleClearSearch
+                clearSearch
               }
               hitSlop={10}
             >
@@ -1473,18 +1706,24 @@ export default function ExploreScreen() {
         </View>
       </View>
 
-      {!!error && (
+      {error ? (
         <View
-          style={styles.errorBanner}
+          style={
+            styles.errorBanner
+          }
         >
           <Ionicons
             name="alert-circle-outline"
             size={19}
-            color={COLORS.danger}
+            color={
+              COLORS.danger
+            }
           />
 
           <Text
-            style={styles.errorText}
+            style={
+              styles.errorText
+            }
           >
             {error}
           </Text>
@@ -1504,17 +1743,19 @@ export default function ExploreScreen() {
             }
           >
             <Text
-              style={styles.retryText}
+              style={
+                styles.retryText
+              }
             >
               Retry
             </Text>
           </Pressable>
         </View>
-      )}
+      ) : null}
 
       {isSearching ? (
         <FlatList
-          key="search-list"
+          key="search"
           data={searchPosts}
           renderItem={
             renderSearchPost
@@ -1532,13 +1773,20 @@ export default function ExploreScreen() {
             searchHeader
           }
           ListFooterComponent={
-            listFooter
+            footer
           }
           contentContainerStyle={[
             styles.searchListContent,
-            searchPosts.length === 0 &&
-              styles.searchListEmptyContent,
+            searchPosts.length ===
+              0 &&
+              styles.searchListEmpty,
           ]}
+          numColumns={3}
+          columnWrapperStyle={
+            searchPosts.length > 0
+              ? styles.searchColumn
+              : undefined
+          }
           showsVerticalScrollIndicator={
             false
           }
@@ -1549,54 +1797,7 @@ export default function ExploreScreen() {
                 refreshing
               }
               onRefresh={
-                handleRefresh
-              }
-            />
-          }
-          onEndReached={
-            loadMore
-          }
-          onEndReachedThreshold={
-            0.6
-          }
-        />
-      ) : (
-        <FlatList
-          key="explore-grid"
-          data={
-            exploreBlocks
-          }
-          renderItem={
-            renderExploreBlock
-          }
-          keyExtractor={(
-            block,
-            index
-          ) =>
-            `explore-block-${index}-${getPostId(
-              block?.[0],
-              index
-            )}`
-          }
-          ListFooterComponent={
-            listFooter
-          }
-          contentContainerStyle={
-            posts.length === 0
-              ? styles.exploreEmptyContent
-              : styles.exploreListContent
-          }
-          showsVerticalScrollIndicator={
-            false
-          }
-          removeClippedSubviews
-          refreshControl={
-            <RefreshControl
-              refreshing={
-                refreshing
-              }
-              onRefresh={
-                handleRefresh
+                refresh
               }
             />
           }
@@ -1605,6 +1806,26 @@ export default function ExploreScreen() {
           }
           onEndReachedThreshold={
             0.7
+          }
+        />
+      ) : (
+        <FlatList
+          key="explore"
+          data={exploreBlocks}
+          renderItem={
+            renderBlock
+          }
+          keyExtractor={(
+            item,
+            index
+          ) =>
+            `explore-block-${index}-${getPostId(
+              item?.[0],
+              index
+            )}`
+          }
+          ListFooterComponent={
+            footer
           }
           ListEmptyComponent={
             !loading ? (
@@ -1622,11 +1843,40 @@ export default function ExploreScreen() {
               />
             ) : null
           }
+          contentContainerStyle={
+            posts.length === 0
+              ? styles.emptyList
+              : styles.exploreList
+          }
+          showsVerticalScrollIndicator={
+            false
+          }
+          removeClippedSubviews
+          refreshControl={
+            <RefreshControl
+              refreshing={
+                refreshing
+              }
+              onRefresh={
+                refresh
+              }
+            />
+          }
+          onEndReached={
+            loadMore
+          }
+          onEndReachedThreshold={
+            0.7
+          }
         />
       )}
     </SafeAreaView>
   );
 }
+
+/* -------------------------------------------------------------------------- */
+/* Styles                                                                      */
+/* -------------------------------------------------------------------------- */
 
 const styles = StyleSheet.create({
   safeArea: {
@@ -1649,9 +1899,9 @@ const styles = StyleSheet.create({
   },
 
   headerTitle: {
+    color: COLORS.text,
     fontSize: 20,
     fontWeight: "700",
-    color: COLORS.text,
   },
 
   searchContainer: {
@@ -1665,10 +1915,10 @@ const styles = StyleSheet.create({
     height: 38,
     borderRadius: 10,
     backgroundColor:
-      COLORS.surface,
+      COLORS.searchBackground,
+    paddingHorizontal: 10,
     flexDirection: "row",
     alignItems: "center",
-    paddingHorizontal: 10,
   },
 
   searchInput: {
@@ -1676,8 +1926,73 @@ const styles = StyleSheet.create({
     height: "100%",
     marginLeft: 8,
     paddingVertical: 0,
-    fontSize: 16,
     color: COLORS.text,
+    fontSize: 16,
+  },
+
+  exploreList: {
+    paddingBottom: 20,
+  },
+
+  emptyList: {
+    flexGrow: 1,
+    paddingBottom: 20,
+  },
+
+  mixedRow: {
+    flexDirection: "row",
+  },
+
+  stackColumn: {
+    justifyContent:
+      "space-between",
+  },
+
+  plainRow: {
+    flexDirection: "row",
+    marginTop: GRID_GAP,
+  },
+
+  rightGap: {
+    marginRight: GRID_GAP,
+  },
+
+  bottomGap: {
+    marginBottom: GRID_GAP,
+  },
+
+  tile: {
+    backgroundColor:
+      COLORS.tileBackground,
+    overflow: "hidden",
+  },
+
+  tileImage: {
+    width: "100%",
+    height: "100%",
+    backgroundColor:
+      COLORS.tileBackground,
+  },
+
+  emptyTile: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor:
+      COLORS.tileBackground,
+  },
+
+  mediaIcon: {
+    position: "absolute",
+    top: 8,
+    right: 8,
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor:
+      "rgba(0,0,0,0.58)",
   },
 
   errorBanner: {
@@ -1686,7 +2001,8 @@ const styles = StyleSheet.create({
     marginBottom: 6,
     paddingHorizontal: 12,
     borderRadius: 10,
-    backgroundColor: "#FFF2F2",
+    backgroundColor:
+      "#fff2f2",
     flexDirection: "row",
     alignItems: "center",
     gap: 8,
@@ -1694,122 +2010,18 @@ const styles = StyleSheet.create({
 
   errorText: {
     flex: 1,
-    fontSize: 13,
     color: COLORS.text,
+    fontSize: 13,
   },
 
   retryText: {
+    color: COLORS.text,
     fontSize: 13,
     fontWeight: "700",
-    color: COLORS.text,
-  },
-
-  exploreListContent: {
-    paddingBottom: 20,
-  },
-
-  exploreEmptyContent: {
-    flexGrow: 1,
-    paddingBottom: 20,
-  },
-
-  blockContainer: {
-    width: "100%",
-  },
-
-  mixedRow: {
-    flexDirection: "row",
-  },
-
-  stackColumn: {
-    justifyContent: "space-between",
-  },
-
-  plainRow: {
-    flexDirection: "row",
-    marginTop: GRID_GAP,
-  },
-
-  tileSpacing: {
-    marginRight: GRID_GAP,
-  },
-
-  stackTileSpacing: {
-    marginBottom: GRID_GAP,
-  },
-
-  gridTile: {
-    flex: 1,
-    aspectRatio: 1,
-    backgroundColor:
-      COLORS.placeholderImage,
-    overflow: "hidden",
-  },
-
-  gridImage: {
-    width: "100%",
-    height: "100%",
-    backgroundColor:
-      COLORS.placeholderImage,
-  },
-
-  emptyTile: {
-    flex: 1,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor:
-      COLORS.placeholderImage,
-  },
-
-  mediaBadge: {
-    position: "absolute",
-    top: 8,
-    right: 8,
-    width: 26,
-    height: 26,
-    borderRadius: 13,
-    backgroundColor:
-      "rgba(0,0,0,0.55)",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-
-  searchListContent: {
-    paddingBottom: 30,
-  },
-
-  searchListEmptyContent: {
-    flexGrow: 1,
-  },
-
-  searchLoading: {
-    minHeight: 160,
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 10,
-  },
-
-  searchLoadingText: {
-    fontSize: 14,
-    color: COLORS.secondary,
-  },
-
-  sectionHeader: {
-    height: 44,
-    paddingHorizontal: 16,
-    justifyContent: "center",
-    backgroundColor:
-      COLORS.white,
-  },
-
-  sectionTitle: {
-    fontSize: 16,
-    fontWeight: "700",
-    color: COLORS.text,
   },
 
   userRow: {
-    minHeight: 68,
+    minHeight: 70,
     paddingHorizontal: 16,
     flexDirection: "row",
     alignItems: "center",
@@ -1817,8 +2029,8 @@ const styles = StyleSheet.create({
       COLORS.white,
   },
 
-  pressedRow: {
-    opacity: 0.7,
+  pressed: {
+    opacity: 0.65,
   },
 
   userAvatar: {
@@ -1826,17 +2038,17 @@ const styles = StyleSheet.create({
     height: 48,
     borderRadius: 24,
     backgroundColor:
-      COLORS.placeholderImage,
+      COLORS.tileBackground,
   },
 
-  userAvatarPlaceholder: {
+  userAvatarFallback: {
     width: 48,
     height: 48,
     borderRadius: 24,
-    backgroundColor:
-      COLORS.placeholderImage,
     alignItems: "center",
     justifyContent: "center",
+    backgroundColor:
+      COLORS.tileBackground,
   },
 
   userInfo: {
@@ -1854,19 +2066,33 @@ const styles = StyleSheet.create({
 
   name: {
     flexShrink: 1,
+    color: COLORS.text,
     fontSize: 14,
     fontWeight: "700",
-    color: COLORS.text,
   },
 
   verifiedBadge: {
     flexShrink: 0,
   },
 
-  username: {
+  searchUsername: {
     marginTop: 3,
-    fontSize: 13,
     color: COLORS.secondary,
+    fontSize: 13,
+  },
+
+  sectionHeader: {
+    height: 44,
+    paddingHorizontal: 16,
+    justifyContent: "center",
+    backgroundColor:
+      COLORS.white,
+  },
+
+  sectionTitle: {
+    color: COLORS.text,
+    fontSize: 16,
+    fontWeight: "700",
   },
 
   hashtagRow: {
@@ -1882,10 +2108,10 @@ const styles = StyleSheet.create({
     width: 42,
     height: 42,
     borderRadius: 21,
-    backgroundColor:
-      COLORS.surface,
     alignItems: "center",
     justifyContent: "center",
+    backgroundColor:
+      COLORS.searchBackground,
   },
 
   hashtagInfo: {
@@ -1894,20 +2120,44 @@ const styles = StyleSheet.create({
   },
 
   hashtagName: {
+    color: COLORS.text,
     fontSize: 14,
     fontWeight: "600",
-    color: COLORS.text,
   },
 
   hashtagCount: {
     marginTop: 3,
-    fontSize: 12,
     color: COLORS.secondary,
+    fontSize: 12,
+  },
+
+  searchListContent: {
+    paddingBottom: 30,
+  },
+
+  searchListEmpty: {
+    flexGrow: 1,
+  },
+
+  searchColumn: {
+    gap: GRID_GAP,
+  },
+
+  searchLoading: {
+    minHeight: 180,
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 10,
+  },
+
+  searchLoadingText: {
+    color: COLORS.secondary,
+    fontSize: 14,
   },
 
   emptyState: {
     flex: 1,
-    minHeight: 300,
+    minHeight: 320,
     paddingHorizontal: 30,
     alignItems: "center",
     justifyContent: "center",
@@ -1926,37 +2176,37 @@ const styles = StyleSheet.create({
   },
 
   emptyTitle: {
+    color: COLORS.text,
     fontSize: 18,
     fontWeight: "700",
-    color: COLORS.text,
     textAlign: "center",
   },
 
   emptyMessage: {
-    marginTop: 8,
     maxWidth: 300,
+    marginTop: 8,
+    color: COLORS.secondary,
     fontSize: 14,
     lineHeight: 20,
-    color: COLORS.secondary,
     textAlign: "center",
   },
 
-  emptyAction: {
+  emptyButton: {
+    height: 38,
     marginTop: 18,
     paddingHorizontal: 18,
-    height: 38,
     borderRadius: 8,
-    backgroundColor:
-      COLORS.text,
     alignItems: "center",
     justifyContent: "center",
+    backgroundColor:
+      COLORS.text,
   },
 
-  emptyActionPressed: {
+  emptyButtonPressed: {
     opacity: 0.7,
   },
 
-  emptyActionText: {
+  emptyButtonText: {
     color: COLORS.white,
     fontSize: 14,
     fontWeight: "700",
@@ -1977,9 +2227,12 @@ const styles = StyleSheet.create({
   },
 
   skeletonTile: {
-    width: "32.9%",
+    width:
+      (SCREEN_WIDTH -
+        GRID_GAP * 2) /
+      3,
     aspectRatio: 1,
     backgroundColor:
-      "#EEEEEE",
+      "#eeeeee",
   },
 });

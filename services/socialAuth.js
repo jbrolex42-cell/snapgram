@@ -1,37 +1,48 @@
-import {
-  AccessToken,
-  LoginManager,
-} from "react-native-fbsdk-next";
-
 import api from "./api";
-
-/* ============================================================
-   FACEBOOK LOGIN
-============================================================ */
 
 export async function loginWithFacebook() {
   try {
-    /*
-     * Open native Facebook login.
-     */
+    
+    let FacebookSDK;
+
+    try {
+      FacebookSDK = await import(
+        "react-native-fbsdk-next"
+      );
+    } catch (sdkError) {
+      console.error(
+        "FACEBOOK SDK LOAD ERROR:",
+        sdkError
+      );
+
+      throw new Error(
+        "Facebook login is not available on this build. Please configure the Facebook Android SDK first."
+      );
+    }
+
+    const {
+      AccessToken,
+      LoginManager,
+    } = FacebookSDK;
+
+    if (!AccessToken || !LoginManager) {
+      throw new Error(
+        "Facebook SDK is unavailable."
+      );
+    }
+
     const result =
       await LoginManager.logInWithPermissions([
         "public_profile",
         "email",
       ]);
 
-    /*
-     * User cancelled Facebook login.
-     */
-    if (result.isCancelled) {
+    if (result?.isCancelled) {
       throw new Error(
         "Facebook login was cancelled."
       );
     }
 
-    /*
-     * Get Facebook access token.
-     */
     const tokenData =
       await AccessToken.getCurrentAccessToken();
 
@@ -42,21 +53,10 @@ export async function loginWithFacebook() {
     }
 
     const accessToken =
-      tokenData.accessToken.toString();
+      typeof tokenData.accessToken === "string"
+        ? tokenData.accessToken
+        : tokenData.accessToken.toString();
 
-    /*
-     * Send Facebook token to Snapgram backend.
-     *
-     * Backend:
-     * POST /api/auth/facebook
-     *
-     * Backend verifies Facebook and returns:
-     *
-     * {
-     *   token,
-     *   user
-     * }
-     */
     const response =
       await api.post(
         "/auth/facebook",
@@ -66,7 +66,7 @@ export async function loginWithFacebook() {
       );
 
     const data =
-      response.data;
+      response?.data;
 
     if (!data?.token) {
       throw new Error(
@@ -89,11 +89,12 @@ export async function loginWithFacebook() {
         error
     );
 
-    throw new Error(
+    const message =
       error?.response?.data?.message ||
-        error?.message ||
-        "Unable to sign in with Facebook."
-    );
+      error?.message ||
+      "Unable to sign in with Facebook.";
+
+    throw new Error(message);
   }
 }
 
@@ -116,7 +117,7 @@ export async function authenticateGoogle(
       );
 
     const data =
-      response.data;
+      response?.data;
 
     if (!data?.token) {
       throw new Error(

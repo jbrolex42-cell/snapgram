@@ -1,10 +1,19 @@
-import React, { useCallback } from "react";
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
 
 import {
+  ActivityIndicator,
   Alert,
+  Dimensions,
+  FlatList,
+  Image,
+  Pressable,
   StyleSheet,
   Text,
-  TouchableOpacity,
   View,
 } from "react-native";
 
@@ -12,9 +21,14 @@ import * as ImagePicker from "expo-image-picker";
 
 import { Ionicons } from "@expo/vector-icons";
 
-import Colors from "../../constants/Colors";
+const { width: SCREEN_WIDTH } = Dimensions.get("window");
 
 const MAX_MEDIA = 10;
+const GRID_COLUMNS = 3;
+const GRID_GAP = 2;
+const TILE_SIZE =
+  (SCREEN_WIDTH - GRID_GAP * (GRID_COLUMNS - 1)) /
+  GRID_COLUMNS;
 
 function createAsset(asset, index = 0) {
   const type =
@@ -30,12 +44,12 @@ function createAsset(asset, index = 0) {
     (type === "video" ? "mp4" : "jpg");
 
   return {
-    uri: asset.uri,
+    uri: asset?.uri,
 
     type,
 
     mimeType:
-      asset.mimeType ||
+      asset?.mimeType ||
       (type === "video"
         ? extension === "mov"
           ? "video/quicktime"
@@ -47,17 +61,17 @@ function createAsset(asset, index = 0) {
         : "image/jpeg"),
 
     fileName:
-      asset.fileName ||
+      asset?.fileName ||
       `snapgram-${Date.now()}-${index}.${extension}`,
 
-    width: asset.width || null,
+    width: asset?.width || null,
 
-    height: asset.height || null,
+    height: asset?.height || null,
 
-    duration: asset.duration || 0,
+    duration: asset?.duration || 0,
 
     assetId:
-      asset.assetId ||
+      asset?.assetId ||
       `${Date.now()}-${index}-${Math.random()
         .toString(36)
         .slice(2)}`,
@@ -69,16 +83,97 @@ export default function MediaPicker({
   onSelected,
   onCamera,
 }) {
+  const [permissionLoading, setPermissionLoading] =
+    useState(false);
+
+  const [galleryLoading, setGalleryLoading] =
+    useState(false);
+
+  const [recentAsset, setRecentAsset] =
+    useState(null);
+
+  const [cameraPermission, setCameraPermission] =
+    useState(null);
+
+  const config = useMemo(() => {
+    if (activeType === "story") {
+      return {
+        title: "Story",
+        galleryLabel: "Add from gallery",
+        cameraLabel: "Camera",
+        multiple: false,
+        limit: 1,
+      };
+    }
+
+    if (activeType === "reel") {
+      return {
+        title: "Reel",
+        galleryLabel: "Add from gallery",
+        cameraLabel: "Camera",
+        multiple: false,
+        limit: 1,
+      };
+    }
+
+    return {
+      title: "Post",
+      galleryLabel: "Select multiple",
+      cameraLabel: "Camera",
+      multiple: true,
+      limit: MAX_MEDIA,
+    };
+  }, [activeType]);
+
+  useEffect(() => {
+    let mounted = true;
+
+    const loadCameraPermission = async () => {
+      try {
+        const result =
+          await ImagePicker.getCameraPermissionsAsync();
+
+        if (mounted) {
+          setCameraPermission(
+            result?.granted === true
+          );
+        }
+      } catch (error) {
+        console.log(
+          "Camera permission check failed:",
+          error
+        );
+      }
+    };
+
+    loadCameraPermission();
+
+    return () => {
+      mounted = false;
+    };
+  }, []);
 
   const chooseGallery = useCallback(async () => {
+    if (galleryLoading) {
+      return;
+    }
+
     try {
+      setGalleryLoading(true);
+
       const permission =
         await ImagePicker.requestMediaLibraryPermissionsAsync();
 
       if (!permission.granted) {
         Alert.alert(
-          "Permission required",
-          "Snapgram needs access to your photos and videos."
+          "Photos permission required",
+          "Snapgram needs access to your photos and videos so you can create posts, stories and reels.",
+          [
+            {
+              text: "OK",
+              style: "default",
+            },
+          ]
         );
 
         return;
@@ -89,18 +184,22 @@ export default function MediaPicker({
           mediaTypes: ["images", "videos"],
 
           allowsMultipleSelection:
-            activeType === "post",
+            config.multiple,
 
           selectionLimit:
-            activeType === "post"
-              ? MAX_MEDIA
-              : 1,
+            config.limit,
 
           quality: 1,
 
-          videoMaxDuration: 60,
+          videoMaxDuration:
+            activeType === "reel"
+              ? 90
+              : 60,
 
           exif: false,
+
+          orderedSelection:
+            config.multiple,
         });
 
       if (
@@ -110,21 +209,26 @@ export default function MediaPicker({
         return;
       }
 
-      const assets = result.assets
-        .slice(0, MAX_MEDIA)
-        .map(createAsset);
+      const selectedAssets =
+        result.assets
+          .slice(0, MAX_MEDIA)
+          .map(createAsset);
+
+      setRecentAsset(
+        selectedAssets[0] || null
+      );
 
       if (
         activeType === "post" &&
         result.assets.length > MAX_MEDIA
       ) {
         Alert.alert(
-          "10 items maximum",
-          "A post can contain up to 10 photos or videos."
+          "Maximum 10 items",
+          "You can select up to 10 photos or videos for one post."
         );
       }
 
-      onSelected?.(assets);
+      onSelected?.(selectedAssets);
     } catch (error) {
       console.error(
         "Gallery error:",
@@ -133,169 +237,562 @@ export default function MediaPicker({
 
       Alert.alert(
         "Gallery error",
-        "Unable to open your gallery."
+        "Unable to open your gallery. Please try again."
       );
+    } finally {
+      setGalleryLoading(false);
     }
-  }, [activeType, onSelected]);
+  }, [
+    activeType,
+    config,
+    galleryLoading,
+    onSelected,
+  ]);
 
-  const chooseCamera = useCallback(() => {
-    if (!onCamera) {
-      Alert.alert(
-        "Camera unavailable",
-        "The camera is not available right now."
+  const chooseCamera = useCallback(
+    async () => {
+      if (!onCamera) {
+        Alert.alert(
+          "Camera unavailable",
+          "The camera is not available right now."
+        );
+
+        return;
+      }
+
+      try {
+        setPermissionLoading(true);
+
+        const permission =
+          await ImagePicker.requestCameraPermissionsAsync();
+
+        if (!permission.granted) {
+          Alert.alert(
+            "Camera permission required",
+            "Snapgram needs camera access to take photos and record videos."
+          );
+
+          return;
+        }
+
+        setCameraPermission(true);
+
+        onCamera();
+      } catch (error) {
+        console.error(
+          "Camera permission error:",
+          error
+        );
+
+        Alert.alert(
+          "Camera error",
+          "Unable to open the camera."
+        );
+      } finally {
+        setPermissionLoading(false);
+      }
+    },
+    [onCamera]
+  );
+
+  const handleGalleryPress = useCallback(() => {
+    chooseGallery();
+  }, [chooseGallery]);
+
+  const handleCameraPress = useCallback(() => {
+    chooseCamera();
+  }, [chooseCamera]);
+
+  const renderGridItem = useCallback(
+    ({ item }) => {
+      const isVideo =
+        item?.type === "video";
+
+      return (
+        <Pressable
+          onPress={handleGalleryPress}
+          style={({ pressed }) => [
+            styles.gridItem,
+            pressed &&
+              styles.gridItemPressed,
+          ]}
+        >
+          <Image
+            source={{
+              uri: item.uri,
+            }}
+            style={styles.gridImage}
+            resizeMode="cover"
+          />
+
+          {isVideo && (
+            <View style={styles.videoBadge}>
+              <Ionicons
+                name="videocam"
+                size={13}
+                color="#fff"
+              />
+            </View>
+          )}
+        </Pressable>
       );
+    },
+    [handleGalleryPress]
+  );
 
-      return;
-    }
-
-    onCamera();
-  }, [onCamera]);
-
-  const getCameraTitle = () => {
-    if (activeType === "story") {
-      return "Create a story";
-    }
-
-    if (activeType === "reel") {
-      return "Record a reel";
-    }
-
-    return "Open camera";
-  };
-
-  const getCameraDescription = () => {
-    if (activeType === "story") {
-      return "Take a photo or record a video";
-    }
-
-    if (activeType === "reel") {
-      return "Record and share a short video";
-    }
-
-    return "Take a photo or record a video";
-  };
-
-  const getCameraIcon = () => {
-    if (activeType === "reel") {
-      return "videocam-outline";
-    }
-
-    return "camera-outline";
-  };
+  const emptyGallery = useMemo(
+    () => [
+      {
+        id: "gallery-1",
+        type: "gallery",
+      },
+      {
+        id: "gallery-2",
+        type: "gallery",
+      },
+      {
+        id: "gallery-3",
+        type: "gallery",
+      },
+    ],
+    []
+  );
 
   return (
     <View style={styles.container}>
 
-      {/* GALLERY */}
-      <TouchableOpacity
-        style={styles.option}
-        onPress={chooseGallery}
-        activeOpacity={0.7}
+      <Pressable
+        onPress={handleGalleryPress}
+        style={styles.previewArea}
       >
-        <View style={styles.icon}>
-          <Ionicons
-            name="images-outline"
-            size={27}
-            color={Colors.black || "#000"}
+        {recentAsset?.uri ? (
+          <Image
+            source={{
+              uri: recentAsset.uri,
+            }}
+            style={styles.previewImage}
+            resizeMode="cover"
           />
-        </View>
+        ) : (
+          <View style={styles.emptyPreview}>
+            <View style={styles.previewIcon}>
+              <Ionicons
+                name="images-outline"
+                size={38}
+                color="#777"
+              />
+            </View>
 
-        <View style={styles.textContainer}>
-          <Text style={styles.title}>
-            Gallery
+            <Text style={styles.previewTitle}>
+              {activeType === "reel"
+                ? "Choose a video"
+                : activeType === "story"
+                ? "Choose a photo or video"
+                : "Choose photos or videos"}
+            </Text>
+
+            <Text style={styles.previewSubtitle}>
+              Select media from your gallery
+            </Text>
+          </View>
+        )}
+
+        {recentAsset?.type === "video" && (
+          <View style={styles.previewVideoBadge}>
+            <Ionicons
+              name="play"
+              size={16}
+              color="#fff"
+            />
+          </View>
+        )}
+
+        <View style={styles.previewOverlay}>
+          <View style={styles.previewPill}>
+            <Ionicons
+              name="images-outline"
+              size={15}
+              color="#fff"
+            />
+
+            <Text style={styles.previewPillText}>
+              Recent
+            </Text>
+
+            <Ionicons
+              name="chevron-down"
+              size={14}
+              color="#fff"
+            />
+          </View>
+        </View>
+      </Pressable>
+
+      <View style={styles.toolbar}>
+        <Pressable
+          onPress={handleGalleryPress}
+          disabled={galleryLoading}
+          style={({ pressed }) => [
+            styles.toolbarButton,
+            pressed &&
+              styles.toolbarButtonPressed,
+          ]}
+        >
+          <View style={styles.toolbarIcon}>
+            {galleryLoading ? (
+              <ActivityIndicator
+                size="small"
+                color="#000"
+              />
+            ) : (
+              <Ionicons
+                name="images-outline"
+                size={23}
+                color="#000"
+              />
+            )}
+          </View>
+
+          <Text style={styles.toolbarText}>
+            {config.galleryLabel}
+          </Text>
+        </Pressable>
+
+        <Pressable
+          onPress={handleCameraPress}
+          disabled={permissionLoading}
+          style={({ pressed }) => [
+            styles.toolbarButton,
+            pressed &&
+              styles.toolbarButtonPressed,
+          ]}
+        >
+          <View style={styles.toolbarIcon}>
+            {permissionLoading ? (
+              <ActivityIndicator
+                size="small"
+                color="#000"
+              />
+            ) : (
+              <Ionicons
+                name={
+                  activeType === "reel"
+                    ? "videocam-outline"
+                    : "camera-outline"
+                }
+                size={24}
+                color="#000"
+              />
+            )}
+          </View>
+
+          <Text style={styles.toolbarText}>
+            {config.cameraLabel}
+          </Text>
+        </Pressable>
+      </View>
+
+      <View style={styles.galleryHeader}>
+        <Text style={styles.galleryTitle}>
+          Recent
+        </Text>
+
+        <Pressable
+          onPress={handleGalleryPress}
+          hitSlop={10}
+          style={styles.galleryHeaderButton}
+        >
+          <Text style={styles.galleryHeaderButtonText}>
+            See all
           </Text>
 
-          <Text style={styles.description}>
+          <Ionicons
+            name="chevron-forward"
+            size={15}
+            color="#000"
+          />
+        </Pressable>
+      </View>
+
+      <FlatList
+        data={emptyGallery}
+        keyExtractor={(item) =>
+          item.id
+        }
+        renderItem={() => (
+          <Pressable
+            onPress={handleGalleryPress}
+            style={({ pressed }) => [
+              styles.galleryTile,
+              pressed &&
+                styles.galleryTilePressed,
+            ]}
+          >
+            <Ionicons
+              name="image-outline"
+              size={25}
+              color="#c7c7c7"
+            />
+          </Pressable>
+        )}
+        numColumns={3}
+        scrollEnabled={false}
+        columnWrapperStyle={
+          styles.galleryRow
+        }
+        contentContainerStyle={
+          styles.galleryContent
+        }
+      />
+
+      <View style={styles.bottomArea}>
+        <Pressable
+          onPress={handleGalleryPress}
+          disabled={galleryLoading}
+          style={({ pressed }) => [
+            styles.primaryButton,
+            pressed &&
+              styles.primaryButtonPressed,
+          ]}
+        >
+          <Ionicons
+            name="add"
+            size={20}
+            color="#fff"
+          />
+
+          <Text style={styles.primaryButtonText}>
             {activeType === "post"
-              ? "Choose photos or videos"
+              ? "Select from gallery"
               : activeType === "story"
-              ? "Choose a photo or video"
-              : "Choose a video"}
+              ? "Add to story"
+              : "Add video"}
           </Text>
-        </View>
-
-        <Ionicons
-          name="chevron-forward"
-          size={20}
-          color="#8e8e8e"
-        />
-      </TouchableOpacity>
-
-      {/* CAMERA */}
-      <TouchableOpacity
-        style={styles.option}
-        onPress={chooseCamera}
-        activeOpacity={0.7}
-      >
-        <View style={styles.icon}>
-          <Ionicons
-            name={getCameraIcon()}
-            size={27}
-            color={Colors.black || "#000"}
-          />
-        </View>
-
-        <View style={styles.textContainer}>
-          <Text style={styles.title}>
-            {getCameraTitle()}
-          </Text>
-
-          <Text style={styles.description}>
-            {getCameraDescription()}
-          </Text>
-        </View>
-
-        <Ionicons
-          name="chevron-forward"
-          size={20}
-          color="#8e8e8e"
-        />
-      </TouchableOpacity>
+        </Pressable>
+      </View>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
-    width: "100%",
-    paddingHorizontal: 16,
-    paddingVertical: 12,
+    flex: 1,
     backgroundColor: "#fff",
   },
 
-  option: {
-    minHeight: 76,
+  previewArea: {
+    width: "100%",
+    aspectRatio: 1,
+    maxHeight: SCREEN_WIDTH,
+    backgroundColor: "#f5f5f5",
+    position: "relative",
+    overflow: "hidden",
+  },
+
+  previewImage: {
+    width: "100%",
+    height: "100%",
+  },
+
+  emptyPreview: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  previewIcon: {
+    width: 76,
+    height: 76,
+    borderRadius: 38,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#e9e9e9",
+    marginBottom: 16,
+  },
+
+  previewTitle: {
+    fontSize: 18,
+    fontWeight: "700",
+    color: "#111",
+  },
+
+  previewSubtitle: {
+    marginTop: 5,
+    fontSize: 13,
+    color: "#737373",
+  },
+
+  previewOverlay: {
+    position: "absolute",
+    top: 14,
+    left: 14,
+  },
+
+  previewPill: {
+    height: 34,
+    paddingHorizontal: 12,
+    borderRadius: 18,
     flexDirection: "row",
     alignItems: "center",
-    paddingVertical: 10,
+    gap: 6,
+    backgroundColor: "rgba(0,0,0,0.68)",
+  },
+
+  previewPillText: {
+    color: "#fff",
+    fontSize: 13,
+    fontWeight: "700",
+  },
+
+  previewVideoBadge: {
+    position: "absolute",
+    right: 14,
+    top: 14,
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(0,0,0,0.68)",
+  },
+
+  toolbar: {
+    minHeight: 68,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-around",
     borderBottomWidth:
       StyleSheet.hairlineWidth,
     borderBottomColor: "#dbdbdb",
+    backgroundColor: "#fff",
   },
 
-  icon: {
-    width: 46,
-    height: 46,
-    borderRadius: 23,
-    backgroundColor: "#f5f5f5",
+  toolbarButton: {
+    minWidth: 120,
+    minHeight: 54,
+    paddingHorizontal: 16,
+    flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    marginRight: 14,
+    gap: 8,
+    borderRadius: 10,
   },
 
-  textContainer: {
-    flex: 1,
+  toolbarButtonPressed: {
+    backgroundColor: "#f5f5f5",
   },
 
-  title: {
-    fontSize: 16,
+  toolbarIcon: {
+    width: 30,
+    height: 30,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  toolbarText: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: "#000",
+  },
+
+  galleryHeader: {
+    height: 50,
+    paddingHorizontal: 14,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+
+  galleryTitle: {
+    fontSize: 15,
+    fontWeight: "700",
+    color: "#000",
+  },
+
+  galleryHeaderButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 2,
+  },
+
+  galleryHeaderButtonText: {
+    fontSize: 13,
     fontWeight: "600",
     color: "#000",
   },
 
-  description: {
-    marginTop: 3,
-    color: "#737373",
-    fontSize: 13,
+  galleryContent: {
+    paddingBottom: 4,
+  },
+
+  galleryRow: {
+    gap: GRID_GAP,
+    marginBottom: GRID_GAP,
+  },
+
+  galleryTile: {
+    width: TILE_SIZE,
+    height: TILE_SIZE,
+    backgroundColor: "#f4f4f4",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  galleryTilePressed: {
+    opacity: 0.65,
+  },
+
+  gridItem: {
+    width: TILE_SIZE,
+    height: TILE_SIZE,
+    backgroundColor: "#f4f4f4",
+  },
+
+  gridImage: {
+    width: "100%",
+    height: "100%",
+  },
+
+  gridItemPressed: {
+    opacity: 0.75,
+  },
+
+  videoBadge: {
+    position: "absolute",
+    right: 7,
+    top: 7,
+    width: 27,
+    height: 27,
+    borderRadius: 14,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(0,0,0,0.65)",
+  },
+
+  bottomArea: {
+    paddingHorizontal: 16,
+    paddingTop: 10,
+    paddingBottom: 14,
+    backgroundColor: "#fff",
+  },
+
+  primaryButton: {
+    height: 46,
+    borderRadius: 8,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 7,
+    backgroundColor: "#000",
+  },
+
+  primaryButtonPressed: {
+    opacity: 0.75,
+  },
+
+  primaryButtonText: {
+    color: "#fff",
+    fontSize: 14,
+    fontWeight: "700",
   },
 });

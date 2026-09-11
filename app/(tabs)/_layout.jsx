@@ -26,7 +26,7 @@ export default function TabsLayout() {
         tabBarHideOnKeyboard: true,
       }}
     >
-      {/* HOME */}
+
       <Tabs.Screen
         name="index"
         options={{
@@ -42,7 +42,6 @@ export default function TabsLayout() {
         }}
       />
 
-      {/* SEARCH + EXPLORE */}
       <Tabs.Screen
         name="explore"
         options={{
@@ -58,7 +57,6 @@ export default function TabsLayout() {
         }}
       />
 
-      {/* CREATE */}
       <Tabs.Screen
         name="create"
         options={{
@@ -74,7 +72,6 @@ export default function TabsLayout() {
         }}
       />
 
-      {/* REELS */}
       <Tabs.Screen
         name="reels"
         options={{
@@ -90,7 +87,6 @@ export default function TabsLayout() {
         }}
       />
 
-      {/* PROFILE */}
       <Tabs.Screen
         name="profile"
         options={{

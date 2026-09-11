@@ -1,4 +1,5 @@
 import React, {
+  useCallback,
   useEffect,
   useRef,
   useState,
@@ -10,7 +11,6 @@ import {
   Pressable,
   StyleSheet,
   Text,
-  TouchableOpacity,
   View,
 } from "react-native";
 
@@ -47,13 +47,27 @@ function formatCount(value) {
   return String(count);
 }
 
+function getUserId(user) {
+  return user?._id || user?.id || null;
+}
+
+function getUsername(user) {
+  return (
+    user?.username ||
+    user?.name ||
+    "Snapgram"
+  );
+}
+
 export default function ReelItem({
   reel,
   active,
   muted,
+
   isLiked,
   isSaved,
   isFollowing,
+
   onLike,
   onSave,
   onFollow,
@@ -62,9 +76,11 @@ export default function ReelItem({
   onProfile,
   onDoubleTap,
 }) {
+
   const videoUrl =
     reel?.video?.url ||
     reel?.videoUrl ||
+    reel?.url ||
     "";
 
   const player = useVideoPlayer(
@@ -79,26 +95,29 @@ export default function ReelItem({
     }
   );
 
-  const [likes, setLikes] =
-    useState(
-      reel?.likesCount || 0
-    );
+  const [likes, setLikes] = useState(
+    Number(reel?.likesCount) || 0
+  );
 
-  const [paused, setPaused] =
+  const [paused, setPaused] = useState(false);
+
+  const [likeLoading, setLikeLoading] =
     useState(false);
 
-  const tapTimeoutRef =
-    useRef(null);
+  const [saveLoading, setSaveLoading] =
+    useState(false);
 
-  const heartScale =
-    useRef(
-      new Animated.Value(0)
-    ).current;
+  const tapTimeoutRef = useRef(null);
 
-  const pauseFlashOpacity =
-    useRef(
-      new Animated.Value(0)
-    ).current;
+  const viewedRef = useRef(false);
+
+  const heartScale = useRef(
+    new Animated.Value(0)
+  ).current;
+
+  const pauseOpacity = useRef(
+    new Animated.Value(0)
+  ).current;
 
   useEffect(() => {
     if (!player) {
@@ -115,19 +134,42 @@ export default function ReelItem({
 
     if (active) {
       setPaused(false);
-      player.play();
 
-      if (reel?._id) {
+      try {
+        player.play();
+      } catch (error) {
+        console.error(
+          "Reel play error:",
+          error
+        );
+      }
+
+      if (
+        reel?._id &&
+        !viewedRef.current
+      ) {
+        viewedRef.current = true;
+
         viewReel(reel._id).catch(
-          (error) =>
+          (error) => {
             console.error(
               "Reel view error:",
               error
-            )
+            );
+          }
         );
       }
     } else {
-      player.pause();
+      try {
+        player.pause();
+      } catch (error) {
+        console.error(
+          "Reel pause error:",
+          error
+        );
+      }
+
+      setPaused(false);
     }
   }, [
     active,
@@ -137,7 +179,7 @@ export default function ReelItem({
 
   useEffect(() => {
     setLikes(
-      reel?.likesCount || 0
+      Number(reel?.likesCount) || 0
     );
   }, [reel?.likesCount]);
 
@@ -147,155 +189,176 @@ export default function ReelItem({
         clearTimeout(
           tapTimeoutRef.current
         );
+
+        tapTimeoutRef.current = null;
       }
     };
   }, []);
 
-  async function handleLike() {
-    if (!reel?._id) {
-      return;
-    }
+  const triggerHeartBurst =
+    useCallback(() => {
+      heartScale.setValue(0);
 
-    const wasLiked = isLiked;
-    const previousLikes = likes;
+      Animated.sequence([
+        Animated.spring(
+          heartScale,
+          {
+            toValue: 1,
+            friction: 5,
+            tension: 70,
+            useNativeDriver: true,
+          }
+        ),
 
-    setLikes(
-      wasLiked
-        ? Math.max(
-            0,
-            likes - 1
-          )
-        : likes + 1
+        Animated.delay(350),
+
+        Animated.timing(
+          heartScale,
+          {
+            toValue: 0,
+            duration: 220,
+            useNativeDriver: true,
+          }
+        ),
+      ]).start();
+    }, [heartScale]);
+
+  const showPauseAnimation =
+    useCallback(
+      (nextPaused) => {
+        pauseOpacity.stopAnimation();
+
+        pauseOpacity.setValue(1);
+
+        Animated.timing(
+          pauseOpacity,
+          {
+            toValue: 0,
+            duration: 500,
+            delay: 100,
+            useNativeDriver: true,
+          }
+        ).start();
+      },
+      [pauseOpacity]
     );
 
-    onLike?.();
-
-    try {
-      const result =
-        await likeReel(
-          reel._id
-        );
-
-      setLikes(
-        result?.likesCount ??
-          previousLikes
-      );
-
+  const handleLike = useCallback(
+    async () => {
       if (
-        typeof result?.liked ===
-          "boolean" &&
-        result.liked === wasLiked
+        !reel?._id ||
+        likeLoading
       ) {
-        onLike?.();
+        return;
       }
-    } catch (error) {
-      console.error(
-        "Reel like error:",
-        error
+
+      const wasLiked = Boolean(
+        isLiked
       );
 
-      setLikes(previousLikes);
+      const previousLikes = likes;
+
+      const nextLikes = wasLiked
+        ? Math.max(0, likes - 1)
+        : likes + 1;
+
+      setLikes(nextLikes);
+
       onLike?.();
-    }
-  }
 
-  async function handleSave() {
-    if (!reel?._id) {
-      return;
-    }
+      setLikeLoading(true);
 
-    const wasSaved = isSaved;
+      try {
+        const result =
+          await likeReel(reel._id);
 
-    onSave?.();
+        if (
+          typeof result?.likesCount ===
+          "number"
+        ) {
+          setLikes(
+            result.likesCount
+          );
+        }
 
-    try {
-      const result =
-        await saveReel(
-          reel._id
+        if (
+          typeof result?.liked ===
+            "boolean" &&
+          result.liked === wasLiked
+        ) {
+          onLike?.();
+        }
+      } catch (error) {
+        console.error(
+          "Reel like error:",
+          error
         );
 
-      if (
-        typeof result?.saved ===
-          "boolean" &&
-        result.saved === wasSaved
-      ) {
-        onSave?.();
+        setLikes(previousLikes);
+
+        onLike?.();
+      } finally {
+        setLikeLoading(false);
       }
-    } catch (error) {
-      console.error(
-        "Reel save error:",
-        error
+    },
+    [
+      isLiked,
+      likeLoading,
+      likes,
+      onLike,
+      reel?._id,
+    ]
+  );
+
+  const handleSave = useCallback(
+    async () => {
+      if (
+        !reel?._id ||
+        saveLoading
+      ) {
+        return;
+      }
+
+      const wasSaved = Boolean(
+        isSaved
       );
 
       onSave?.();
-    }
-  }
 
-  function triggerHeartBurst() {
-    heartScale.setValue(0);
+      setSaveLoading(true);
 
-    Animated.sequence([
-      Animated.spring(
-        heartScale,
-        {
-          toValue: 1,
-          friction: 4,
-          useNativeDriver: true,
+      try {
+        const result =
+          await saveReel(reel._id);
+
+        if (
+          typeof result?.saved ===
+            "boolean" &&
+          result.saved === wasSaved
+        ) {
+          onSave?.();
         }
-      ),
-      Animated.timing(
-        heartScale,
-        {
-          toValue: 0,
-          duration: 250,
-          delay: 400,
-          useNativeDriver: true,
-        }
-      ),
-    ]).start();
-  }
+      } catch (error) {
+        console.error(
+          "Reel save error:",
+          error
+        );
 
-  function flashPauseIcon() {
-    pauseFlashOpacity.setValue(1);
-
-    Animated.timing(
-      pauseFlashOpacity,
-      {
-        toValue: 0,
-        duration: 450,
-        delay: 150,
-        useNativeDriver: true,
+        onSave?.();
+      } finally {
+        setSaveLoading(false);
       }
-    ).start();
-  }
+    },
+    [
+      isSaved,
+      onSave,
+      reel?._id,
+      saveLoading,
+    ]
+  );
 
-  function togglePlayback() {
-    if (!player) {
-      return;
-    }
-
-    setPaused((previous) => {
-      const next = !previous;
-
-      if (next) {
-        player.pause();
-      } else {
-        player.play();
-      }
-
-      return next;
-    });
-
-    flashPauseIcon();
-  }
-
-  function handleVideoPress() {
-    if (tapTimeoutRef.current) {
-      clearTimeout(
-        tapTimeoutRef.current
-      );
-      tapTimeoutRef.current = null;
-
+  const handleDoubleTap =
+    useCallback(() => {
       triggerHeartBurst();
 
       if (!isLiked) {
@@ -303,21 +366,107 @@ export default function ReelItem({
       }
 
       onDoubleTap?.(reel);
-    } else {
+    }, [
+      handleLike,
+      isLiked,
+      onDoubleTap,
+      reel,
+      triggerHeartBurst,
+    ]);
+
+  const togglePlayback =
+    useCallback(() => {
+      if (!player) {
+        return;
+      }
+
+      setPaused((previous) => {
+        const next = !previous;
+
+        try {
+          if (next) {
+            player.pause();
+          } else {
+            player.play();
+          }
+        } catch (error) {
+          console.error(
+            "Playback toggle error:",
+            error
+          );
+        }
+
+        showPauseAnimation(next);
+
+        return next;
+      });
+    }, [
+      player,
+      showPauseAnimation,
+    ]);
+
+  const handleVideoPress =
+    useCallback(() => {
+      if (tapTimeoutRef.current) {
+        clearTimeout(
+          tapTimeoutRef.current
+        );
+
+        tapTimeoutRef.current = null;
+
+        handleDoubleTap();
+
+        return;
+      }
+
       tapTimeoutRef.current =
         setTimeout(() => {
           tapTimeoutRef.current = null;
+
           togglePlayback();
         }, DOUBLE_TAP_DELAY);
-    }
-  }
+    }, [
+      handleDoubleTap,
+      togglePlayback,
+    ]);
+
+  const user =
+    reel?.user ||
+    reel?.author ||
+    {};
 
   const username =
-    reel?.user?.username ||
-    "Snapgram";
+    getUsername(user);
+
+  const userId =
+    getUserId(user);
+
+  const avatar =
+    user?.avatar ||
+    user?.profilePicture ||
+    user?.profileImage ||
+    "";
+
+  const caption =
+    reel?.caption ||
+    reel?.description ||
+    "";
+
+  const musicName =
+    reel?.music?.name ||
+    reel?.music?.title ||
+    reel?.audio?.name ||
+    reel?.audio?.title ||
+    "";
+
+  const commentsCount =
+    Number(
+      reel?.commentsCount
+    ) || 0;
 
   return (
     <View style={styles.container}>
+
       <Pressable
         style={StyleSheet.absoluteFill}
         onPress={handleVideoPress}
@@ -337,8 +486,8 @@ export default function ReelItem({
           >
             <Ionicons
               name="videocam-off-outline"
-              size={30}
-              color="rgba(255,255,255,0.5)"
+              size={34}
+              color="rgba(255,255,255,0.45)"
             />
 
             <Text
@@ -352,23 +501,25 @@ export default function ReelItem({
         )}
       </Pressable>
 
-      {/* DOUBLE-TAP HEART BURST */}
       <Animated.View
         pointerEvents="none"
         style={[
           styles.heartBurst,
           {
             opacity: heartScale,
+
             transform: [
               {
                 scale:
                   heartScale.interpolate(
                     {
                       inputRange: [
-                        0, 1,
+                        0,
+                        1,
                       ],
                       outputRange: [
-                        0.4, 1.15,
+                        0.45,
+                        1.1,
                       ],
                     }
                   ),
@@ -379,24 +530,24 @@ export default function ReelItem({
       >
         <Ionicons
           name="heart"
-          size={110}
+          size={118}
           color="#fff"
         />
       </Animated.View>
 
-      {/* TAP-TO-PAUSE FLASH */}
       <Animated.View
         pointerEvents="none"
         style={[
           styles.pauseFlash,
           {
-            opacity: pauseFlashOpacity,
+            opacity:
+              pauseOpacity,
           },
         ]}
       >
         <View
           style={
-            styles.pauseFlashCircle
+            styles.pauseCircle
           }
         >
           <Ionicons
@@ -412,38 +563,158 @@ export default function ReelItem({
       </Animated.View>
 
       <View
-        style={styles.overlay}
         pointerEvents="box-none"
+        style={styles.actionsWrapper}
       >
-        <View style={styles.bottom}>
-          <View style={styles.info}>
-            <Pressable
-              style={styles.userRow}
-              onPress={() =>
-                onProfile?.(
-                  reel?.user
-                )
+        <View style={styles.actions}>
+          {/* LIKE */}
+
+          <Pressable
+            onPress={handleLike}
+            disabled={likeLoading}
+            hitSlop={10}
+            style={styles.action}
+          >
+            <Ionicons
+              name={
+                isLiked
+                  ? "heart"
+                  : "heart-outline"
               }
-              hitSlop={6}
+              size={31}
+              color={
+                isLiked
+                  ? "#ff3040"
+                  : "#fff"
+              }
+            />
+
+            <Text
+              style={styles.actionCount}
             >
-              {reel?.user?.avatar ? (
+              {formatCount(likes)}
+            </Text>
+          </Pressable>
+
+          {/* COMMENT */}
+
+          <Pressable
+            onPress={() =>
+              onComment?.(reel)
+            }
+            hitSlop={10}
+            style={styles.action}
+          >
+            <Ionicons
+              name="chatbubble-outline"
+              size={29}
+              color="#fff"
+            />
+
+            <Text
+              style={styles.actionCount}
+            >
+              {formatCount(
+                commentsCount
+              )}
+            </Text>
+          </Pressable>
+
+          <Pressable
+            onPress={() =>
+              onShare?.(reel)
+            }
+            hitSlop={10}
+            style={styles.action}
+          >
+            <Ionicons
+              name="paper-plane-outline"
+              size={28}
+              color="#fff"
+            />
+
+            <Text
+              style={styles.actionLabel}
+            >
+              Share
+            </Text>
+          </Pressable>
+
+          <Pressable
+            onPress={handleSave}
+            disabled={saveLoading}
+            hitSlop={10}
+            style={styles.action}
+          >
+            <Ionicons
+              name={
+                isSaved
+                  ? "bookmark"
+                  : "bookmark-outline"
+              }
+              size={29}
+              color="#fff"
+            />
+
+            <Text
+              style={styles.actionLabel}
+            >
+              Save
+            </Text>
+          </Pressable>
+
+          {/* MORE */}
+
+          <Pressable
+            onPress={() => {
+
+            }}
+            hitSlop={10}
+            style={[
+              styles.action,
+              styles.moreAction,
+            ]}
+          >
+            <Ionicons
+              name="ellipsis-horizontal"
+              size={27}
+              color="#fff"
+            />
+          </Pressable>
+        </View>
+      </View>
+
+      <View
+        pointerEvents="box-none"
+        style={styles.bottomOverlay}
+      >
+        <View style={styles.bottomContent}>
+          {/* USER ROW */}
+
+          <View style={styles.userRow}>
+            <Pressable
+              onPress={() =>
+                onProfile?.(user)
+              }
+              hitSlop={8}
+              style={styles.profilePress}
+            >
+              {avatar ? (
                 <Image
                   source={{
-                    uri:
-                      reel.user
-                        .avatar,
+                    uri: avatar,
                   }}
                   style={styles.avatar}
                 />
               ) : (
                 <View
                   style={
-                    styles.avatarPlaceholder
+                    styles.avatarFallback
                   }
                 >
                   <Text
                     style={
-                      styles.avatarPlaceholderText
+                      styles.avatarFallbackText
                     }
                   >
                     {username
@@ -452,7 +723,14 @@ export default function ReelItem({
                   </Text>
                 </View>
               )}
+            </Pressable>
 
+            <Pressable
+              onPress={() =>
+                onProfile?.(user)
+              }
+              style={styles.usernamePress}
+            >
               <Text
                 style={styles.username}
                 numberOfLines={1}
@@ -460,161 +738,81 @@ export default function ReelItem({
                 {username}
               </Text>
 
-              {!isFollowing && (
-                <TouchableOpacity
-                  onPress={() =>
-                    onFollow?.(
-                      reel?.user
-                    )
-                  }
+              {user?.isVerified ? (
+                <Ionicons
+                  name="checkmark-circle"
+                  size={14}
+                  color="#3897f0"
                   style={
-                    styles.followButton
+                    styles.verifiedIcon
                   }
-                  hitSlop={6}
-                >
-                  <Text
-                    style={
-                      styles.followText
-                    }
-                  >
-                    Follow
-                  </Text>
-                </TouchableOpacity>
-              )}
+                />
+              ) : null}
             </Pressable>
 
-            {reel?.caption ? (
-              <Text
-                style={styles.caption}
-                numberOfLines={2}
+            {!isFollowing && userId ? (
+              <Pressable
+                onPress={() =>
+                  onFollow?.(userId)
+                }
+                hitSlop={7}
+                style={
+                  styles.followButton
+                }
               >
-                {reel.caption}
-              </Text>
-            ) : null}
-
-            {reel?.music?.name ? (
-              <View
-                style={styles.musicRow}
-              >
-                <Ionicons
-                  name="musical-notes"
-                  size={13}
-                  color="#fff"
-                />
-
                 <Text
-                  style={styles.music}
-                  numberOfLines={1}
+                  style={
+                    styles.followText
+                  }
                 >
-                  {reel.music.name}
+                  Follow
                 </Text>
-              </View>
+              </Pressable>
             ) : null}
           </View>
 
-          <View style={styles.actions}>
-            <TouchableOpacity
-              onPress={handleLike}
-              style={styles.action}
-              hitSlop={8}
+          {caption ? (
+            <Text
+              style={styles.caption}
+              numberOfLines={3}
+            >
+              {caption}
+            </Text>
+          ) : null}
+
+          {musicName ? (
+            <Pressable
+              style={styles.musicRow}
             >
               <Ionicons
-                name={
-                  isLiked
-                    ? "heart"
-                    : "heart-outline"
-                }
-                size={30}
-                color={
-                  isLiked
-                    ? "#ff3040"
-                    : "#fff"
-                }
-              />
-
-              <Text
-                style={styles.actionText}
-              >
-                {formatCount(likes)}
-              </Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              onPress={() =>
-                onComment?.(reel)
-              }
-              style={styles.action}
-              hitSlop={8}
-            >
-              <Ionicons
-                name="chatbubble-outline"
-                size={27}
+                name="musical-notes"
+                size={14}
                 color="#fff"
               />
 
               <Text
-                style={styles.actionText}
+                style={styles.musicText}
+                numberOfLines={1}
               >
-                {formatCount(
-                  reel?.commentsCount ||
-                    0
-                )}
+                {musicName}
               </Text>
-            </TouchableOpacity>
+            </Pressable>
+          ) : null}
+        </View>
+      </View>
 
-            <TouchableOpacity
-              onPress={() =>
-                onShare?.(reel)
-              }
-              style={styles.action}
-              hitSlop={8}
-            >
-              <Ionicons
-                name="paper-plane-outline"
-                size={25}
-                color="#fff"
-              />
-
-              <Text
-                style={styles.actionText}
-              >
-                Share
-              </Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              onPress={handleSave}
-              style={styles.action}
-              hitSlop={8}
-            >
-              <Ionicons
-                name={
-                  isSaved
-                    ? "bookmark"
-                    : "bookmark-outline"
-                }
-                size={26}
-                color="#fff"
-              />
-
-              <Text
-                style={styles.actionText}
-              >
-                Save
-              </Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={styles.action}
-              hitSlop={8}
-            >
-              <Ionicons
-                name="ellipsis-horizontal"
-                size={23}
-                color="#fff"
-              />
-            </TouchableOpacity>
-          </View>
+      <View
+        pointerEvents="none"
+        style={styles.audioDisc}
+      >
+        <View
+          style={styles.audioDiscInner}
+        >
+          <Ionicons
+            name="musical-notes"
+            size={13}
+            color="#fff"
+          />
         </View>
       </View>
     </View>
@@ -626,6 +824,7 @@ const styles = StyleSheet.create({
     width: "100%",
     height: "100%",
     backgroundColor: "#000",
+    overflow: "hidden",
   },
 
   video: {
@@ -634,15 +833,14 @@ const styles = StyleSheet.create({
   },
 
   videoPlaceholder: {
-    width: "100%",
-    height: "100%",
+    flex: 1,
+    backgroundColor: "#000",
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "#000",
-    gap: 8,
   },
 
   placeholderText: {
+    marginTop: 9,
     color: "rgba(255,255,255,0.5)",
     fontSize: 13,
   },
@@ -650,136 +848,296 @@ const styles = StyleSheet.create({
   heartBurst: {
     position: "absolute",
     top: 0,
-    left: 0,
     right: 0,
     bottom: 0,
+    left: 0,
+
     alignItems: "center",
     justifyContent: "center",
+
+    zIndex: 40,
   },
 
   pauseFlash: {
     position: "absolute",
     top: 0,
-    left: 0,
     right: 0,
     bottom: 0,
+    left: 0,
+
+    alignItems: "center",
+    justifyContent: "center",
+
+    zIndex: 35,
+  },
+
+  pauseCircle: {
+    width: 66,
+    height: 66,
+    borderRadius: 33,
+
+    backgroundColor:
+      "rgba(0,0,0,0.48)",
+
     alignItems: "center",
     justifyContent: "center",
   },
 
-  pauseFlashCircle: {
-    width: 64,
-    height: 64,
-    borderRadius: 32,
-    backgroundColor: "rgba(0,0,0,0.4)",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-
-  overlay: {
-    ...StyleSheet.absoluteFillObject,
-  },
-
-  bottom: {
+  actionsWrapper: {
     position: "absolute",
-    left: 15,
+
     right: 10,
-    bottom: 30,
-    flexDirection: "row",
-    alignItems: "flex-end",
+    bottom: 94,
+
+    zIndex: 50,
   },
 
-  info: {
-    flex: 1,
-    paddingRight: 14,
+  actions: {
+    width: 48,
+
+    alignItems: "center",
+    justifyContent: "flex-end",
+  },
+
+  action: {
+    width: 48,
+    minHeight: 55,
+
+    alignItems: "center",
+    justifyContent: "center",
+
+    marginBottom: 17,
+  },
+
+  actionCount: {
+    marginTop: 4,
+
+    color: "#fff",
+
+    fontSize: 11,
+    fontWeight: "600",
+
+    textShadowColor:
+      "rgba(0,0,0,0.65)",
+    textShadowOffset: {
+      width: 0,
+      height: 1,
+    },
+    textShadowRadius: 2,
+  },
+
+  actionLabel: {
+    marginTop: 4,
+
+    color: "#fff",
+
+    fontSize: 11,
+    fontWeight: "600",
+
+    textShadowColor:
+      "rgba(0,0,0,0.65)",
+    textShadowOffset: {
+      width: 0,
+      height: 1,
+    },
+    textShadowRadius: 2,
+  },
+
+  moreAction: {
+    marginTop: 1,
+    marginBottom: 0,
+    minHeight: 38,
+  },
+
+  bottomOverlay: {
+    position: "absolute",
+
+    left: 0,
+    right: 64,
+    bottom: 26,
+
+    zIndex: 45,
+  },
+
+  bottomContent: {
+    paddingLeft: 14,
+    paddingRight: 8,
   },
 
   userRow: {
     flexDirection: "row",
     alignItems: "center",
-    marginBottom: 10,
+
+    marginBottom: 9,
+  },
+
+  profilePress: {
+    marginRight: 9,
   },
 
   avatar: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
-    marginRight: 9,
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.6)",
+    width: 38,
+    height: 38,
+
+    borderRadius: 19,
+
+    borderWidth: 1.2,
+    borderColor:
+      "rgba(255,255,255,0.85)",
   },
 
-  avatarPlaceholder: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
+  avatarFallback: {
+    width: 38,
+    height: 38,
+
+    borderRadius: 19,
+
     backgroundColor: "#333",
+
+    borderWidth: 1,
+    borderColor:
+      "rgba(255,255,255,0.7)",
+
     alignItems: "center",
     justifyContent: "center",
-    marginRight: 9,
   },
 
-  avatarPlaceholderText: {
+  avatarFallbackText: {
     color: "#fff",
+
+    fontSize: 15,
     fontWeight: "700",
-    fontSize: 14,
+  },
+
+  usernamePress: {
+    maxWidth: 160,
+
+    flexDirection: "row",
+    alignItems: "center",
   },
 
   username: {
     color: "#fff",
+
     fontSize: 14,
     fontWeight: "700",
-    flexShrink: 1,
+
+    textShadowColor:
+      "rgba(0,0,0,0.7)",
+    textShadowOffset: {
+      width: 0,
+      height: 1,
+    },
+    textShadowRadius: 2,
+  },
+
+  verifiedIcon: {
+    marginLeft: 4,
   },
 
   followButton: {
-    marginLeft: 10,
+    marginLeft: 11,
+
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+
     borderWidth: 1,
-    borderColor: "#fff",
+    borderColor:
+      "rgba(255,255,255,0.85)",
+
     borderRadius: 5,
-    paddingHorizontal: 9,
-    paddingVertical: 4,
+
+    backgroundColor:
+      "rgba(0,0,0,0.12)",
   },
 
   followText: {
     color: "#fff",
-    fontWeight: "700",
+
     fontSize: 12,
+    fontWeight: "700",
   },
 
   caption: {
     color: "#fff",
-    fontSize: 13.5,
-    lineHeight: 18,
-    marginBottom: 6,
+
+    fontSize: 14,
+    lineHeight: 19,
+
+    marginBottom: 7,
+
+    maxWidth: "94%",
+
+    textShadowColor:
+      "rgba(0,0,0,0.75)",
+    textShadowOffset: {
+      width: 0,
+      height: 1,
+    },
+    textShadowRadius: 2,
   },
 
   musicRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 5,
+
+    maxWidth: "92%",
+
+    marginTop: 1,
   },
 
-  music: {
+  musicText: {
     color: "#fff",
+
     fontSize: 12.5,
+    fontWeight: "500",
+
+    marginLeft: 6,
+
     flexShrink: 1,
+
+    textShadowColor:
+      "rgba(0,0,0,0.75)",
+    textShadowOffset: {
+      width: 0,
+      height: 1,
+    },
+    textShadowRadius: 2,
   },
 
-  actions: {
-    width: 56,
+  audioDisc: {
+    position: "absolute",
+
+    right: 15,
+    bottom: 27,
+
+    width: 34,
+    height: 34,
+
+    borderRadius: 17,
+
+    backgroundColor:
+      "rgba(20,20,20,0.9)",
+
+    borderWidth: 1,
+    borderColor:
+      "rgba(255,255,255,0.8)",
+
     alignItems: "center",
+    justifyContent: "center",
+
+    zIndex: 60,
   },
 
-  action: {
+  audioDiscInner: {
+    width: 24,
+    height: 24,
+
+    borderRadius: 12,
+
+    backgroundColor: "#111",
+
     alignItems: "center",
-    marginBottom: 18,
-  },
-
-  actionText: {
-    color: "#fff",
-    fontSize: 11,
-    marginTop: 4,
-    fontWeight: "600",
+    justifyContent: "center",
   },
 });

@@ -5,6 +5,8 @@ import React, {
   useState,
 } from "react";
 
+import AsyncStorage from "@react-native-async-storage/async-storage";
+
 import {
   getCurrentUser,
   loginUser,
@@ -21,6 +23,8 @@ import {
 
 const AuthContext = createContext(null);
 
+const TOKEN_KEY = "snapgram_token";
+
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -35,35 +39,42 @@ export function AuthProvider({ children }) {
       return;
     }
 
-    const userId =
-      user?._id ||
-      user?.id;
+    const userId = user?._id || user?.id;
 
     if (!userId) {
       disconnectSocket();
       return;
     }
 
-    console.log(
-      "AUTH SOCKET INITIALIZATION:",
-      userId
-    );
+    console.log("AUTH SOCKET INITIALIZATION:", userId);
 
     connectSocket(userId);
-
-  }, [
-    user?._id,
-    user?.id,
-    loading,
-  ]);
+  }, [user, loading]);
 
   async function restoreSession() {
     try {
       setLoading(true);
       setError(null);
 
-      const currentUser =
-        await getCurrentUser();
+      /*
+       * Do not call /auth/me when there is no token.
+       * This prevents the unnecessary 401 shown in Metro.
+       */
+      const token = await AsyncStorage.getItem(TOKEN_KEY);
+
+      console.log(
+        "RESTORING AUTH SESSION — TOKEN EXISTS:",
+        !!token
+      );
+
+      if (!token) {
+        console.log("NO SAVED AUTH TOKEN.");
+        setUser(null);
+        disconnectSocket();
+        return;
+      }
+
+      const currentUser = await getCurrentUser();
 
       if (!currentUser) {
         throw new Error(
@@ -81,14 +92,15 @@ export function AuthProvider({ children }) {
           currentUser?.id
       );
     } catch (error) {
+      const status = error?.response?.status;
 
-      if (
-        error?.response?.status === 401 ||
-        error?.response?.status === 403
-      ) {
-        console.log(
-          "NO VALID AUTH SESSION."
-        );
+      if (status === 401 || status === 403) {
+        console.log("SAVED AUTH TOKEN IS INVALID.");
+
+        /*
+         * Remove an invalid/expired token.
+         */
+        await AsyncStorage.removeItem(TOKEN_KEY);
       } else {
         console.error(
           "RESTORE SESSION ERROR:",
@@ -105,16 +117,12 @@ export function AuthProvider({ children }) {
     }
   }
 
-  async function login(
-    identifier,
-    password
-  ) {
+  async function login(identifier, password) {
     try {
       setError(null);
 
       const cleanIdentifier =
-        identifier
-          ?.trim() || "";
+        identifier?.trim() || "";
 
       if (!cleanIdentifier) {
         throw new Error(
@@ -123,39 +131,55 @@ export function AuthProvider({ children }) {
       }
 
       if (!password) {
-        throw new Error(
-          "Enter your password."
-        );
+        throw new Error("Enter your password.");
       }
 
       let loginData = {
         password,
       };
 
-      if (
-        cleanIdentifier.includes("@")
-      ) {
+      /*
+       * Email
+       */
+      if (cleanIdentifier.includes("@")) {
         loginData.email =
-          cleanIdentifier
-            .toLowerCase();
-      } else if (
-        /^[+0-9()\-\s]+$/.test(
-          cleanIdentifier
-        )
-      ) {
-        loginData.phone =
-          cleanIdentifier;
-      } else {
-        loginData.username =
-          cleanIdentifier
-            .toLowerCase();
+          cleanIdentifier.toLowerCase();
       }
 
-      const result =
-        await loginUser(
-          loginData
-        );
+      /*
+       * Phone
+       */
+      else if (
+        /^[+0-9()\-\s]+$/.test(cleanIdentifier)
+      ) {
+        loginData.phone = cleanIdentifier;
+      }
 
+      /*
+       * Username
+       */
+      else {
+        loginData.username =
+          cleanIdentifier.toLowerCase();
+      }
+
+      console.log(
+        "AUTH LOGIN REQUEST:",
+        Object.keys(loginData).filter(
+          (key) => key !== "password"
+        )
+      );
+
+      const result = await loginUser(loginData);
+
+      /*
+       * Backend MUST return:
+       *
+       * {
+       *   token: "...",
+       *   user: {...}
+       * }
+       */
       if (!result?.token) {
         throw new Error(
           "Login succeeded but no authentication token was returned."
@@ -168,14 +192,30 @@ export function AuthProvider({ children }) {
         );
       }
 
+      /*
+       * Explicitly guarantee the token is saved.
+       *
+       * This protects us even if authService's loginUser
+       * does not save it itself.
+       */
+      await AsyncStorage.setItem(
+        TOKEN_KEY,
+        result.token
+      );
+
       setUser(result.user);
 
       console.log(
-        "AUTH CONTEXT LOGIN:",
+        "AUTH LOGIN SUCCESS:",
         result.user?.username ||
           result.user?.email ||
           result.user?._id ||
           result.user?.id
+      );
+
+      console.log(
+        "AUTH TOKEN SAVED:",
+        true
       );
 
       return result;
@@ -191,9 +231,7 @@ export function AuthProvider({ children }) {
     }
   }
 
-  async function loginWithSocial(
-    result
-  ) {
+  async function loginWithSocial(result) {
     try {
       setError(null);
 
@@ -211,6 +249,14 @@ export function AuthProvider({ children }) {
 
       await saveAuthSession(
         result.user,
+        result.token
+      );
+
+      /*
+       * Guarantee same token key used by api.js.
+       */
+      await AsyncStorage.setItem(
+        TOKEN_KEY,
         result.token
       );
 
@@ -241,31 +287,28 @@ export function AuthProvider({ children }) {
     try {
       setError(null);
 
-      const result =
-        await registerUser({
+      const result = await registerUser({
+        fullName:
+          data?.fullName?.trim() ||
+          data?.name?.trim() ||
+          "",
 
-          fullName:
-            data?.fullName?.trim() ||
-            data?.name?.trim() ||
-            "",
+        username:
+          data?.username
+            ?.trim()
+            .toLowerCase() || "",
 
-          username:
-            data?.username
-              ?.trim()
-              .toLowerCase() || "",
+        email:
+          data?.email
+            ?.trim()
+            .toLowerCase() || "",
 
-          email:
-            data?.email
-              ?.trim()
-              .toLowerCase() || "",
+        phone:
+          data?.phone?.trim() || "",
 
-          phone:
-            data?.phone
-              ?.trim() || "",
-
-          password:
-            data?.password || "",
-        });
+        password:
+          data?.password || "",
+      });
 
       return result;
     } catch (error) {
@@ -280,9 +323,7 @@ export function AuthProvider({ children }) {
     }
   }
 
-  async function switchAccount(
-    accountId
-  ) {
+  async function switchAccount(accountId) {
     try {
       setError(null);
 
@@ -295,9 +336,7 @@ export function AuthProvider({ children }) {
       disconnectSocket();
 
       const switchedUser =
-        await switchSavedAccount(
-          accountId
-        );
+        await switchSavedAccount(accountId);
 
       if (!switchedUser) {
         throw new Error(
@@ -334,8 +373,12 @@ export function AuthProvider({ children }) {
 
       disconnectSocket();
 
-      const result =
-        await logoutUser();
+      /*
+       * Remove local session immediately.
+       */
+      await AsyncStorage.removeItem(TOKEN_KEY);
+
+      const result = await logoutUser();
 
       setUser(null);
 
@@ -352,6 +395,13 @@ export function AuthProvider({ children }) {
           error
       );
 
+      /*
+       * Always clear local authentication.
+       */
+      await AsyncStorage.removeItem(
+        TOKEN_KEY
+      );
+
       disconnectSocket();
       setUser(null);
 
@@ -365,14 +415,11 @@ export function AuthProvider({ children }) {
         user,
         loading,
         error,
-
         login,
         loginWithSocial,
-
         register,
         switchAccount,
         logout,
-
         restoreSession,
       }}
     >
@@ -382,8 +429,7 @@ export function AuthProvider({ children }) {
 }
 
 export function useAuth() {
-  const context =
-    useContext(AuthContext);
+  const context = useContext(AuthContext);
 
   if (!context) {
     throw new Error(

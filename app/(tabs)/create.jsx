@@ -1,6 +1,7 @@
 import React, {
   useCallback,
   useEffect,
+  useMemo,
   useState,
 } from "react";
 
@@ -11,13 +12,9 @@ import {
   View,
 } from "react-native";
 
-import {
-  SafeAreaView,
-} from "react-native-safe-area-context";
+import { SafeAreaView } from "react-native-safe-area-context";
 
-import {
-  Ionicons,
-} from "@expo/vector-icons";
+import { Ionicons } from "@expo/vector-icons";
 
 import {
   router,
@@ -68,8 +65,9 @@ function normalizeMode(value) {
 export default function CreateScreen() {
   const params = useLocalSearchParams();
 
-  const initialMode = normalizeMode(
-    params.mode
+  const initialMode = useMemo(
+    () => normalizeMode(params.mode),
+    [params.mode]
   );
 
   const [activeType, setActiveType] =
@@ -90,7 +88,7 @@ export default function CreateScreen() {
     router.replace("/(tabs)");
   }, []);
 
-  const selectType = useCallback(
+  const handleTypeChange = useCallback(
     (type) => {
       setActiveType(type);
     },
@@ -106,85 +104,120 @@ export default function CreateScreen() {
         return;
       }
 
-      const media =
-        JSON.stringify(assets);
+      const media = JSON.stringify(assets);
 
-      if (activeType === "post") {
-        router.push({
-          pathname: "/create/editor",
-          params: {
-            media,
-            mode: "post",
-          },
-        });
+      switch (activeType) {
+        case "story":
+          router.push({
+            pathname: "/create/story",
+            params: {
+              media,
+            },
+          });
+          break;
 
-        return;
-      }
+        case "reel":
+          router.push({
+            pathname: "/create/reel",
+            params: {
+              media,
+            },
+          });
+          break;
 
-      if (activeType === "story") {
-        router.push({
-          pathname: "/create/story",
-          params: {
-            media,
-          },
-        });
-
-        return;
-      }
-
-      if (activeType === "reel") {
-        router.push({
-          pathname: "/create/reel",
-          params: {
-            media,
-          },
-        });
-
-        return;
+        case "post":
+        default:
+          router.push({
+            pathname: "/create/editor",
+            params: {
+              media,
+              mode: "post",
+            },
+          });
+          break;
       }
     },
     [activeType]
   );
 
   const handleCamera = useCallback(() => {
+    switch (activeType) {
+      case "story":
+        router.push({
+          pathname: "/create/story-camera",
+          params: {
+            mode: "story",
+          },
+        });
+        break;
 
-    if (activeType === "post") {
-      router.push({
-        pathname: "/create/camera",
-        params: {
-          mode: "post",
-        },
-      });
+      case "reel":
+        router.push({
+          pathname: "/create/reel-camera",
+          params: {
+            mode: "reel",
+          },
+        });
+        break;
 
-      return;
-    }
+      case "live":
+        router.push("/create/live");
+        break;
 
-    if (activeType === "story") {
-      router.push({
-        pathname: "/create/story-camera",
-        params: {
-          mode: "story",
-        },
-      });
-
-      return;
-    }
-
-    if (activeType === "reel") {
-      router.push({
-        pathname: "/create/reel-camera",
-        params: {
-          mode: "reel",
-        },
-      });
-
-      return;
-    }
-
-    if (activeType === "live") {
-      router.push("/create/live");
+      case "post":
+      default:
+        router.push({
+          pathname: "/create/camera",
+          params: {
+            mode: "post",
+          },
+        });
+        break;
     }
   }, [activeType]);
+
+  const renderLive = useCallback(() => {
+    return (
+      <View style={styles.liveScreen}>
+        <View style={styles.liveContent}>
+          <View style={styles.liveIcon}>
+            <Ionicons
+              name="radio"
+              size={42}
+              color="#fff"
+            />
+          </View>
+
+          <Text style={styles.liveTitle}>
+            Go Live
+          </Text>
+
+          <Text style={styles.liveSubtitle}>
+            Go live to connect with your
+            followers in real time.
+          </Text>
+
+          <Pressable
+            onPress={handleCamera}
+            style={({ pressed }) => [
+              styles.liveButton,
+              pressed && styles.pressed,
+            ]}
+          >
+            <Ionicons
+              name="radio"
+              size={19}
+              color="#fff"
+            />
+
+            <Text style={styles.liveButtonText}>
+              Start live video
+            </Text>
+          </Pressable>
+        </View>
+      </View>
+    );
+  }, [handleCamera]);
 
   const renderTypeButton = useCallback(
     (item) => {
@@ -195,82 +228,42 @@ export default function CreateScreen() {
         <Pressable
           key={item.id}
           onPress={() =>
-            selectType(item.id)
+            handleTypeChange(item.id)
           }
           style={[
             styles.typeButton,
             selected &&
-              styles.typeButtonSelected,
+              styles.typeButtonActive,
           ]}
         >
           <Ionicons
             name={item.icon}
-            size={21}
+            size={20}
             color={
               selected
-                ? "#111"
-                : "#777"
+                ? "#000"
+                : "#8e8e8e"
             }
           />
 
           <Text
             style={[
-              styles.typeLabel,
+              styles.typeText,
               selected &&
-                styles.typeLabelSelected,
+                styles.typeTextActive,
             ]}
           >
             {item.label}
           </Text>
 
           {selected && (
-            <View
-              style={styles.activeLine}
-            />
+            <View style={styles.typeIndicator} />
           )}
         </Pressable>
       );
     },
-    [activeType, selectType]
+    [activeType, handleTypeChange]
   );
-
-  const renderLive = useCallback(() => {
-    return (
-      <View style={styles.liveContainer}>
-        <View style={styles.liveIcon}>
-          <Ionicons
-            name="radio"
-            size={38}
-            color="#fff"
-          />
-        </View>
-
-        <Text style={styles.liveTitle}>
-          Go Live
-        </Text>
-
-        <Text style={styles.liveDescription}>
-          Share what's happening right
-          now with your followers.
-        </Text>
-
-        <Pressable
-          onPress={handleCamera}
-          style={styles.liveButton}
-        >
-          <Ionicons
-            name="radio"
-            size={19}
-            color="#fff"
-          />
-
-          <Text style={styles.liveButtonText}>
-            Start live video
-          </Text>
-        </Pressable>
-      </View>
-    );
-  }, [handleCamera]);
 
   return (
     <SafeAreaView
@@ -278,39 +271,43 @@ export default function CreateScreen() {
       edges={["top"]}
     >
       <View style={styles.container}>
-        {/* HEADER */}
+
         <View style={styles.header}>
           <Pressable
             onPress={handleClose}
             hitSlop={12}
-            style={styles.closeButton}
+            style={styles.headerButton}
           >
             <Ionicons
               name="close"
               size={28}
-              color="#111"
+              color="#000"
             />
           </Pressable>
 
           <Text style={styles.headerTitle}>
-            Create
+            {activeType === "post"
+              ? "New post"
+              : activeType === "story"
+              ? "New story"
+              : activeType === "reel"
+              ? "New reel"
+              : "Live"}
           </Text>
 
-          <View style={styles.headerSpacer} />
+          <View style={styles.headerRight} />
         </View>
 
-        {/* MODE SELECTOR */}
         <View style={styles.typeBar}>
           {CREATE_TYPES.map(
             renderTypeButton
           )}
         </View>
 
-        {/* CONTENT */}
         {activeType === "live" ? (
           renderLive()
         ) : (
-          <View style={styles.mediaArea}>
+          <View style={styles.mediaContainer}>
             <MediaPicker
               activeType={activeType}
               onSelected={handleSelected}
@@ -335,17 +332,18 @@ const styles = StyleSheet.create({
   },
 
   header: {
-    height: 54,
-    paddingHorizontal: 14,
+    height: 52,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
+    paddingHorizontal: 14,
+    backgroundColor: "#fff",
     borderBottomWidth:
       StyleSheet.hairlineWidth,
     borderBottomColor: "#dbdbdb",
   },
 
-  closeButton: {
+  headerButton: {
     width: 42,
     height: 42,
     alignItems: "flex-start",
@@ -354,28 +352,27 @@ const styles = StyleSheet.create({
 
   headerTitle: {
     position: "absolute",
-    left: 0,
-    right: 0,
+    left: 60,
+    right: 60,
     textAlign: "center",
     fontSize: 17,
-    fontWeight: "800",
-    color: "#111",
+    fontWeight: "700",
+    color: "#000",
   },
 
-  headerSpacer: {
+  headerRight: {
     width: 42,
     height: 42,
   },
 
   typeBar: {
-    height: 58,
+    height: 54,
     flexDirection: "row",
     alignItems: "stretch",
-    justifyContent: "space-around",
+    backgroundColor: "#fff",
     borderBottomWidth:
       StyleSheet.hairlineWidth,
     borderBottomColor: "#dbdbdb",
-    backgroundColor: "#fff",
   },
 
   typeButton: {
@@ -383,84 +380,96 @@ const styles = StyleSheet.create({
     position: "relative",
     alignItems: "center",
     justifyContent: "center",
-    gap: 3,
+    gap: 2,
   },
 
-  typeButtonSelected: {
+  typeButtonActive: {
     backgroundColor: "#fafafa",
   },
 
-  typeLabel: {
+  typeText: {
     fontSize: 11,
     fontWeight: "600",
-    color: "#777",
+    color: "#8e8e8e",
   },
 
-  typeLabelSelected: {
-    color: "#111",
-    fontWeight: "800",
+  typeTextActive: {
+    color: "#000",
+    fontWeight: "700",
   },
 
-  activeLine: {
+  typeIndicator: {
     position: "absolute",
-    left: 15,
-    right: 15,
+    left: 16,
+    right: 16,
     bottom: 0,
     height: 2,
-    backgroundColor: "#111",
+    backgroundColor: "#000",
   },
 
-  mediaArea: {
+  mediaContainer: {
     flex: 1,
+    backgroundColor: "#fff",
   },
 
-  liveContainer: {
+  liveScreen: {
     flex: 1,
-    paddingHorizontal: 35,
+    backgroundColor: "#fff",
     alignItems: "center",
     justifyContent: "center",
+  },
+
+  liveContent: {
+    width: "100%",
+    paddingHorizontal: 32,
+    alignItems: "center",
   },
 
   liveIcon: {
-    width: 82,
-    height: 82,
-    borderRadius: 41,
+    width: 88,
+    height: 88,
+    borderRadius: 44,
+    backgroundColor: "#000",
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "#111",
-    marginBottom: 20,
+    marginBottom: 22,
   },
 
   liveTitle: {
     fontSize: 25,
-    fontWeight: "900",
-    color: "#111",
+    fontWeight: "800",
+    color: "#000",
   },
 
-  liveDescription: {
+  liveSubtitle: {
     maxWidth: 290,
-    marginTop: 8,
-    marginBottom: 25,
+    marginTop: 9,
+    marginBottom: 28,
     textAlign: "center",
     fontSize: 14,
     lineHeight: 20,
-    color: "#777",
+    color: "#737373",
   },
 
   liveButton: {
-    height: 48,
-    paddingHorizontal: 24,
-    borderRadius: 24,
+    minWidth: 210,
+    height: 46,
+    paddingHorizontal: 22,
+    borderRadius: 8,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    gap: 9,
-    backgroundColor: "#111",
+    gap: 8,
+    backgroundColor: "#000",
   },
 
   liveButtonText: {
     color: "#fff",
     fontSize: 14,
-    fontWeight: "800",
+    fontWeight: "700",
+  },
+
+  pressed: {
+    opacity: 0.75,
   },
 });

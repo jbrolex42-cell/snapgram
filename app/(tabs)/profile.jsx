@@ -6,11 +6,12 @@ import React, {
 } from "react";
 
 import {
-  ActivityIndicator,
   Alert,
   Image,
+  Linking,
   Modal,
   Pressable,
+  RefreshControl,
   ScrollView,
   Share,
   StyleSheet,
@@ -20,18 +21,20 @@ import {
   View,
 } from "react-native";
 
+import { SafeAreaView } from "react-native-safe-area-context";
+
 import { Ionicons } from "@expo/vector-icons";
+
 import {
   router,
   useFocusEffect,
 } from "expo-router";
+
 import * as ImagePicker from "expo-image-picker";
 
 import { useAuth } from "../../context/AuthContext";
 
-import {
-  updateProfile,
-} from "../../services/userService";
+import { updateProfile } from "../../services/userService";
 
 import {
   getStories,
@@ -43,26 +46,173 @@ import {
 } from "../../services/highlightService";
 
 import VerifiedBadge from "../../components/common/VerifiedBadge";
-import ProfileTabs from "../../components/profile/ProfileTabs";
+
 import ProfileGrid from "../../components/profile/ProfileGrid";
 
-/* =========================================================
-   COLORS
-   ========================================================= */
+const COLORS = {
+  black: "#000000",
+  white: "#FFFFFF",
+  gray: "#737373",
+  lightGray: "#EFEFEF",
+  border: "#DBDBDB",
+  background: "#FFFFFF",
+  muted: "#8E8E8E",
+  danger: "#ED4956",
+  blue: "#0095F6",
+};
 
-const BLUE = "#0095F6";
-const TEXT = "#000000";
-const MUTED = "#737373";
-const LIGHT_TEXT = "#8E8E8E";
-const BORDER = "#DBDBDB";
-const LIGHT_BORDER = "#EFEFEF";
-const LIGHT = "#F5F5F5";
-const WHITE = "#FFFFFF";
-const DANGER = "#ED4956";
+const TABS = [
+  {
+    key: "posts",
+    label: "Posts",
+    icon: "grid-outline",
+  },
+  {
+    key: "reels",
+    label: "Reels",
+    icon: "play-outline",
+  },
+  {
+    key: "reposts",
+    label: "Reposts",
+    icon: "repeat-outline",
+  },
+  {
+    key: "tagged",
+    label: "Tagged",
+    icon: "person-outline",
+  },
+];
 
-/* =========================================================
-   PROFILE SCREEN
-   ========================================================= */
+function getId(value) {
+  if (!value) return null;
+
+  if (typeof value === "string") {
+    return value;
+  }
+
+  return (
+    value._id ||
+    value.id ||
+    value.userId ||
+    null
+  );
+}
+
+function getImageUri(value) {
+  if (!value) return null;
+
+  if (typeof value === "string") {
+    return value;
+  }
+
+  return (
+    value.url ||
+    value.uri ||
+    value.secure_url ||
+    value.src ||
+    value.image ||
+    value.imageUrl ||
+    null
+  );
+}
+
+function getProfileAvatar(user) {
+  return (
+    getImageUri(user?.avatar) ||
+    getImageUri(user?.profilePicture) ||
+    getImageUri(user?.profileImage) ||
+    null
+  );
+}
+
+function getDisplayName(user) {
+  return (
+    user?.name ||
+    user?.fullName ||
+    user?.displayName ||
+    user?.username ||
+    "User"
+  );
+}
+
+function getUsername(user) {
+  return (
+    user?.username ||
+    user?.handle ||
+    "username"
+  );
+}
+
+function formatCount(value) {
+  const number = Number(value || 0);
+
+  if (number < 1000) {
+    return String(number);
+  }
+
+  if (number < 1000000) {
+    const result = number / 1000;
+
+    return `${result % 1 === 0 ? result : result.toFixed(1)}K`;
+  }
+
+  const result = number / 1000000;
+
+  return `${result % 1 === 0 ? result : result.toFixed(1)}M`;
+}
+
+function normalizeWebsite(value) {
+  if (!value) return null;
+
+  const trimmed = String(value).trim();
+
+  if (!trimmed) return null;
+
+  if (
+    trimmed.startsWith("http://") ||
+    trimmed.startsWith("https://")
+  ) {
+    return trimmed;
+  }
+
+  return `https://${trimmed}`;
+}
+
+function normalizeStories(response) {
+  if (Array.isArray(response)) {
+    return response;
+  }
+
+  return (
+    response?.stories ||
+    response?.data?.stories ||
+    response?.data ||
+    []
+  );
+}
+
+function normalizeHighlights(response) {
+  if (Array.isArray(response)) {
+    return response;
+  }
+
+  return (
+    response?.highlights ||
+    response?.data?.highlights ||
+    response?.data ||
+    []
+  );
+}
+
+function normalizeCreatedHighlight(response) {
+  return (
+    response?.highlight ||
+    response?.data?.highlight ||
+    response?.data ||
+    response
+  );
+}
 
 export default function ProfileScreen() {
   const {
@@ -70,173 +220,164 @@ export default function ProfileScreen() {
     loading: authLoading,
   } = useAuth();
 
-  /* =======================================================
-     PROFILE
-     ======================================================= */
+  const [activeTab, setActiveTab] = useState("posts");
 
-  const [profile, setProfile] = useState({
-    username: user?.username || "",
-    name: user?.name || "",
-    bio: user?.bio || "",
-    avatar: user?.avatar || "",
-    website: user?.website || "",
-    pronouns: user?.pronouns || "",
-    gender: user?.gender || "",
-    isVerified: Boolean(user?.isVerified),
-  });
+  const [menuVisible, setMenuVisible] = useState(false);
+
+  const [editVisible, setEditVisible] = useState(false);
+
+  const [highlightVisible, setHighlightVisible] = useState(false);
+
+  const [refreshing, setRefreshing] = useState(false);
+
+  const [highlights, setHighlights] = useState([]);
+
+  const [myStories, setMyStories] = useState([]);
+
+  const [storiesLoading, setStoriesLoading] = useState(false);
+
+  const [highlightsLoading, setHighlightsLoading] =
+    useState(false);
+
+  const [selectedStories, setSelectedStories] =
+    useState([]);
+
+  const [creatingHighlight, setCreatingHighlight] =
+    useState(false);
+
+  const [highlightName, setHighlightName] =
+    useState("");
+
+  const [username, setUsername] =
+    useState("");
+
+  const [name, setName] =
+    useState("");
+
+  const [bio, setBio] =
+    useState("");
+
+  const [website, setWebsite] =
+    useState("");
+
+  const [pronouns, setPronouns] =
+    useState("");
+
+  const [gender, setGender] =
+    useState("");
+
+  const [selectedAvatar, setSelectedAvatar] =
+    useState(null);
+
+  const [savingProfile, setSavingProfile] =
+    useState(false);
 
   useEffect(() => {
-    if (!user) {
-      return;
-    }
+    if (!user) return;
 
-    setProfile({
-      username: user.username || "",
-      name: user.name || "",
-      bio: user.bio || "",
-      avatar: user.avatar || "",
-      website: user.website || "",
-      pronouns: user.pronouns || "",
-      gender: user.gender || "",
-      isVerified: Boolean(user.isVerified),
-    });
+    setUsername(user.username || "");
+    setName(
+      user.name ||
+      user.fullName ||
+      ""
+    );
+
+    setBio(user.bio || "");
+
+    setWebsite(
+      user.website ||
+      user.link ||
+      ""
+    );
+
+    setPronouns(user.pronouns || "");
+    setGender(user.gender || "");
+
+    setSelectedAvatar(
+      getProfileAvatar(user)
+    );
   }, [user]);
 
-  const currentUserId = String(
-    user?._id ||
-      user?.id ||
-      ""
-  );
+  const profilePosts = useMemo(() => {
+    if (!user) return [];
 
-  /* =======================================================
-     MENU
-     ======================================================= */
+    return (
+      user.posts ||
+      user.profilePosts ||
+      user.recentPosts ||
+      []
+    );
+  }, [user]);
 
-  const [
-    menuVisible,
-    setMenuVisible,
-  ] = useState(false);
 
-  const openMenu = useCallback(() => {
-    setMenuVisible(true);
-  }, []);
+  const reels = useMemo(() => {
+    return profilePosts.filter((post) => {
+      return (
+        post?.isReel === true ||
+        post?.type === "reel" ||
+        post?.mediaType === "reel"
+      );
+    });
+  }, [profilePosts]);
 
-  const closeMenu = useCallback(() => {
-    setMenuVisible(false);
-  }, []);
 
-  /* =======================================================
-     EDIT PROFILE
-     ======================================================= */
+  const reposts = useMemo(() => {
+    if (!user) return [];
 
-  const [
-    editVisible,
-    setEditVisible,
-  ] = useState(false);
+    return (
+      user.reposts ||
+      user.repostedPosts ||
+      user.repostPosts ||
+      []
+    );
+  }, [user]);
 
-  const [
-    editName,
-    setEditName,
-  ] = useState("");
 
-  const [
-    editUsername,
-    setEditUsername,
-  ] = useState("");
+  const taggedPosts = useMemo(() => {
+    if (!user) return [];
 
-  const [
-    editBio,
-    setEditBio,
-  ] = useState("");
+    return (
+      user.taggedPosts ||
+      user.tagged ||
+      user.postsTaggedIn ||
+      []
+    );
+  }, [user]);
 
-  const [
-    editWebsite,
-    setEditWebsite,
-  ] = useState("");
 
-  const [
-    editPronouns,
-    setEditPronouns,
-  ] = useState("");
+  const visiblePosts = useMemo(() => {
+    switch (activeTab) {
+      case "reels":
+        return reels;
 
-  const [
-    editGender,
-    setEditGender,
-  ] = useState("");
+      case "reposts":
+        return reposts;
 
-  const [
-    selectedAvatar,
-    setSelectedAvatar,
-  ] = useState(null);
+      case "tagged":
+        return taggedPosts;
 
-  const [
-    saving,
-    setSaving,
-  ] = useState(false);
+      case "posts":
+      default:
+        return profilePosts.filter((post) => {
+          return !(
+            post?.isReel === true ||
+            post?.type === "reel" ||
+            post?.mediaType === "reel"
+          );
+        });
+    }
+  }, [
+    activeTab,
+    profilePosts,
+    reels,
+    reposts,
+    taggedPosts,
+  ]);
 
-  /* =======================================================
-     TABS
-     ======================================================= */
-
-  const [
-    selectedTab,
-    setSelectedTab,
-  ] = useState("posts");
-
-  /* =======================================================
-     STORIES
-     
-     Stories are NOT displayed on the profile.
-     They are loaded only because Highlights use them.
-     ======================================================= */
-
-  const [
-    myStories,
-    setMyStories,
-  ] = useState([]);
-
-  const [
-    storiesLoading,
-    setStoriesLoading,
-  ] = useState(false);
-
-  /* =======================================================
-     HIGHLIGHTS
-     ======================================================= */
-
-  const [
-    highlights,
-    setHighlights,
-  ] = useState([]);
-
-  const [
-    highlightModalVisible,
-    setHighlightModalVisible,
-  ] = useState(false);
-
-  const [
-    highlightTitle,
-    setHighlightTitle,
-  ] = useState("");
-
-  const [
-    selectedStoryIds,
-    setSelectedStoryIds,
-  ] = useState([]);
-
-  const [
-    savingHighlight,
-    setSavingHighlight,
-  ] = useState(false);
-
-  /* =======================================================
-     COUNTS
-     ======================================================= */
-
-  const postCount =
+  const postsCount =
     user?.postsCount ??
     user?.postCount ??
-    user?.posts?.length ??
+    profilePosts.length ??
     0;
 
   const followersCount =
@@ -249,1929 +390,1420 @@ export default function ProfileScreen() {
     user?.following?.length ??
     0;
 
-  /* =======================================================
-     PROFILE POSTS
-     ======================================================= */
+  const loadHighlights = useCallback(async () => {
+    if (!user) return;
 
-  const profilePosts = useMemo(() => {
-    const candidates = [
-      user?.posts,
-      user?.profilePosts,
-      user?.recentPosts,
-    ];
+    try {
+      setHighlightsLoading(true);
 
-    const found = candidates.find(
-      (item) => Array.isArray(item)
-    );
+      const response = await getHighlights();
 
-    return Array.isArray(found)
-      ? found
-      : [];
+      const data = normalizeHighlights(response);
+
+      const currentUserId = getId(user);
+
+      const filtered = data.filter((highlight) => {
+        if (!highlight?.user) {
+          return true;
+        }
+
+        const highlightUserId =
+          getId(highlight.user);
+
+        return (
+          !currentUserId ||
+          !highlightUserId ||
+          highlightUserId === currentUserId
+        );
+      });
+
+      setHighlights(filtered);
+    } catch (error) {
+      console.log(
+        "LOAD HIGHLIGHTS ERROR:",
+        error
+      );
+    } finally {
+      setHighlightsLoading(false);
+    }
   }, [user]);
 
-  const reelPosts = useMemo(() => {
-    return profilePosts.filter((post) => {
-      const type =
-        post?.type ||
-        post?.mediaType ||
-        post?.contentType ||
-        "";
-
-      return (
-        post?.isReel === true ||
-        String(type).toLowerCase() === "reel"
-      );
-    });
-  }, [profilePosts]);
-
-  /* =======================================================
-     STORY IMAGE NORMALIZER
-     ======================================================= */
-
-  const getStoryImage = useCallback(
-    (story) => {
-      if (!story) {
-        return null;
-      }
-
-      return (
-        story.mediaUrl ||
-        story.media?.url ||
-        story.media?.secure_url ||
-        story.media?.uri ||
-        story.media?.[0]?.url ||
-        story.media?.[0]?.secure_url ||
-        story.media?.[0]?.uri ||
-        story.image ||
-        story.imageUrl ||
-        story.thumbnail ||
-        null
-      );
-    },
-    []
-  );
-
-  /* =======================================================
-     LOAD MY STORIES
-     
-     Invisible/background only.
-     ======================================================= */
-
-  const loadMyStories = useCallback(
-    async () => {
-      if (!currentUserId) {
-        setMyStories([]);
-        return;
-      }
-
-      try {
-        setStoriesLoading(true);
-
-        const result =
-          await getStories();
-
-        const storyList =
-          Array.isArray(result)
-            ? result
-            : result?.stories ||
-              result?.data?.stories ||
-              result?.data ||
-              [];
-
-        const normalized =
-          Array.isArray(storyList)
-            ? storyList
-            : [];
-
-        const mine =
-          normalized.filter((item) => {
-            const ownerId =
-              item?.user?._id ||
-              item?.user?.id ||
-              item?.userId ||
-              item?.author?._id ||
-              item?.author?.id;
-
-            return (
-              ownerId &&
-              String(ownerId) ===
-                currentUserId
-            );
-          });
-
-        setMyStories(mine);
-      } catch (error) {
-        console.error(
-          "PROFILE STORIES LOAD ERROR:",
-          error
-        );
-
-        setMyStories([]);
-      } finally {
-        setStoriesLoading(false);
-      }
-    },
-    [currentUserId]
-  );
-
-  /* =======================================================
-     LOAD HIGHLIGHTS
-     ======================================================= */
-
-  const loadHighlights = useCallback(
-    async () => {
-      if (!currentUserId) {
-        setHighlights([]);
-        return;
-      }
-
-      try {
-        const result =
-          await getHighlights(
-            currentUserId
-          );
-
-        const list =
-          Array.isArray(result)
-            ? result
-            : result?.highlights ||
-              result?.data?.highlights ||
-              result?.data ||
-              [];
-
-        setHighlights(
-          Array.isArray(list)
-            ? list
-            : []
-        );
-      } catch (error) {
-        console.error(
-          "PROFILE HIGHLIGHTS LOAD ERROR:",
-          error
-        );
-
-        setHighlights([]);
-      }
-    },
-    [currentUserId]
-  );
-
-  /* =======================================================
-     REFRESH PROFILE DATA
-     ======================================================= */
 
   useFocusEffect(
     useCallback(() => {
-      loadMyStories();
       loadHighlights();
-    }, [
-      loadMyStories,
-      loadHighlights,
-    ])
+    }, [loadHighlights])
   );
 
-  /* =======================================================
-     NAVIGATION
-     ======================================================= */
+  const loadMyStories = useCallback(async () => {
+    if (!user) return [];
 
-  const openSettings = useCallback(() => {
-    closeMenu();
+    try {
+      setStoriesLoading(true);
+
+      const response = await getStories();
+
+      const stories = normalizeStories(response);
+
+      const currentUserId = getId(user);
+
+      const mine = stories.filter((story) => {
+        const storyUserId =
+          getId(story?.user) ||
+          story?.userId ||
+          getId(story?.author);
+
+        if (!storyUserId) {
+          return true;
+        }
+
+        return (
+          !currentUserId ||
+          storyUserId === currentUserId
+        );
+      });
+
+      setMyStories(mine);
+
+      return mine;
+    } catch (error) {
+      console.log(
+        "LOAD STORIES ERROR:",
+        error
+      );
+
+      setMyStories([]);
+
+      return [];
+    } finally {
+      setStoriesLoading(false);
+    }
+  }, [user]);
+
+  const handleRefresh = useCallback(async () => {
+    setRefreshing(true);
+
+    try {
+      await loadHighlights();
+    } finally {
+      setRefreshing(false);
+    }
+  }, [loadHighlights]);
+
+  const openSettings = () => {
+    setMenuVisible(false);
+
     router.push("/settings");
-  }, [closeMenu]);
+  };
 
-  const openActivity = useCallback(() => {
-    closeMenu();
+
+  const openActivity = () => {
+    setMenuVisible(false);
 
     router.push(
       "/settings/activity/activity"
     );
-  }, [closeMenu]);
+  };
 
-  const openSaved = useCallback(() => {
-    closeMenu();
+
+  const openArchive = () => {
+    setMenuVisible(false);
+
+    router.push(
+      "/settings/activity/archived"
+    );
+  };
+
+
+  const openSaved = () => {
+    setMenuVisible(false);
 
     router.push("/saved");
-  }, [closeMenu]);
+  };
 
-  const openCloseFriends = useCallback(() => {
-    closeMenu();
+
+  const openCloseFriends = () => {
+    setMenuVisible(false);
 
     router.push(
       "/settings/privacy/close-friends"
     );
-  }, [closeMenu]);
+  };
 
-  const openFavorites = useCallback(() => {
-    closeMenu();
 
-    router.push(
-      "/settings/privacy/favorites"
-    );
-  }, [closeMenu]);
+  const openFollowers = () => {
+    const userId = getId(user);
 
-  const openNotifications = useCallback(() => {
-    closeMenu();
+    if (!userId) return;
 
     router.push(
-      "/settings/notifications/notifications"
+      `/profile/followers?userId=${encodeURIComponent(
+        userId
+      )}`
     );
-  }, [closeMenu]);
+  };
 
-  const openQRCode = useCallback(() => {
-    closeMenu();
 
-    Alert.alert(
-      "QR code",
-      "QR code is ready to be connected to your Snapgram QR screen."
-    );
-  }, [closeMenu]);
+  const openFollowing = () => {
+    const userId = getId(user);
 
-  const openFollowers = useCallback(() => {
-    if (!currentUserId) {
-      return;
-    }
+    if (!userId) return;
 
-    router.push({
-      pathname:
-        "/profile/followers",
-      params: {
-        userId: currentUserId,
-      },
-    });
-  }, [currentUserId]);
-
-  const openFollowing = useCallback(() => {
-    if (!currentUserId) {
-      return;
-    }
-
-    router.push({
-      pathname:
-        "/profile/following",
-      params: {
-        userId: currentUserId,
-      },
-    });
-  }, [currentUserId]);
-
-  const createPost = useCallback(() => {
     router.push(
-      "/(tabs)/create"
+      `/profile/following?userId=${encodeURIComponent(
+        userId
+      )}`
     );
-  }, []);
+  };
 
-  const openPost = useCallback(
-    (post) => {
-      const postId =
-        post?._id ||
-        post?.id;
 
-      if (!postId) {
-        return;
-      }
+  const openCreatePost = () => {
+    router.push("/(tabs)/create");
+  };
 
-      router.push({
-        pathname:
-          "/post/[id]",
-        params: {
-          id: String(postId),
-        },
+
+  const openShareProfile = async () => {
+    try {
+      const usernameValue =
+        getUsername(user);
+
+      const profileUrl =
+        `https://snapgram.app/${usernameValue}`;
+
+      await Share.share({
+        message:
+          `Check out @${usernameValue} on Snapgram\n${profileUrl}`,
       });
-    },
-    []
-  );
+    } catch (error) {
+      console.log(
+        "SHARE PROFILE ERROR:",
+        error
+      );
+    }
+  };
 
-  /* =======================================================
-     EDIT PROFILE
-     ======================================================= */
 
-  const openEditProfile = useCallback(() => {
-    /*
-     * FIX:
-     * Previously this used profile.fullName,
-     * but the profile object contains "name".
-     */
+  const openWebsite = async () => {
+    const url = normalizeWebsite(website);
 
-    setEditName(
-      profile.name || ""
+    if (!url) return;
+
+    try {
+      await Linking.openURL(url);
+    } catch {
+      Alert.alert(
+        "Unable to open link",
+        "This website could not be opened."
+      );
+    }
+  };
+
+  const openThreads = () => {
+    Alert.alert(
+      "Threads",
+      "Connect your Threads profile here when the Threads integration is available."
     );
+  };
 
-    setEditUsername(
-      profile.username || ""
-    );
+  const pickAvatar = async () => {
+    try {
+      const permission =
+        await ImagePicker.requestMediaLibraryPermissionsAsync();
 
-    setEditBio(
-      profile.bio || ""
-    );
-
-    setEditWebsite(
-      profile.website || ""
-    );
-
-    setEditPronouns(
-      profile.pronouns || ""
-    );
-
-    setEditGender(
-      profile.gender || ""
-    );
-
-    setSelectedAvatar(null);
-    setEditVisible(true);
-  }, [profile]);
-
-  /* =======================================================
-     PROFILE PHOTO
-     ======================================================= */
-
-  const changeProfilePhoto =
-    useCallback(async () => {
-      try {
-        const permission =
-          await ImagePicker.requestMediaLibraryPermissionsAsync();
-
-        if (!permission.granted) {
-          Alert.alert(
-            "Permission required",
-            "Snapgram needs access to your photos."
-          );
-
-          return;
-        }
-
-        const result =
-          await ImagePicker.launchImageLibraryAsync({
-            mediaTypes: ["images"],
-            allowsEditing: true,
-            aspect: [1, 1],
-            quality: 0.9,
-          });
-
-        if (
-          result.canceled ||
-          !result.assets?.length
-        ) {
-          return;
-        }
-
-        const asset =
-          result.assets[0];
-
-        setSelectedAvatar({
-          uri: asset.uri,
-          fileName:
-            asset.fileName ||
-            `snapgram-avatar-${Date.now()}.jpg`,
-          mimeType:
-            asset.mimeType ||
-            "image/jpeg",
-        });
-      } catch (error) {
-        console.error(
-          "PROFILE PHOTO ERROR:",
-          error
-        );
-
+      if (!permission.granted) {
         Alert.alert(
-          "Photo error",
-          "Unable to select profile photo."
-        );
-      }
-    }, []);
-
-  /* =======================================================
-     SAVE PROFILE
-     ======================================================= */
-
-  const saveProfile =
-    useCallback(async () => {
-      const cleanUsername =
-        editUsername
-          .trim()
-          .toLowerCase();
-
-      const cleanName =
-        editName.trim();
-
-      const cleanBio =
-        editBio.trim();
-
-      const cleanWebsite =
-        editWebsite.trim();
-
-      const cleanPronouns =
-        editPronouns.trim();
-
-      const cleanGender =
-        editGender.trim();
-
-      if (!cleanUsername) {
-        Alert.alert(
-          "Username required",
-          "Please enter a username."
+          "Photo access needed",
+          "Allow photo access to change your profile picture."
         );
 
         return;
       }
+
+      const result =
+        await ImagePicker.launchImageLibraryAsync({
+          mediaTypes: ["images"],
+          allowsEditing: true,
+          aspect: [1, 1],
+          quality: 0.9,
+        });
 
       if (
-        cleanUsername.length < 3
+        result.canceled ||
+        !result.assets?.length
       ) {
-        Alert.alert(
-          "Invalid username",
-          "Username must contain at least 3 characters."
-        );
-
         return;
       }
 
-      try {
-        setSaving(true);
-
-        const updatedUser =
-          await updateProfile({
-            name: cleanName,
-            username:
-              cleanUsername,
-            bio: cleanBio,
-            website:
-              cleanWebsite,
-            pronouns:
-              cleanPronouns,
-            gender:
-              cleanGender,
-            avatar:
-              selectedAvatar,
-          });
-
-        if (!updatedUser) {
-          throw new Error(
-            "Profile update returned no user."
-          );
-        }
-
-        setProfile(
-          (previous) => ({
-            ...previous,
-
-            username:
-              updatedUser.username ??
-              cleanUsername,
-
-            name:
-              updatedUser.name ??
-              cleanName,
-
-            bio:
-              updatedUser.bio ??
-              cleanBio,
-
-            avatar:
-              updatedUser.avatar ??
-              previous.avatar,
-
-            website:
-              updatedUser.website ??
-              cleanWebsite,
-
-            pronouns:
-              updatedUser.pronouns ??
-              cleanPronouns,
-
-            gender:
-              updatedUser.gender ??
-              cleanGender,
-
-            isVerified:
-              updatedUser.isVerified ??
-              previous.isVerified,
-          })
-        );
-
-        setSelectedAvatar(null);
-        setEditVisible(false);
-
-        Alert.alert(
-          "Profile updated",
-          "Your profile has been saved successfully."
-        );
-      } catch (error) {
-        console.error(
-          "SAVE PROFILE ERROR:",
-          error
-        );
-
-        Alert.alert(
-          "Update failed",
-          error?.response?.data?.message ||
-            error?.message ||
-            "Unable to save your profile."
-        );
-      } finally {
-        setSaving(false);
-      }
-    }, [
-      editUsername,
-      editName,
-      editBio,
-      editWebsite,
-      editPronouns,
-      editGender,
-      selectedAvatar,
-    ]);
-
-  /* =======================================================
-     SHARE PROFILE
-     ======================================================= */
-
-  const shareProfile =
-    useCallback(async () => {
-      try {
-        const username =
-          profile.username ||
-          "snapgram_user";
-
-        await Share.share({
-          message:
-            `Check out @${username} on Snapgram.`,
-        });
-      } catch (error) {
-        if (
-          error?.message !==
-          "User did not share"
-        ) {
-          console.error(
-            "SHARE PROFILE ERROR:",
-            error
-          );
-        }
-      }
-    }, [profile.username]);
-
-  /* =======================================================
-     CREATE HIGHLIGHT
-     ======================================================= */
-
-  const openCreateHighlight =
-    useCallback(() => {
-      if (!myStories.length) {
-        Alert.alert(
-          "No stories yet",
-          "Share a story first, then you can add it to a highlight."
-        );
-
-        return;
-      }
-
-      setHighlightTitle("");
-      setSelectedStoryIds([]);
-      setHighlightModalVisible(
-        true
+      setSelectedAvatar(
+        result.assets[0].uri
       );
-    }, [myStories.length]);
-
-  const toggleStorySelection =
-    useCallback((storyId) => {
-      setSelectedStoryIds(
-        (previous) =>
-          previous.includes(storyId)
-            ? previous.filter(
-                (id) =>
-                  id !== storyId
-              )
-            : [
-                ...previous,
-                storyId,
-              ]
+    } catch (error) {
+      console.log(
+        "AVATAR PICKER ERROR:",
+        error
       );
-    }, []);
+    }
+  };
 
-  const saveHighlight =
-    useCallback(async () => {
-      const cleanTitle =
-        highlightTitle.trim();
+  const saveProfile = async () => {
+    const cleanUsername =
+      username.trim().toLowerCase();
 
-      if (!cleanTitle) {
-        Alert.alert(
-          "Name required",
-          "Give your highlight a name."
+    const cleanName =
+      name.trim();
+
+    const cleanBio =
+      bio.trim();
+
+    if (cleanUsername.length < 3) {
+      Alert.alert(
+        "Invalid username",
+        "Username must contain at least 3 characters."
+      );
+
+      return;
+    }
+
+    try {
+      setSavingProfile(true);
+
+      const payload = {
+        username: cleanUsername,
+        name: cleanName,
+        bio: cleanBio,
+        website: website.trim(),
+        pronouns: pronouns.trim(),
+        gender: gender.trim(),
+        avatar: selectedAvatar,
+      };
+
+      const response =
+        await updateProfile(payload);
+
+      const updatedUser =
+        response?.user ||
+        response?.data?.user ||
+        response?.data ||
+        response;
+
+      setUsername(
+        updatedUser?.username ||
+        cleanUsername
+      );
+
+      setName(
+        updatedUser?.name ||
+        updatedUser?.fullName ||
+        cleanName
+      );
+
+      setBio(
+        updatedUser?.bio ??
+        cleanBio
+      );
+
+      setWebsite(
+        updatedUser?.website ??
+        website.trim()
+      );
+
+      setPronouns(
+        updatedUser?.pronouns ??
+        pronouns.trim()
+      );
+
+      setGender(
+        updatedUser?.gender ??
+        gender.trim()
+      );
+
+      setEditVisible(false);
+    } catch (error) {
+      console.log(
+        "SAVE PROFILE ERROR:",
+        error
+      );
+
+      Alert.alert(
+        "Couldn't save profile",
+        error?.message ||
+          "Please try again."
+      );
+    } finally {
+      setSavingProfile(false);
+    }
+  };
+
+  const openCreateHighlight = async () => {
+    setSelectedStories([]);
+    setHighlightName("");
+
+    const stories =
+      await loadMyStories();
+
+    if (!stories.length) {
+      Alert.alert(
+        "No stories available",
+        "Post a Story first, then you can add it to a Highlight."
+      );
+
+      return;
+    }
+
+    setHighlightVisible(true);
+  };
+
+
+  const toggleStorySelection = (storyId) => {
+    if (!storyId) return;
+
+    setSelectedStories((current) => {
+      if (current.includes(storyId)) {
+        return current.filter(
+          (id) => id !== storyId
         );
-
-        return;
       }
 
-      if (
-        !selectedStoryIds.length
-      ) {
-        Alert.alert(
-          "Select stories",
-          "Choose at least one story to add to this highlight."
-        );
+      return [
+        ...current,
+        storyId,
+      ];
+    });
+  };
 
-        return;
-      }
 
-      try {
-        setSavingHighlight(true);
+  const saveHighlight = async () => {
+    if (!selectedStories.length) {
+      Alert.alert(
+        "Select a Story",
+        "Choose at least one Story."
+      );
 
-        const coverStory =
-          myStories.find(
-            (story) =>
-              String(
-                story?._id ||
-                  story?.id
-              ) ===
-              String(
-                selectedStoryIds[0]
-              )
-          );
+      return;
+    }
 
-        const coverUrl =
-          getStoryImage(
-            coverStory
-          );
+    try {
+      setCreatingHighlight(true);
 
-        const saved =
-          await createHighlight({
-            title: cleanTitle,
-            storyIds:
-              selectedStoryIds,
-            coverUrl,
-          });
-
-        const localHighlight = {
-          id:
-            saved?.id ||
-            saved?._id ||
-            `local-${Date.now()}`,
-
-          title:
-            saved?.title ||
-            cleanTitle,
-
-          coverUrl:
-            saved?.coverUrl ??
-            coverUrl,
+      const response =
+        await createHighlight({
+          name:
+            highlightName.trim() ||
+            "Highlights",
 
           storyIds:
-            saved?.storyIds ||
-            selectedStoryIds,
-        };
+            selectedStories,
+        });
 
-        setHighlights(
-          (previous) => [
-            ...previous,
-            localHighlight,
-          ]
+      const created =
+        normalizeCreatedHighlight(
+          response
         );
 
-        setHighlightTitle("");
-        setSelectedStoryIds([]);
-        setHighlightModalVisible(
-          false
-        );
-      } catch (error) {
-        console.error(
-          "SAVE HIGHLIGHT ERROR:",
-          error
-        );
-
-        Alert.alert(
-          "Error",
-          error?.response?.data?.message ||
-            "Unable to create highlight."
-        );
-      } finally {
-        setSavingHighlight(false);
-      }
-    }, [
-      highlightTitle,
-      selectedStoryIds,
-      myStories,
-      getStoryImage,
-    ]);
-
-  /* =======================================================
-     OPEN HIGHLIGHT
-     ======================================================= */
-
-  const openHighlight =
-    useCallback((highlight) => {
-      const firstStoryId =
-        highlight?.storyIds?.[0];
-
-      if (!firstStoryId) {
-        return;
+      if (created) {
+        setHighlights((current) => [
+          created,
+          ...current,
+        ]);
+      } else {
+        await loadHighlights();
       }
 
-      const storyId =
-        typeof firstStoryId ===
-        "object"
-          ? firstStoryId?._id ||
-            firstStoryId?.id
-          : firstStoryId;
-
-      if (!storyId) {
-        return;
-      }
-
-      router.push({
-        pathname:
-          "/stories/[id]",
-        params: {
-          id: String(storyId),
-        },
-      });
-    }, []);
-
-  /* =======================================================
-     CONTENT
-     ======================================================= */
-
-  const renderContent =
-    useCallback(() => {
-      if (
-        selectedTab ===
-        "posts"
-      ) {
-        if (
-          profilePosts.length
-        ) {
-          return (
-            <ProfileGrid
-              posts={
-                profilePosts
-              }
-              onPostPress={
-                openPost
-              }
-              emptyMessage="No posts yet"
-            />
-          );
-        }
-
-        return (
-          <EmptyProfileState
-            icon="camera-outline"
-            title="No posts yet"
-            message="Share your first photo or video on Snapgram."
-            buttonLabel="Create post"
-            onPress={
-              createPost
-            }
-          />
-        );
-      }
-
-      if (
-        selectedTab ===
-        "reels"
-      ) {
-        if (
-          reelPosts.length
-        ) {
-          return (
-            <ProfileGrid
-              posts={
-                reelPosts
-              }
-              onPostPress={
-                openPost
-              }
-              emptyMessage="No reels yet"
-            />
-          );
-        }
-
-        return (
-          <EmptyProfileState
-            icon="play-circle-outline"
-            title="No reels yet"
-            message="Your reels will appear here."
-            buttonLabel="Create reel"
-            onPress={
-              createPost
-            }
-          />
-        );
-      }
-
-      if (
-        selectedTab ===
-        "saved"
-      ) {
-        return (
-          <EmptyProfileState
-            icon="bookmark-outline"
-            title="Saved"
-            message="Posts and reels you save will appear here."
-            buttonLabel="Open saved"
-            onPress={
-              openSaved
-            }
-          />
-        );
-      }
-
-      return (
-        <EmptyProfileState
-          icon="person-outline"
-          title="Tagged posts"
-          message="Posts you're tagged in will appear here."
-        />
+      setHighlightVisible(false);
+      setSelectedStories([]);
+      setHighlightName("");
+    } catch (error) {
+      console.log(
+        "CREATE HIGHLIGHT ERROR:",
+        error
       );
-    }, [
-      selectedTab,
-      profilePosts,
-      reelPosts,
-      openPost,
-      createPost,
-      openSaved,
-    ]);
 
-  /* =======================================================
-     LOADING
-     ======================================================= */
+      Alert.alert(
+        "Couldn't create Highlight",
+        error?.message ||
+          "Please try again."
+      );
+    } finally {
+      setCreatingHighlight(false);
+    }
+  };
+
+
+  const openHighlight = (highlight) => {
+    const highlightId =
+      getId(highlight);
+
+    if (!highlightId) return;
+
+    router.push(
+      `/stories/${highlightId}`
+    );
+  };
 
   if (authLoading) {
     return (
-      <View
-        style={
-          styles.loadingScreen
-        }
+      <SafeAreaView
+        style={styles.loadingScreen}
+        edges={["top"]}
       >
-        <ActivityIndicator
-          size="small"
-          color={TEXT}
-        />
-
-        <Text
-          style={
-            styles.loadingText
-          }
-        >
+        <Text style={styles.loadingText}>
           Loading profile...
         </Text>
-      </View>
+      </SafeAreaView>
     );
   }
 
+
   if (!user) {
-    return null;
+    return (
+      <SafeAreaView
+        style={styles.loadingScreen}
+        edges={["top"]}
+      >
+        <Text style={styles.loadingText}>
+          Profile unavailable
+        </Text>
+      </SafeAreaView>
+    );
   }
 
-  const displayAvatar =
-    selectedAvatar?.uri ||
-    profile.avatar;
+  const avatarUri =
+    getProfileAvatar(user);
 
-  /* =======================================================
-     RENDER
-     ======================================================= */
+  const displayName =
+    getDisplayName(user);
+
+  const displayUsername =
+    getUsername(user);
+
+  const websiteValue =
+    user?.website ||
+    user?.link ||
+    website;
+
+  const musicTitle =
+    user?.profileMusic?.title ||
+    user?.music?.title ||
+    null;
+
+  const musicArtist =
+    user?.profileMusic?.artist ||
+    user?.music?.artist ||
+    null;
+
+  const isPrivate =
+    Boolean(user?.isPrivate);
+
 
   return (
-    <View
-      style={styles.container}
+    <SafeAreaView
+      style={styles.safeArea}
+      edges={["top"]}
     >
-      {/* ===================================================
-          HEADER
-          =================================================== */}
-
-      <View
-        style={styles.header}
-      >
-        <Text
-          style={
-            styles.headerUsername
-          }
-          numberOfLines={1}
-        >
-          {profile.username ||
-            "snapgram_user"}
-        </Text>
-
-        <View
-          style={
-            styles.headerActions
-          }
-        >
-          <TouchableOpacity
-            onPress={
-              openEditProfile
-            }
-            activeOpacity={0.7}
-            style={
-              styles.headerButton
-            }
-            hitSlop={10}
-          >
-            <Ionicons
-              name="create-outline"
-              size={24}
-              color={TEXT}
+      <View style={styles.screen}>
+        <ScrollView
+          showsVerticalScrollIndicator={false}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={handleRefresh}
+              tintColor={COLORS.black}
             />
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            onPress={openMenu}
-            activeOpacity={0.7}
-            style={
-              styles.headerButton
-            }
-            hitSlop={10}
-          >
-            <Ionicons
-              name="menu-outline"
-              size={28}
-              color={TEXT}
-            />
-          </TouchableOpacity>
-        </View>
-      </View>
-
-      {/* ===================================================
-          PROFILE SCROLL
-          =================================================== */}
-
-      <ScrollView
-        showsVerticalScrollIndicator={
-          false
-        }
-        keyboardShouldPersistTaps="handled"
-        contentContainerStyle={
-          styles.scrollContent
-        }
-      >
-        {/* =================================================
-            PROFILE HEADER
-            ================================================= */}
-
-        <View
-          style={
-            styles.profileHeader
           }
         >
-          {/* Avatar */}
 
-          <TouchableOpacity
-            onPress={
-              openEditProfile
-            }
-            activeOpacity={0.9}
-            style={
-              styles.avatarTouch
-            }
-          >
-            <View
-              style={
-                styles.avatarOuter
-              }
+          <View style={styles.header}>
+
+            <TouchableOpacity
+              style={styles.headerIcon}
+              onPress={openCreatePost}
+              activeOpacity={0.7}
             >
-              <View
+              <Ionicons
+                name="add-outline"
+                size={32}
+                color={COLORS.black}
+              />
+            </TouchableOpacity>
+
+
+            <View
+              style={styles.usernameHeader}
+            >
+              {isPrivate && (
+                <Ionicons
+                  name="lock-closed"
+                  size={17}
+                  color={COLORS.black}
+                  style={styles.lockIcon}
+                />
+              )}
+
+              <Text
+                style={styles.headerUsername}
+                numberOfLines={1}
+              >
+                {displayUsername}
+              </Text>
+
+              <Ionicons
+                name="chevron-down"
+                size={18}
+                color={COLORS.black}
+              />
+            </View>
+
+
+            <View style={styles.headerRight}>
+
+              <TouchableOpacity
+                style={styles.headerIcon}
+                onPress={openThreads}
+                activeOpacity={0.7}
+              >
+                <Ionicons
+                  name="at-outline"
+                  size={30}
+                  color={COLORS.black}
+                />
+              </TouchableOpacity>
+
+
+              <TouchableOpacity
+                style={styles.headerIcon}
+                onPress={() =>
+                  setMenuVisible(true)
+                }
+                activeOpacity={0.7}
+              >
+                <Ionicons
+                  name="menu-outline"
+                  size={32}
+                  color={COLORS.black}
+                />
+              </TouchableOpacity>
+
+            </View>
+          </View>
+
+          <View style={styles.profileSection}>
+
+            <View style={styles.topProfileRow}>
+
+              {/* Avatar */}
+
+              <View style={styles.avatarWrapper}>
+                <TouchableOpacity
+                  activeOpacity={0.8}
+                  onPress={() =>
+                    setEditVisible(true)
+                  }
+                >
+                  {avatarUri ? (
+                    <Image
+                      source={{
+                        uri: avatarUri,
+                      }}
+                      style={styles.avatar}
+                    />
+                  ) : (
+                    <View
+                      style={[
+                        styles.avatar,
+                        styles.avatarPlaceholder,
+                      ]}
+                    >
+                      <Ionicons
+                        name="person"
+                        size={44}
+                        color={COLORS.gray}
+                      />
+                    </View>
+                  )}
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={styles.addStoryButton}
+                  onPress={openCreatePost}
+                  activeOpacity={0.8}
+                >
+                  <Ionicons
+                    name="add"
+                    size={20}
+                    color={COLORS.white}
+                  />
+                </TouchableOpacity>
+
+              </View>
+
+              <View style={styles.statsRow}>
+
+                <Stat
+                  value={formatCount(postsCount)}
+                  label="posts"
+                />
+
+                <TouchableOpacity
+                  style={styles.stat}
+                  onPress={openFollowers}
+                  activeOpacity={0.7}
+                >
+                  <Text style={styles.statNumber}>
+                    {formatCount(
+                      followersCount
+                    )}
+                  </Text>
+
+                  <Text style={styles.statLabel}>
+                    followers
+                  </Text>
+                </TouchableOpacity>
+
+
+                <TouchableOpacity
+                  style={styles.stat}
+                  onPress={openFollowing}
+                  activeOpacity={0.7}
+                >
+                  <Text style={styles.statNumber}>
+                    {formatCount(
+                      followingCount
+                    )}
+                  </Text>
+
+                  <Text style={styles.statLabel}>
+                    following
+                  </Text>
+                </TouchableOpacity>
+
+              </View>
+
+            </View>
+
+            <View style={styles.bioSection}>
+
+              <View style={styles.nameRow}>
+                <Text style={styles.displayName}>
+                  {displayName}
+                </Text>
+
+                {user?.isVerified && (
+                  <VerifiedBadge
+                    size={17}
+                  />
+                )}
+              </View>
+
+
+              {user?.bio ? (
+                <Text style={styles.bioText}>
+                  {user.bio}
+                </Text>
+              ) : null}
+
+
+              {websiteValue ? (
+                <TouchableOpacity
+                  onPress={openWebsite}
+                  activeOpacity={0.7}
+                  style={styles.websiteRow}
+                >
+                  <Ionicons
+                    name="link-outline"
+                    size={22}
+                    color={COLORS.black}
+                  />
+
+                  <Text
+                    style={styles.websiteText}
+                    numberOfLines={2}
+                  >
+                    {websiteValue.replace(
+                      /^https?:\/\//,
+                      ""
+                    )}
+                  </Text>
+                </TouchableOpacity>
+              ) : null}
+
+
+              {musicTitle ? (
+                <View style={styles.musicRow}>
+
+                  <Ionicons
+                    name="play-circle-outline"
+                    size={22}
+                    color={COLORS.black}
+                  />
+
+                  <Text
+                    style={styles.musicText}
+                    numberOfLines={1}
+                  >
+                    {musicTitle}
+
+                    {musicArtist
+                      ? ` · ${musicArtist}`
+                      : ""}
+                  </Text>
+
+                </View>
+              ) : null}
+
+            </View>
+
+            <View style={styles.actionRow}>
+
+              <TouchableOpacity
+                style={[
+                  styles.profileButton,
+                  styles.profileButtonLarge,
+                ]}
+                onPress={() =>
+                  setEditVisible(true)
+                }
+                activeOpacity={0.8}
+              >
+                <Text
+                  style={
+                    styles.profileButtonText
+                  }
+                >
+                  Edit profile
+                </Text>
+              </TouchableOpacity>
+
+
+              <TouchableOpacity
+                style={[
+                  styles.profileButton,
+                  styles.profileButtonLarge,
+                ]}
+                onPress={openShareProfile}
+                activeOpacity={0.8}
+              >
+                <Text
+                  style={
+                    styles.profileButtonText
+                  }
+                >
+                  Share profile
+                </Text>
+              </TouchableOpacity>
+
+
+              <TouchableOpacity
                 style={
-                  styles.avatar
+                  styles.addPersonButton
+                }
+                onPress={() =>
+                  router.push(
+                    "/profile/followers"
+                  )
+                }
+                activeOpacity={0.8}
+              >
+                <Ionicons
+                  name="person-add-outline"
+                  size={21}
+                  color={COLORS.black}
+                />
+              </TouchableOpacity>
+
+            </View>
+
+            <View
+              style={styles.highlightsSection}
+            >
+
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={
+                  false
+                }
+                contentContainerStyle={
+                  styles.highlightsContent
                 }
               >
-                {displayAvatar ? (
+
+                <TouchableOpacity
+                  style={styles.highlightItem}
+                  onPress={
+                    openCreateHighlight
+                  }
+                  activeOpacity={0.8}
+                >
+                  <View
+                    style={[
+                      styles.highlightCircle,
+                      styles.newHighlightCircle,
+                    ]}
+                  >
+                    <Ionicons
+                      name="add"
+                      size={34}
+                      color={COLORS.black}
+                    />
+                  </View>
+
+                  <Text
+                    style={
+                      styles.highlightLabel
+                    }
+                    numberOfLines={1}
+                  >
+                    New
+                  </Text>
+                </TouchableOpacity>
+
+                {highlights.map(
+                  (highlight, index) => {
+                    const highlightId =
+                      getId(
+                        highlight
+                      ) ||
+                      `highlight-${index}`;
+
+                    const cover =
+                      getImageUri(
+                        highlight?.cover
+                      ) ||
+                      getImageUri(
+                        highlight?.coverImage
+                      ) ||
+                      getImageUri(
+                        highlight?.image
+                      );
+
+                    const label =
+                      highlight?.name ||
+                      highlight?.title ||
+                      "Highlight";
+
+                    return (
+                      <TouchableOpacity
+                        key={highlightId}
+                        style={
+                          styles.highlightItem
+                        }
+                        onPress={() =>
+                          openHighlight(
+                            highlight
+                          )
+                        }
+                        activeOpacity={0.8}
+                      >
+
+                        <View
+                          style={
+                            styles.highlightCircle
+                          }
+                        >
+                          {cover ? (
+                            <Image
+                              source={{
+                                uri: cover,
+                              }}
+                              style={
+                                styles.highlightImage
+                              }
+                            />
+                          ) : (
+                            <View
+                              style={
+                                styles.highlightPlaceholder
+                              }
+                            >
+                              <Ionicons
+                                name="images-outline"
+                                size={27}
+                                color={
+                                  COLORS.gray
+                                }
+                              />
+                            </View>
+                          )}
+                        </View>
+
+                        <Text
+                          style={
+                            styles.highlightLabel
+                          }
+                          numberOfLines={1}
+                        >
+                          {label}
+                        </Text>
+
+                      </TouchableOpacity>
+                    );
+                  }
+                )}
+
+              </ScrollView>
+
+            </View>
+
+          </View>
+
+          <View style={styles.tabsContainer}>
+
+            {TABS.map((tab) => {
+              const selected =
+                activeTab === tab.key;
+
+              return (
+                <TouchableOpacity
+                  key={tab.key}
+                  style={styles.tabButton}
+                  onPress={() =>
+                    setActiveTab(tab.key)
+                  }
+                  activeOpacity={0.7}
+                >
+                  <Ionicons
+                    name={tab.icon}
+                    size={26}
+                    color={
+                      selected
+                        ? COLORS.black
+                        : COLORS.muted
+                    }
+                  />
+
+                  {selected && (
+                    <View
+                      style={styles.activeTabLine}
+                    />
+                  )}
+                </TouchableOpacity>
+              );
+            })}
+
+          </View>
+
+          {visiblePosts.length > 0 ? (
+            <ProfileGrid
+              posts={visiblePosts}
+            />
+          ) : (
+            <ProfileEmptyState
+              tab={activeTab}
+              onCreatePost={
+                activeTab === "posts"
+                  ? openCreatePost
+                  : undefined
+              }
+            />
+          )}
+
+        </ScrollView>
+
+        <Modal
+          visible={menuVisible}
+          transparent
+          animationType="slide"
+          onRequestClose={() =>
+            setMenuVisible(false)
+          }
+        >
+          <Pressable
+            style={styles.modalBackdrop}
+            onPress={() =>
+              setMenuVisible(false)
+            }
+          >
+            <Pressable
+              style={styles.menuSheet}
+              onPress={(event) =>
+                event.stopPropagation()
+              }
+            >
+
+              <View
+                style={styles.sheetHandle}
+              />
+
+
+              <Text style={styles.menuTitle}>
+                Menu
+              </Text>
+
+
+              <MenuItem
+                icon="settings-outline"
+                label="Settings and activity"
+                onPress={openSettings}
+              />
+
+
+              <MenuItem
+                icon="time-outline"
+                label="Your activity"
+                onPress={openActivity}
+              />
+
+
+              <MenuItem
+                icon="archive-outline"
+                label="Archive"
+                onPress={openArchive}
+              />
+
+
+              <MenuItem
+                icon="bookmark-outline"
+                label="Saved"
+                onPress={openSaved}
+              />
+
+
+              <MenuItem
+                icon="people-outline"
+                label="Close friends"
+                onPress={openCloseFriends}
+              />
+
+
+              <View
+                style={styles.menuDivider}
+              />
+
+
+              <MenuItem
+                icon="close-outline"
+                label="Cancel"
+                onPress={() =>
+                  setMenuVisible(false)
+                }
+              />
+
+            </Pressable>
+          </Pressable>
+        </Modal>
+
+        <Modal
+          visible={editVisible}
+          animationType="slide"
+          presentationStyle="pageSheet"
+          onRequestClose={() =>
+            setEditVisible(false)
+          }
+        >
+          <SafeAreaView
+            style={styles.editScreen}
+            edges={["top"]}
+          >
+
+            <View style={styles.editHeader}>
+
+              <TouchableOpacity
+                onPress={() =>
+                  setEditVisible(false)
+                }
+                activeOpacity={0.7}
+              >
+                <Ionicons
+                  name="close-outline"
+                  size={31}
+                  color={COLORS.black}
+                />
+              </TouchableOpacity>
+
+
+              <Text
+                style={styles.editHeaderTitle}
+              >
+                Edit profile
+              </Text>
+
+
+              <TouchableOpacity
+                onPress={saveProfile}
+                disabled={savingProfile}
+                activeOpacity={0.7}
+              >
+                <Text
+                  style={[
+                    styles.saveText,
+                    savingProfile &&
+                      styles.disabledText,
+                  ]}
+                >
+                  {savingProfile
+                    ? "Saving..."
+                    : "Done"}
+                </Text>
+              </TouchableOpacity>
+
+            </View>
+
+
+            <ScrollView
+              contentContainerStyle={
+                styles.editContent
+              }
+              keyboardShouldPersistTaps="handled"
+              showsVerticalScrollIndicator={
+                false
+              }
+            >
+
+              <TouchableOpacity
+                style={
+                  styles.editAvatarContainer
+                }
+                onPress={pickAvatar}
+                activeOpacity={0.8}
+              >
+
+                {selectedAvatar ? (
                   <Image
                     source={{
-                      uri:
-                        displayAvatar,
+                      uri: selectedAvatar,
                     }}
                     style={
-                      styles.avatarImage
+                      styles.editAvatar
                     }
                   />
                 ) : (
                   <View
-                    style={
-                      styles.avatarPlaceholder
-                    }
+                    style={[
+                      styles.editAvatar,
+                      styles.avatarPlaceholder,
+                    ]}
                   >
                     <Ionicons
                       name="person"
-                      size={42}
-                      color="#A0A0A0"
+                      size={52}
+                      color={COLORS.gray}
                     />
                   </View>
                 )}
-              </View>
-            </View>
-          </TouchableOpacity>
 
-          {/* Stats */}
+                <Text
+                  style={
+                    styles.changePhotoText
+                  }
+                >
+                  Change profile photo
+                </Text>
 
-          <View
-            style={styles.stats}
-          >
-            <ProfileStat
-              value={postCount}
-              label="posts"
-            />
+              </TouchableOpacity>
 
-            <ProfileStat
-              value={
-                followersCount
-              }
-              label="followers"
-              onPress={
-                openFollowers
-              }
-            />
 
-            <ProfileStat
-              value={
-                followingCount
-              }
-              label="following"
-              onPress={
-                openFollowing
-              }
-            />
-          </View>
-        </View>
+              <EditField
+                label="Username"
+                value={username}
+                onChangeText={setUsername}
+                autoCapitalize="none"
+                autoCorrect={false}
+              />
 
-        {/* =================================================
-            BIO
-            ================================================= */}
 
-        <View
-          style={styles.bioSection}
-        >
-          <View
-            style={
-              styles.nameRow
-            }
-          >
-            <Text
-              style={styles.name}
-              numberOfLines={1}
-            >
-              {profile.name ||
-                "Snapgram User"}
-            </Text>
+              <EditField
+                label="Name"
+                value={name}
+                onChangeText={setName}
+              />
 
-            {profile.isVerified ? (
-              <VerifiedBadge
-                size={17}
-                style={
-                  styles.verifiedBadge
+
+              <EditField
+                label="Bio"
+                value={bio}
+                onChangeText={setBio}
+                multiline
+                maxLength={150}
+                inputStyle={
+                  styles.bioInput
                 }
               />
-            ) : null}
-          </View>
 
-          {profile.pronouns ? (
-            <Text
-              style={
-                styles.pronouns
-              }
-            >
-              {profile.pronouns}
-            </Text>
-          ) : null}
 
-          {profile.bio ? (
-            <Text
-              style={styles.bio}
-            >
-              {profile.bio}
-            </Text>
-          ) : null}
+              <EditField
+                label="Website"
+                value={website}
+                onChangeText={setWebsite}
+                autoCapitalize="none"
+                autoCorrect={false}
+                keyboardType="url"
+              />
 
-          {profile.website ? (
-            <Text
-              style={
-                styles.website
-              }
-              numberOfLines={1}
-            >
-              {profile.website}
-            </Text>
-          ) : null}
-        </View>
+              <EditField
+                label="Pronouns"
+                value={pronouns}
+                onChangeText={setPronouns}
+              />
 
-        {/* =================================================
-            PROFILE BUTTONS
-            ================================================= */}
+              <EditField
+                label="Gender"
+                value={gender}
+                onChangeText={setGender}
+              />
 
-        <View
-          style={
-            styles.profileActions
+            </ScrollView>
+
+          </SafeAreaView>
+        </Modal>
+
+        <Modal
+          visible={highlightVisible}
+          animationType="slide"
+          presentationStyle="pageSheet"
+          onRequestClose={() =>
+            setHighlightVisible(false)
           }
         >
-          <TouchableOpacity
-            style={
-              styles.profileButton
-            }
-            onPress={
-              openEditProfile
-            }
-            activeOpacity={0.8}
+          <SafeAreaView
+            style={styles.highlightModal}
+            edges={["top"]}
           >
-            <Text
+
+            <View
               style={
-                styles.profileButtonText
+                styles.highlightModalHeader
               }
             >
-              Edit profile
-            </Text>
-          </TouchableOpacity>
 
-          <TouchableOpacity
-            style={
-              styles.profileButton
-            }
-            onPress={
-              shareProfile
-            }
-            activeOpacity={0.8}
-          >
-            <Text
-              style={
-                styles.profileButtonText
-              }
-            >
-              Share profile
-            </Text>
-          </TouchableOpacity>
-        </View>
-
-        {/* =================================================
-            HIGHLIGHTS
-            ================================================= */}
-
-        <View
-          style={
-            styles.highlightsSection
-          }
-        >
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={
-              false
-            }
-            contentContainerStyle={
-              styles.highlightsScroll
-            }
-          >
-            {/* NEW HIGHLIGHT */}
-
-            <TouchableOpacity
-              style={
-                styles.highlightItem
-              }
-              onPress={
-                openCreateHighlight
-              }
-              activeOpacity={0.8}
-            >
-              <View
-                style={
-                  styles.newHighlightCircle
+              <TouchableOpacity
+                onPress={() =>
+                  setHighlightVisible(false)
                 }
+                activeOpacity={0.7}
               >
                 <Ionicons
-                  name="add"
-                  size={28}
-                  color={TEXT}
+                  name="close-outline"
+                  size={31}
+                  color={COLORS.black}
                 />
-              </View>
+              </TouchableOpacity>
+
 
               <Text
                 style={
-                  styles.highlightLabel
+                  styles.highlightModalTitle
                 }
-                numberOfLines={1}
               >
-                New
+                New Highlight
               </Text>
-            </TouchableOpacity>
 
-            {/* EXISTING HIGHLIGHTS */}
 
-            {highlights.map(
-              (
-                item,
-                index
-              ) => {
-                const id =
-                  String(
-                    item?.id ||
-                      item?._id ||
-                      `highlight-${index}`
-                  );
-
-                const cover =
-                  item?.coverUrl ||
-                  item?.cover?.url ||
-                  item?.cover?.secure_url ||
-                  item?.image ||
-                  null;
-
-                return (
-                  <TouchableOpacity
-                    key={id}
-                    style={
-                      styles.highlightItem
-                    }
-                    onPress={() =>
-                      openHighlight(
-                        item
-                      )
-                    }
-                    activeOpacity={0.8}
-                  >
-                    <View
-                      style={
-                        styles.highlightCircle
-                      }
-                    >
-                      {cover ? (
-                        <Image
-                          source={{
-                            uri:
-                              cover,
-                          }}
-                          style={
-                            styles.highlightImage
-                          }
-                        />
-                      ) : (
-                        <Ionicons
-                          name="images-outline"
-                          size={25}
-                          color="#777"
-                        />
-                      )}
-                    </View>
-
-                    <Text
-                      style={
-                        styles.highlightLabel
-                      }
-                      numberOfLines={1}
-                    >
-                      {item?.title ||
-                        "Highlight"}
-                    </Text>
-                  </TouchableOpacity>
-                );
-              }
-            )}
-          </ScrollView>
-        </View>
-
-        {/* =================================================
-            PROFILE TABS
-            ================================================= */}
-
-        <ProfileTabs
-          activeTab={
-            selectedTab
-          }
-          onChange={
-            setSelectedTab
-          }
-          showReels
-          showTagged
-        />
-
-        {/* =================================================
-            TAB CONTENT
-            ================================================= */}
-
-        {renderContent()}
-      </ScrollView>
-
-      {/* ===================================================
-          INSTAGRAM-STYLE MENU
-          =================================================== */}
-
-      <Modal
-        visible={menuVisible}
-        transparent
-        animationType="slide"
-        onRequestClose={
-          closeMenu
-        }
-      >
-        <View
-          style={
-            styles.menuOverlay
-          }
-        >
-          {/* Tap outside */}
-
-          <Pressable
-            style={
-              styles.menuBackdrop
-            }
-            onPress={
-              closeMenu
-            }
-          />
-
-          {/* Bottom sheet */}
-
-          <View
-            style={
-              styles.menuSheet
-            }
-          >
-            <View
-              style={
-                styles.menuHandle
-              }
-            />
-
-            {/* Settings */}
-
-            <MenuItem
-              icon="settings-outline"
-              title="Settings and activity"
-              onPress={
-                openSettings
-              }
-            />
-
-            {/* Activity */}
-
-            <MenuItem
-              icon="time-outline"
-              title="Your activity"
-              onPress={
-                openActivity
-              }
-            />
-
-            {/* Saved */}
-
-            <MenuItem
-              icon="bookmark-outline"
-              title="Saved"
-              onPress={
-                openSaved
-              }
-            />
-
-            {/* Close Friends */}
-
-            <MenuItem
-              icon="people-outline"
-              title="Close friends"
-              onPress={
-                openCloseFriends
-              }
-            />
-
-            {/* Favorites */}
-
-            <MenuItem
-              icon="star-outline"
-              title="Favorites"
-              onPress={
-                openFavorites
-              }
-            />
-
-            {/* QR */}
-
-            <MenuItem
-              icon="qr-code-outline"
-              title="QR code"
-              onPress={
-                openQRCode
-              }
-            />
-
-            {/* Notifications */}
-
-            <MenuItem
-              icon="notifications-outline"
-              title="Notifications"
-              onPress={
-                openNotifications
-              }
-            />
-
-            {/* Cancel */}
-
-            <TouchableOpacity
-              style={
-                styles.menuCancel
-              }
-              onPress={
-                closeMenu
-              }
-              activeOpacity={0.7}
-            >
-              <Text
-                style={
-                  styles.menuCancelText
+              <TouchableOpacity
+                onPress={saveHighlight}
+                disabled={
+                  creatingHighlight
                 }
+                activeOpacity={0.7}
               >
-                Cancel
-              </Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      </Modal>
-
-      {/* ===================================================
-          EDIT PROFILE MODAL
-          =================================================== */}
-
-      <Modal
-        visible={
-          editVisible
-        }
-        animationType="slide"
-        presentationStyle="pageSheet"
-        onRequestClose={() =>
-          !saving &&
-          setEditVisible(false)
-        }
-      >
-        <View
-          style={
-            styles.modalContainer
-          }
-        >
-          <View
-            style={
-              styles.modalHeader
-            }
-          >
-            <TouchableOpacity
-              onPress={() =>
-                !saving &&
-                setEditVisible(
-                  false
-                )
-              }
-              disabled={
-                saving
-              }
-              hitSlop={10}
-            >
-              <Text
-                style={
-                  styles.modalCancel
-                }
-              >
-                Cancel
-              </Text>
-            </TouchableOpacity>
-
-            <Text
-              style={
-                styles.modalTitle
-              }
-            >
-              Edit profile
-            </Text>
-
-            <TouchableOpacity
-              onPress={
-                saveProfile
-              }
-              disabled={
-                saving
-              }
-              hitSlop={10}
-            >
-              <Text
-                style={[
-                  styles.modalSave,
-                  saving &&
-                    styles.disabled,
-                ]}
-              >
-                {saving
-                  ? "Saving..."
-                  : "Done"}
-              </Text>
-            </TouchableOpacity>
-          </View>
-
-          <ScrollView
-            showsVerticalScrollIndicator={
-              false
-            }
-            keyboardShouldPersistTaps="handled"
-            contentContainerStyle={
-              styles.form
-            }
-          >
-            {/* PROFILE PHOTO */}
-
-            <TouchableOpacity
-              style={
-                styles.photoEditor
-              }
-              onPress={
-                changeProfilePhoto
-              }
-              disabled={
-                saving
-              }
-              activeOpacity={0.8}
-            >
-              <View
-                style={
-                  styles.editAvatarWrapper
-                }
-              >
-                <View
-                  style={
-                    styles.editAvatar
-                  }
-                >
-                  {selectedAvatar?.uri ||
-                  profile.avatar ? (
-                    <Image
-                      source={{
-                        uri:
-                          selectedAvatar?.uri ||
-                          profile.avatar,
-                      }}
-                      style={
-                        styles.editAvatarImage
-                      }
-                    />
-                  ) : (
-                    <Ionicons
-                      name="person"
-                      size={45}
-                      color="#999"
-                    />
-                  )}
-                </View>
-
-                <View
-                  style={
-                    styles.editCameraBadge
-                  }
-                >
-                  <Ionicons
-                    name="camera"
-                    size={15}
-                    color={WHITE}
-                  />
-                </View>
-              </View>
-
-              <Text
-                style={
-                  styles.changePhoto
-                }
-              >
-                Change profile photo
-              </Text>
-            </TouchableOpacity>
-
-            <EditField
-              label="Name"
-              value={
-                editName
-              }
-              onChangeText={
-                setEditName
-              }
-              placeholder="Your full name"
-            />
-
-            <EditField
-              label="Username"
-              value={
-                editUsername
-              }
-              onChangeText={
-                setEditUsername
-              }
-              placeholder="Username"
-              autoCapitalize="none"
-            />
-
-            <EditField
-              label="Bio"
-              value={
-                editBio
-              }
-              onChangeText={
-                setEditBio
-              }
-              placeholder="Write something about yourself..."
-              multiline
-              maxLength={150}
-            />
-
-            <EditField
-              label="Links"
-              value={
-                editWebsite
-              }
-              onChangeText={
-                setEditWebsite
-              }
-              placeholder="Add a website or link"
-              keyboardType="url"
-              autoCapitalize="none"
-            />
-
-            <EditField
-              label="Pronouns"
-              value={
-                editPronouns
-              }
-              onChangeText={
-                setEditPronouns
-              }
-              placeholder="Add your pronouns"
-            />
-
-            <EditField
-              label="Gender"
-              value={
-                editGender
-              }
-              onChangeText={
-                setEditGender
-              }
-              placeholder="Add your gender"
-            />
-
-            {profile.isVerified ? (
-              <View
-                style={
-                  styles.verifiedInfo
-                }
-              >
-                <VerifiedBadge
-                  size={20}
-                />
-
-                <View
-                  style={
-                    styles.verifiedInfoCopy
-                  }
-                >
-                  <Text
-                    style={
-                      styles.verifiedInfoTitle
-                    }
-                  >
-                    Verified account
-                  </Text>
-
-                  <Text
-                    style={
-                      styles.verifiedInfoText
-                    }
-                  >
-                    Your account is verified.
-                  </Text>
-                </View>
-              </View>
-            ) : null}
-
-            {/* SETTINGS LINK */}
-
-            <TouchableOpacity
-              style={
-                styles.settingsLink
-              }
-              onPress={() => {
-                if (saving) {
-                  return;
-                }
-
-                setEditVisible(
-                  false
-                );
-
-                router.push(
-                  "/settings"
-                );
-              }}
-              disabled={
-                saving
-              }
-              activeOpacity={0.7}
-            >
-              <View
-                style={
-                  styles.settingsLinkLeft
-                }
-              >
-                <View
-                  style={
-                    styles.settingsLinkIcon
-                  }
-                >
-                  <Ionicons
-                    name="settings-outline"
-                    size={19}
-                    color={TEXT}
-                  />
-                </View>
-
                 <Text
-                  style={
-                    styles.settingsLinkText
-                  }
+                  style={[
+                    styles.saveText,
+                    creatingHighlight &&
+                      styles.disabledText,
+                  ]}
                 >
-                  Settings and activity
+                  {creatingHighlight
+                    ? "Saving..."
+                    : "Done"}
                 </Text>
-              </View>
+              </TouchableOpacity>
 
-              <Ionicons
-                name="chevron-forward"
-                size={19}
-                color="#999"
-              />
-            </TouchableOpacity>
-          </ScrollView>
-        </View>
-      </Modal>
-
-      {/* ===================================================
-          NEW HIGHLIGHT MODAL
-          =================================================== */}
-
-      <Modal
-        visible={
-          highlightModalVisible
-        }
-        animationType="slide"
-        presentationStyle="pageSheet"
-        onRequestClose={() =>
-          !savingHighlight &&
-          setHighlightModalVisible(
-            false
-          )
-        }
-      >
-        <View
-          style={
-            styles.modalContainer
-          }
-        >
-          <View
-            style={
-              styles.modalHeader
-            }
-          >
-            <TouchableOpacity
-              onPress={() =>
-                !savingHighlight &&
-                setHighlightModalVisible(
-                  false
-                )
-              }
-              disabled={
-                savingHighlight
-              }
-              hitSlop={10}
-            >
-              <Text
-                style={
-                  styles.modalCancel
-                }
-              >
-                Cancel
-              </Text>
-            </TouchableOpacity>
-
-            <Text
-              style={
-                styles.modalTitle
-              }
-            >
-              New highlight
-            </Text>
-
-            <TouchableOpacity
-              onPress={
-                saveHighlight
-              }
-              disabled={
-                savingHighlight
-              }
-              hitSlop={10}
-            >
-              <Text
-                style={[
-                  styles.modalSave,
-                  savingHighlight &&
-                    styles.disabled,
-                ]}
-              >
-                {savingHighlight
-                  ? "Saving..."
-                  : "Done"}
-              </Text>
-            </TouchableOpacity>
-          </View>
-
-          <ScrollView
-            showsVerticalScrollIndicator={
-              false
-            }
-            keyboardShouldPersistTaps="handled"
-            contentContainerStyle={
-              styles.form
-            }
-          >
-            <EditField
-              label="Name"
-              value={
-                highlightTitle
-              }
-              onChangeText={
-                setHighlightTitle
-              }
-              placeholder="Highlight name"
-              maxLength={16}
-            />
-
-            <View
-              style={
-                styles.selectStoriesHeader
-              }
-            >
-              <Text
-                style={
-                  styles.fieldLabel
-                }
-              >
-                Select stories
-              </Text>
-
-              {selectedStoryIds.length >
-              0 ? (
-                <Text
-                  style={
-                    styles.selectedCount
-                  }
-                >
-                  {
-                    selectedStoryIds.length
-                  }{" "}
-                  selected
-                </Text>
-              ) : null}
             </View>
+
+
+            <View
+              style={
+                styles.highlightNameContainer
+              }
+            >
+
+              <TextInput
+                value={highlightName}
+                onChangeText={
+                  setHighlightName
+                }
+                placeholder="Highlight name"
+                placeholderTextColor={
+                  COLORS.muted
+                }
+                style={
+                  styles.highlightNameInput
+                }
+                maxLength={32}
+              />
+
+            </View>
+
+
+            <View
+              style={
+                styles.selectedCountContainer
+              }
+            >
+              <Text
+                style={
+                  styles.selectedCountText
+                }
+              >
+                {selectedStories.length}{" "}
+                selected
+              </Text>
+            </View>
+
 
             {storiesLoading ? (
               <View
                 style={
-                  styles.storyGridLoading
+                  styles.highlightLoading
                 }
               >
-                <ActivityIndicator
-                  color={TEXT}
-                />
-
                 <Text
                   style={
-                    styles.loadingSmallText
+                    styles.highlightLoadingText
                   }
                 >
-                  Loading stories...
+                  Loading Stories...
                 </Text>
               </View>
-            ) : myStories.length ? (
-              <View
-                style={
-                  styles.storyGrid
+            ) : (
+              <ScrollView
+                contentContainerStyle={
+                  styles.storyPickerGrid
+                }
+                showsVerticalScrollIndicator={
+                  false
                 }
               >
-                {myStories.map(
-                  (story) => {
-                    const storyId =
-                      String(
-                        story?._id ||
-                          story?.id
-                      );
 
-                    const uri =
-                      getStoryImage(
-                        story
+                {myStories.map(
+                  (story, index) => {
+                    const storyId =
+                      getId(story) ||
+                      `story-${index}`;
+
+                    const image =
+                      getImageUri(
+                        story?.media
+                      ) ||
+                      getImageUri(
+                        story?.image
+                      ) ||
+                      getImageUri(
+                        story?.mediaUrl
+                      ) ||
+                      getImageUri(
+                        story?.url
                       );
 
                     const selected =
-                      selectedStoryIds.includes(
+                      selectedStories.includes(
                         storyId
                       );
 
                     return (
                       <TouchableOpacity
-                        key={
-                          storyId
-                        }
+                        key={storyId}
                         style={
-                          styles.storyGridItem
+                          styles.storyPickerItem
                         }
                         onPress={() =>
                           toggleStorySelection(
@@ -2180,30 +1812,34 @@ export default function ProfileScreen() {
                         }
                         activeOpacity={0.8}
                       >
-                        {uri ? (
+
+                        {image ? (
                           <Image
                             source={{
-                              uri,
+                              uri: image,
                             }}
                             style={
-                              styles.storyGridImage
+                              styles.storyPickerImage
                             }
                           />
                         ) : (
                           <View
                             style={
-                              styles.storyGridPlaceholder
+                              styles.storyPickerPlaceholder
                             }
                           >
                             <Ionicons
                               name="image-outline"
-                              size={25}
-                              color="#999"
+                              size={28}
+                              color={
+                                COLORS.gray
+                              }
                             />
                           </View>
                         )}
 
-                        {selected ? (
+
+                        {selected && (
                           <View
                             style={
                               styles.storySelectedOverlay
@@ -2211,1093 +1847,821 @@ export default function ProfileScreen() {
                           >
                             <View
                               style={
-                                styles.storySelectedCircle
+                                styles.storyCheck
                               }
                             >
                               <Ionicons
                                 name="checkmark"
-                                size={15}
+                                size={16}
                                 color={
-                                  WHITE
+                                  COLORS.white
                                 }
                               />
                             </View>
                           </View>
-                        ) : null}
+                        )}
+
                       </TouchableOpacity>
                     );
                   }
                 )}
-              </View>
-            ) : (
-              <View
-                style={
-                  styles.modalEmptyState
-                }
-              >
-                <Ionicons
-                  name="images-outline"
-                  size={42}
-                  color="#999"
-                />
 
-                <Text
-                  style={
-                    styles.modalEmptyTitle
-                  }
-                >
-                  No stories available
-                </Text>
-
-                <Text
-                  style={
-                    styles.modalEmptyText
-                  }
-                >
-                  Share a story first, then add it to a highlight.
-                </Text>
-              </View>
+              </ScrollView>
             )}
-          </ScrollView>
-        </View>
-      </Modal>
+
+          </SafeAreaView>
+        </Modal>
+
+      </View>
+    </SafeAreaView>
+  );
+}
+
+function Stat({
+  value,
+  label,
+}) {
+  return (
+    <View style={styles.stat}>
+      <Text style={styles.statNumber}>
+        {value}
+      </Text>
+
+      <Text style={styles.statLabel}>
+        {label}
+      </Text>
     </View>
   );
 }
 
-/* ===========================================================
-   MENU ITEM
-   =========================================================== */
-
 function MenuItem({
   icon,
-  title,
+  label,
   onPress,
-  danger = false,
 }) {
   return (
     <TouchableOpacity
       style={styles.menuItem}
       onPress={onPress}
-      activeOpacity={0.65}
-    >
-      <View
-        style={[
-          styles.menuIcon,
-          danger &&
-            styles.menuIconDanger,
-        ]}
-      >
-        <Ionicons
-          name={icon}
-          size={22}
-          color={
-            danger
-              ? DANGER
-              : TEXT
-          }
-        />
-      </View>
-
-      <Text
-        style={[
-          styles.menuItemText,
-          danger &&
-            styles.menuItemDanger,
-        ]}
-      >
-        {title}
-      </Text>
-
-      <Ionicons
-        name="chevron-forward"
-        size={18}
-        color="#A8A8A8"
-      />
-    </TouchableOpacity>
-  );
-}
-
-/* ===========================================================
-   PROFILE STAT
-   =========================================================== */
-
-function ProfileStat({
-  value,
-  label,
-  onPress,
-}) {
-  const content = (
-    <>
-      <Text
-        style={
-          styles.statNumber
-        }
-      >
-        {formatCount(value)}
-      </Text>
-
-      <Text
-        style={
-          styles.statLabel
-        }
-      >
-        {label}
-      </Text>
-    </>
-  );
-
-  if (!onPress) {
-    return (
-      <View
-        style={styles.stat}
-      >
-        {content}
-      </View>
-    );
-  }
-
-  return (
-    <TouchableOpacity
-      style={styles.stat}
-      onPress={onPress}
       activeOpacity={0.7}
     >
-      {content}
+      <Ionicons
+        name={icon}
+        size={25}
+        color={COLORS.black}
+      />
+
+      <Text style={styles.menuItemText}>
+        {label}
+      </Text>
+
+      {label !== "Cancel" && (
+        <Ionicons
+          name="chevron-forward"
+          size={19}
+          color={COLORS.gray}
+          style={styles.menuChevron}
+        />
+      )}
     </TouchableOpacity>
   );
 }
-
-/* ===========================================================
-   EMPTY PROFILE STATE
-   =========================================================== */
-
-function EmptyProfileState({
-  icon,
-  title,
-  message,
-  buttonLabel,
-  onPress,
-}) {
-  return (
-    <View
-      style={
-        styles.emptyState
-      }
-    >
-      <View
-        style={
-          styles.emptyIconCircle
-        }
-      >
-        <Ionicons
-          name={icon}
-          size={34}
-          color={TEXT}
-        />
-      </View>
-
-      <Text
-        style={
-          styles.emptyTitle
-        }
-      >
-        {title}
-      </Text>
-
-      <Text
-        style={
-          styles.emptyText
-        }
-      >
-        {message}
-      </Text>
-
-      {buttonLabel &&
-      onPress ? (
-        <TouchableOpacity
-          style={
-            styles.primaryButton
-          }
-          onPress={onPress}
-          activeOpacity={0.8}
-        >
-          <Text
-            style={
-              styles.primaryButtonText
-            }
-          >
-            {buttonLabel}
-          </Text>
-        </TouchableOpacity>
-      ) : null}
-    </View>
-  );
-}
-
-/* ===========================================================
-   EDIT FIELD
-   =========================================================== */
 
 function EditField({
   label,
   value,
   onChangeText,
-  placeholder,
   multiline = false,
   maxLength,
-  keyboardType,
   autoCapitalize = "sentences",
+  autoCorrect = true,
+  keyboardType = "default",
+  inputStyle,
 }) {
   return (
-    <View
-      style={styles.field}
-    >
-      <View
-        style={
-          styles.fieldLabelRow
-        }
-      >
-        <Text
-          style={
-            styles.fieldLabel
-          }
-        >
-          {label}
-        </Text>
+    <View style={styles.editField}>
 
-        {maxLength ? (
-          <Text
-            style={
-              styles.characterCount
-            }
-          >
-            {value.length}/
-            {maxLength}
-          </Text>
-        ) : null}
-      </View>
+      <Text style={styles.editLabel}>
+        {label}
+      </Text>
 
       <TextInput
         value={value}
-        onChangeText={
-          onChangeText
-        }
-        placeholder={
-          placeholder
-        }
-        placeholderTextColor="#A0A0A0"
-        multiline={
-          multiline
-        }
-        maxLength={
-          maxLength
-        }
-        keyboardType={
-          keyboardType
-        }
-        autoCapitalize={
-          autoCapitalize
-        }
-        autoCorrect={false}
-        textAlignVertical={
-          multiline
-            ? "top"
-            : "center"
-        }
+        onChangeText={onChangeText}
+        multiline={multiline}
+        maxLength={maxLength}
+        autoCapitalize={autoCapitalize}
+        autoCorrect={autoCorrect}
+        keyboardType={keyboardType}
         style={[
-          styles.fieldInput,
-          multiline &&
-            styles.multilineInput,
+          styles.editInput,
+          inputStyle,
         ]}
+        placeholderTextColor={
+          COLORS.muted
+        }
       />
+
     </View>
   );
 }
 
-/* ===========================================================
-   COUNT FORMATTER
-   =========================================================== */
+function ProfileEmptyState({
+  tab,
+  onCreatePost,
+}) {
+  const config = {
+    posts: {
+      icon: "camera-outline",
+      title: "No posts yet",
+      subtitle:
+        "Share photos and videos on your profile.",
+    },
 
-function formatCount(value) {
-  const number =
-    Number(value) || 0;
+    reels: {
+      icon: "play-circle-outline",
+      title: "No Reels yet",
+      subtitle:
+        "When you share Reels, they'll appear here.",
+    },
 
-  if (number >= 1000000) {
-    const formatted =
-      number / 1000000;
+    reposts: {
+      icon: "repeat-outline",
+      title: "No reposts yet",
+      subtitle:
+        "Posts and Reels you repost will appear here.",
+    },
 
-    return `${formatted
-      .toFixed(
-        formatted >= 10
-          ? 0
-          : 1
-      )
-      .replace(
-        /\.0$/,
-        ""
-      )}M`;
-  }
+    tagged: {
+      icon: "person-outline",
+      title: "No posts yet",
+      subtitle:
+        "When people tag you, they'll appear here.",
+    },
+  };
 
-  if (number >= 1000) {
-    const formatted =
-      number / 1000;
+  const current =
+    config[tab] || config.posts;
 
-    return `${formatted
-      .toFixed(
-        formatted >= 10
-          ? 0
-          : 1
-      )
-      .replace(
-        /\.0$/,
-        ""
-      )}K`;
-  }
+  return (
+    <View style={styles.emptyState}>
 
-  return String(number);
+      <View
+        style={styles.emptyIconCircle}
+      >
+        <Ionicons
+          name={current.icon}
+          size={38}
+          color={COLORS.black}
+        />
+      </View>
+
+
+      <Text style={styles.emptyTitle}>
+        {current.title}
+      </Text>
+
+
+      <Text style={styles.emptySubtitle}>
+        {current.subtitle}
+      </Text>
+
+
+      {onCreatePost && (
+        <TouchableOpacity
+          style={styles.emptyButton}
+          onPress={onCreatePost}
+          activeOpacity={0.8}
+        >
+          <Text
+            style={styles.emptyButtonText}
+          >
+            Create your first post
+          </Text>
+        </TouchableOpacity>
+      )}
+
+    </View>
+  );
 }
 
-/* ===========================================================
-   STYLES
-   =========================================================== */
-
-const styles =
-  StyleSheet.create({
-    /* =======================================================
-       GENERAL
-       ======================================================= */
-
-    container: {
-      flex: 1,
-      backgroundColor: WHITE,
-    },
-
-    loadingScreen: {
-      flex: 1,
-      backgroundColor: WHITE,
-      alignItems: "center",
-      justifyContent: "center",
-    },
-
-    loadingText: {
-      marginTop: 10,
-      fontSize: 13,
-      color: MUTED,
-    },
-
-    loadingSmallText: {
-      marginTop: 8,
-      fontSize: 12,
-      color: MUTED,
-    },
-
-    scrollContent: {
-      paddingBottom: 30,
-    },
-
-    /* =======================================================
-       HEADER
-       ======================================================= */
-
-    header: {
-      height: 48,
-      paddingHorizontal: 12,
-      borderBottomWidth:
-        StyleSheet.hairlineWidth,
-      borderBottomColor:
-        LIGHT_BORDER,
-      backgroundColor: WHITE,
-      flexDirection: "row",
-      alignItems: "center",
-      justifyContent:
-        "space-between",
-    },
-
-    headerUsername: {
-      flex: 1,
-      fontSize: 20,
-      lineHeight: 24,
-      fontWeight: "700",
-      color: TEXT,
-    },
-
-    headerActions: {
-      flexDirection: "row",
-      alignItems: "center",
-      marginLeft: 8,
-    },
-
-    headerButton: {
-      width: 40,
-      height: 40,
-      alignItems: "center",
-      justifyContent: "center",
-    },
-
-    /* =======================================================
-       PROFILE HEADER
-       ======================================================= */
-
-    profileHeader: {
-      paddingHorizontal: 16,
-      paddingTop: 20,
-      flexDirection: "row",
-      alignItems: "center",
-    },
-
-    avatarTouch: {
-      width: 86,
-      height: 86,
-      alignItems: "center",
-      justifyContent: "center",
-    },
-
-    avatarOuter: {
-      width: 86,
-      height: 86,
-      borderRadius: 43,
-      backgroundColor: "#EFEFEF",
-      alignItems: "center",
-      justifyContent: "center",
-    },
-
-    avatar: {
-      width: 82,
-      height: 82,
-      borderRadius: 41,
-      overflow: "hidden",
-      backgroundColor: "#EFEFEF",
-      borderWidth: 2,
-      borderColor: WHITE,
-    },
-
-    avatarImage: {
-      width: "100%",
-      height: "100%",
-    },
-
-    avatarPlaceholder: {
-      flex: 1,
-      alignItems: "center",
-      justifyContent: "center",
-      backgroundColor: "#EFEFEF",
-    },
-
-    /* =======================================================
-       STATS
-       ======================================================= */
-
-    stats: {
-      flex: 1,
-      marginLeft: 20,
-      flexDirection: "row",
-      alignItems: "center",
-      justifyContent:
-        "space-between",
-    },
-
-    stat: {
-      flex: 1,
-      alignItems: "center",
-      justifyContent: "center",
-    },
-
-    statNumber: {
-      fontSize: 16,
-      lineHeight: 20,
-      fontWeight: "700",
-      color: TEXT,
-    },
-
-    statLabel: {
-      marginTop: 3,
-      fontSize: 13,
-      lineHeight: 17,
-      color: TEXT,
-    },
-
-    /* =======================================================
-       BIO
-       ======================================================= */
-
-    bioSection: {
-      paddingHorizontal: 16,
-      marginTop: 12,
-    },
-
-    nameRow: {
-      minHeight: 21,
-      flexDirection: "row",
-      alignItems: "center",
-    },
-
-    name: {
-      maxWidth: "90%",
-      fontSize: 14,
-      lineHeight: 19,
-      fontWeight: "700",
-      color: TEXT,
-    },
-
-    verifiedBadge: {
-      marginLeft: 5,
-    },
-
-    pronouns: {
-      marginTop: 2,
-      fontSize: 13,
-      lineHeight: 18,
-      color: MUTED,
-    },
-
-    bio: {
-      marginTop: 3,
-      fontSize: 14,
-      lineHeight: 19,
-      color: TEXT,
-    },
-
-    website: {
-      marginTop: 3,
-      fontSize: 14,
-      lineHeight: 19,
-      fontWeight: "600",
-      color: "#00376B",
-    },
-
-    /* =======================================================
-       PROFILE BUTTONS
-       ======================================================= */
-
-    profileActions: {
-      paddingHorizontal: 16,
-      marginTop: 14,
-      flexDirection: "row",
-    },
-
-    profileButton: {
-      flex: 1,
-      height: 36,
-      marginRight: 6,
-      borderRadius: 8,
-      borderWidth: 1,
-      borderColor: BORDER,
-      backgroundColor: "#FAFAFA",
-      alignItems: "center",
-      justifyContent: "center",
-    },
-
-    profileButtonText: {
-      fontSize: 13,
-      fontWeight: "600",
-      color: TEXT,
-    },
-
-    /* =======================================================
-       HIGHLIGHTS
-       ======================================================= */
-
-    highlightsSection: {
-      marginTop: 18,
-      minHeight: 101,
-    },
-
-    highlightsScroll: {
-      paddingHorizontal: 16,
-      paddingTop: 2,
-      paddingBottom: 4,
-    },
-
-    highlightItem: {
-      width: 70,
-      marginRight: 15,
-      alignItems: "center",
-    },
-
-    highlightCircle: {
-      width: 68,
-      height: 68,
-      borderRadius: 34,
-      borderWidth: 1,
-      borderColor: BORDER,
-      backgroundColor: "#F7F7F7",
-      overflow: "hidden",
-      alignItems: "center",
-      justifyContent: "center",
-    },
-
-    newHighlightCircle: {
-      width: 68,
-      height: 68,
-      borderRadius: 34,
-      borderWidth: 1,
-      borderColor: BORDER,
-      backgroundColor: WHITE,
-      alignItems: "center",
-      justifyContent: "center",
-    },
-
-    highlightImage: {
-      width: "100%",
-      height: "100%",
-    },
-
-    highlightLabel: {
-      width: 70,
-      marginTop: 5,
-      fontSize: 11,
-      lineHeight: 15,
-      color: TEXT,
-      textAlign: "center",
-    },
-
-    /* =======================================================
-       EMPTY CONTENT
-       ======================================================= */
-
-    emptyState: {
-      minHeight: 320,
-      paddingHorizontal: 30,
-      alignItems: "center",
-      justifyContent: "center",
-    },
-
-    emptyIconCircle: {
-      width: 68,
-      height: 68,
-      borderRadius: 34,
-      borderWidth: 1.5,
-      borderColor: TEXT,
-      alignItems: "center",
-      justifyContent: "center",
-    },
-
-    emptyTitle: {
-      marginTop: 14,
-      fontSize: 18,
-      lineHeight: 23,
-      fontWeight: "700",
-      color: TEXT,
-      textAlign: "center",
-    },
-
-    emptyText: {
-      maxWidth: 310,
-      marginTop: 7,
-      fontSize: 13,
-      lineHeight: 19,
-      color: MUTED,
-      textAlign: "center",
-    },
-
-    primaryButton: {
-      minHeight: 36,
-      marginTop: 17,
-      paddingHorizontal: 20,
-      borderRadius: 8,
-      backgroundColor: BLUE,
-      alignItems: "center",
-      justifyContent: "center",
-    },
-
-    primaryButtonText: {
-      fontSize: 13,
-      fontWeight: "700",
-      color: WHITE,
-    },
-
-    /* =======================================================
-       MENU OVERLAY
-       ======================================================= */
-
-    menuOverlay: {
-      flex: 1,
-      justifyContent: "flex-end",
-      backgroundColor:
-        "rgba(0,0,0,0.38)",
-    },
-
-    menuBackdrop: {
-      ...StyleSheet.absoluteFillObject,
-    },
-
-    menuSheet: {
-      backgroundColor: WHITE,
-      borderTopLeftRadius: 20,
-      borderTopRightRadius: 20,
-      paddingTop: 9,
-      paddingBottom: 26,
-      overflow: "hidden",
-    },
-
-    menuHandle: {
-      alignSelf: "center",
-      width: 36,
-      height: 4,
-      borderRadius: 2,
-      backgroundColor: "#D0D0D0",
-      marginBottom: 8,
-    },
-
-    menuItem: {
-      minHeight: 57,
-      paddingHorizontal: 20,
-      flexDirection: "row",
-      alignItems: "center",
-      borderBottomWidth:
-        StyleSheet.hairlineWidth,
-      borderBottomColor:
-        "#F0F0F0",
-    },
-
-    menuIcon: {
-      width: 34,
-      alignItems: "flex-start",
-      justifyContent: "center",
-    },
-
-    menuIconDanger: {
-      opacity: 0.95,
-    },
-
-    menuItemText: {
-      flex: 1,
-      marginLeft: 8,
-      fontSize: 15,
-      color: TEXT,
-      fontWeight: "500",
-    },
-
-    menuItemDanger: {
-      color: DANGER,
-    },
-
-    menuCancel: {
-      height: 52,
-      marginTop: 7,
-      alignItems: "center",
-      justifyContent: "center",
-      borderTopWidth: 6,
-      borderTopColor: "#F6F6F6",
-    },
-
-    menuCancelText: {
-      fontSize: 15,
-      color: TEXT,
-      fontWeight: "600",
-    },
-
-    /* =======================================================
-       MODAL
-       ======================================================= */
-
-    modalContainer: {
-      flex: 1,
-      backgroundColor: WHITE,
-    },
-
-    modalHeader: {
-      height: 56,
-      paddingHorizontal: 16,
-      borderBottomWidth:
-        StyleSheet.hairlineWidth,
-      borderBottomColor:
-        BORDER,
-      flexDirection: "row",
-      alignItems: "center",
-      justifyContent:
-        "space-between",
-    },
-
-    modalCancel: {
-      width: 65,
-      fontSize: 14,
-      color: TEXT,
-    },
-
-    modalTitle: {
-      flex: 1,
-      textAlign: "center",
-      fontSize: 16,
-      fontWeight: "700",
-      color: TEXT,
-    },
-
-    modalSave: {
-      width: 65,
-      textAlign: "right",
-      fontSize: 14,
-      fontWeight: "700",
-      color: BLUE,
-    },
-
-    disabled: {
-      opacity: 0.4,
-    },
-
-    form: {
-      paddingHorizontal: 18,
-      paddingTop: 22,
-      paddingBottom: 50,
-    },
-
-    /* =======================================================
-       EDIT AVATAR
-       ======================================================= */
-
-    photoEditor: {
-      alignItems: "center",
-      marginBottom: 28,
-    },
-
-    editAvatarWrapper: {
-      width: 100,
-      height: 100,
-      position: "relative",
-    },
-
-    editAvatar: {
-      width: 96,
-      height: 96,
-      borderRadius: 48,
-      overflow: "hidden",
-      backgroundColor: "#EFEFEF",
-      alignItems: "center",
-      justifyContent: "center",
-    },
-
-    editAvatarImage: {
-      width: "100%",
-      height: "100%",
-    },
-
-    editCameraBadge: {
-      position: "absolute",
-      right: 0,
-      bottom: 0,
-      width: 29,
-      height: 29,
-      borderRadius: 15,
-      backgroundColor: TEXT,
-      borderWidth: 2,
-      borderColor: WHITE,
-      alignItems: "center",
-      justifyContent: "center",
-    },
-
-    changePhoto: {
-      marginTop: 10,
-      fontSize: 14,
-      fontWeight: "600",
-      color: BLUE,
-    },
-
-    /* =======================================================
-       FORM
-       ======================================================= */
-
-    field: {
-      marginBottom: 18,
-    },
-
-    fieldLabelRow: {
-      marginBottom: 7,
-      flexDirection: "row",
-      alignItems: "center",
-      justifyContent:
-        "space-between",
-    },
-
-    fieldLabel: {
-      fontSize: 13,
-      fontWeight: "600",
-      color: "#444",
-    },
-
-    characterCount: {
-      fontSize: 11,
-      color: "#999",
-    },
-
-    fieldInput: {
-      minHeight: 48,
-      paddingHorizontal: 13,
-      borderWidth: 1,
-      borderColor: BORDER,
-      borderRadius: 8,
-      backgroundColor: "#FAFAFA",
-      fontSize: 15,
-      color: TEXT,
-    },
-
-    multilineInput: {
-      minHeight: 105,
-      paddingTop: 12,
-      paddingBottom: 12,
-    },
-
-    /* =======================================================
-       VERIFIED
-       ======================================================= */
-
-    verifiedInfo: {
-      minHeight: 60,
-      paddingHorizontal: 13,
-      paddingVertical: 10,
-      marginBottom: 17,
-      borderRadius: 10,
-      backgroundColor: "#F4F9FF",
-      flexDirection: "row",
-      alignItems: "center",
-    },
-
-    verifiedInfoCopy: {
-      flex: 1,
-      marginLeft: 10,
-    },
-
-    verifiedInfoTitle: {
-      fontSize: 13,
-      fontWeight: "700",
-      color: "#1677D2",
-    },
-
-    verifiedInfoText: {
-      marginTop: 2,
-      fontSize: 12,
-      color: "#4E83B4",
-    },
-
-    /* =======================================================
-       SETTINGS LINK
-       ======================================================= */
-
-    settingsLink: {
-      minHeight: 56,
-      paddingHorizontal: 4,
-      borderTopWidth: 1,
-      borderBottomWidth: 1,
-      borderColor: "#EEEEEE",
-      flexDirection: "row",
-      alignItems: "center",
-      justifyContent:
-        "space-between",
-    },
-
-    settingsLinkLeft: {
-      flexDirection: "row",
-      alignItems: "center",
-    },
-
-    settingsLinkIcon: {
-      width: 34,
-      height: 34,
-      borderRadius: 17,
-      backgroundColor: "#F3F3F3",
-      alignItems: "center",
-      justifyContent: "center",
-      marginRight: 10,
-    },
-
-    settingsLinkText: {
-      fontSize: 14,
-      fontWeight: "600",
-      color: TEXT,
-    },
-
-    /* =======================================================
-       HIGHLIGHT CREATION
-       ======================================================= */
-
-    selectStoriesHeader: {
-      marginTop: 2,
-      flexDirection: "row",
-      alignItems: "center",
-      justifyContent:
-        "space-between",
-    },
-
-    selectedCount: {
-      fontSize: 12,
-      fontWeight: "700",
-      color: BLUE,
-    },
-
-    storyGridLoading: {
-      minHeight: 180,
-      alignItems: "center",
-      justifyContent: "center",
-    },
-
-    storyGrid: {
-      marginTop: 12,
-      flexDirection: "row",
-      flexWrap: "wrap",
-    },
-
-    storyGridItem: {
-      width: "31.8%",
-      aspectRatio: 1,
-      marginRight: "2.3%",
-      marginBottom: 8,
-      borderRadius: 6,
-      overflow: "hidden",
-      backgroundColor: "#EFEFEF",
-      position: "relative",
-    },
-
-    storyGridImage: {
-      width: "100%",
-      height: "100%",
-    },
-
-    storyGridPlaceholder: {
-      flex: 1,
-      alignItems: "center",
-      justifyContent: "center",
-    },
-
-    storySelectedOverlay: {
-      ...StyleSheet.absoluteFillObject,
-      backgroundColor:
-        "rgba(0,0,0,0.18)",
-      alignItems: "flex-end",
-      justifyContent: "flex-start",
-      padding: 6,
-    },
-
-    storySelectedCircle: {
-      width: 23,
-      height: 23,
-      borderRadius: 12,
-      backgroundColor: BLUE,
-      borderWidth: 2,
-      borderColor: WHITE,
-      alignItems: "center",
-      justifyContent: "center",
-    },
-
-    modalEmptyState: {
-      minHeight: 240,
-      paddingHorizontal: 25,
-      alignItems: "center",
-      justifyContent: "center",
-    },
-
-    modalEmptyTitle: {
-      marginTop: 12,
-      fontSize: 16,
-      fontWeight: "700",
-      color: TEXT,
-    },
-
-    modalEmptyText: {
-      maxWidth: 290,
-      marginTop: 6,
-      fontSize: 13,
-      lineHeight: 19,
-      color: MUTED,
-      textAlign: "center",
-    },
-  });
+const styles = StyleSheet.create({
+
+  safeArea: {
+    flex: 1,
+    backgroundColor:
+      COLORS.background,
+  },
+
+  screen: {
+    flex: 1,
+    backgroundColor:
+      COLORS.background,
+  },
+
+  loadingScreen: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor:
+      COLORS.background,
+  },
+
+  loadingText: {
+    fontSize: 16,
+    color: COLORS.gray,
+  },
+
+  header: {
+    height: 58,
+    paddingHorizontal: 12,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+
+  headerIcon: {
+    width: 42,
+    height: 42,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  usernameHeader: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 6,
+  },
+
+  lockIcon: {
+    marginRight: 7,
+  },
+
+  headerUsername: {
+    fontSize: 20,
+    fontWeight: "700",
+    color: COLORS.black,
+    maxWidth: 180,
+  },
+
+  headerRight: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+
+  profileSection: {
+    paddingHorizontal: 12,
+  },
+
+  topProfileRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingTop: 8,
+  },
+
+  avatarWrapper: {
+    width: 96,
+    height: 96,
+    position: "relative",
+    marginRight: 18,
+  },
+
+  avatar: {
+    width: 96,
+    height: 96,
+    borderRadius: 48,
+    backgroundColor:
+      COLORS.lightGray,
+  },
+
+  avatarPlaceholder: {
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  addStoryButton: {
+    position: "absolute",
+    right: -1,
+    bottom: -1,
+    width: 29,
+    height: 29,
+    borderRadius: 15,
+    backgroundColor:
+      COLORS.blue,
+    borderWidth: 3,
+    borderColor:
+      COLORS.white,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  statsRow: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-around",
+  },
+
+  stat: {
+    minWidth: 72,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  statNumber: {
+    fontSize: 20,
+    lineHeight: 24,
+    fontWeight: "700",
+    color: COLORS.black,
+  },
+
+  statLabel: {
+    marginTop: 2,
+    fontSize: 14,
+    color: COLORS.black,
+  },
+
+  bioSection: {
+    marginTop: 18,
+  },
+
+  nameRow: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+
+  displayName: {
+    fontSize: 15,
+    fontWeight: "700",
+    color: COLORS.black,
+    marginRight: 5,
+  },
+
+  bioText: {
+    marginTop: 3,
+    fontSize: 14,
+    lineHeight: 19,
+    color: COLORS.black,
+  },
+
+  websiteRow: {
+    marginTop: 5,
+    flexDirection: "row",
+    alignItems: "center",
+  },
+
+  websiteText: {
+    flex: 1,
+    marginLeft: 6,
+    fontSize: 14,
+    lineHeight: 19,
+    fontWeight: "600",
+    color: COLORS.black,
+  },
+
+  musicRow: {
+    marginTop: 7,
+    flexDirection: "row",
+    alignItems: "center",
+  },
+
+  musicText: {
+    flex: 1,
+    marginLeft: 6,
+    fontSize: 14,
+    color: COLORS.black,
+  },
+
+  actionRow: {
+    marginTop: 15,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 7,
+  },
+
+  profileButton: {
+    height: 38,
+    borderRadius: 9,
+    backgroundColor:
+      COLORS.lightGray,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  profileButtonLarge: {
+    flex: 1,
+  },
+
+  profileButtonText: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: COLORS.black,
+  },
+
+  addPersonButton: {
+    width: 43,
+    height: 38,
+    borderRadius: 9,
+    backgroundColor:
+      COLORS.lightGray,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  highlightsSection: {
+    marginTop: 21,
+    marginHorizontal: -12,
+  },
+
+  highlightsContent: {
+    paddingHorizontal: 4,
+    paddingBottom: 13,
+  },
+
+  highlightItem: {
+    width: 82,
+    alignItems: "center",
+    marginHorizontal: 7,
+  },
+
+  highlightCircle: {
+    width: 72,
+    height: 72,
+    borderRadius: 36,
+    padding: 4,
+    backgroundColor:
+      COLORS.white,
+    borderWidth: 3,
+    borderColor:
+      "#D9DDE1",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  newHighlightCircle: {
+    borderColor:
+      "#E1E5E9",
+  },
+
+  highlightImage: {
+    width: "100%",
+    height: "100%",
+    borderRadius: 34,
+  },
+
+  highlightPlaceholder: {
+    width: "100%",
+    height: "100%",
+    borderRadius: 34,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor:
+      COLORS.lightGray,
+  },
+
+  highlightLabel: {
+    width: 78,
+    marginTop: 6,
+    textAlign: "center",
+    fontSize: 12,
+    color: COLORS.black,
+  },
+
+  tabsContainer: {
+    height: 51,
+    marginTop: 3,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor:
+      COLORS.border,
+    flexDirection: "row",
+  },
+
+  tabButton: {
+    flex: 1,
+    height: 51,
+    alignItems: "center",
+    justifyContent: "center",
+    position: "relative",
+  },
+
+  activeTabLine: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    bottom: 0,
+    height: 1.5,
+    backgroundColor:
+      COLORS.black,
+  },
+
+  emptyState: {
+    minHeight: 330,
+    paddingHorizontal: 30,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  emptyIconCircle: {
+    width: 74,
+    height: 74,
+    borderRadius: 37,
+    borderWidth: 2,
+    borderColor:
+      COLORS.black,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 13,
+  },
+
+  emptyTitle: {
+    fontSize: 20,
+    fontWeight: "700",
+    color: COLORS.black,
+  },
+
+  emptySubtitle: {
+    marginTop: 7,
+    maxWidth: 300,
+    textAlign: "center",
+    fontSize: 14,
+    lineHeight: 20,
+    color: COLORS.gray,
+  },
+
+  emptyButton: {
+    marginTop: 18,
+    paddingHorizontal: 20,
+    height: 38,
+    borderRadius: 8,
+    backgroundColor:
+      COLORS.blue,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  emptyButtonText: {
+    color: COLORS.white,
+    fontSize: 14,
+    fontWeight: "700",
+  },
+
+  modalBackdrop: {
+    flex: 1,
+    backgroundColor:
+      "rgba(0,0,0,0.45)",
+    justifyContent: "flex-end",
+  },
+
+  menuSheet: {
+    backgroundColor:
+      COLORS.white,
+    borderTopLeftRadius: 18,
+    borderTopRightRadius: 18,
+    paddingTop: 9,
+    paddingBottom: 30,
+  },
+
+  sheetHandle: {
+    alignSelf: "center",
+    width: 38,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor:
+      "#C7C7C7",
+    marginBottom: 12,
+  },
+
+  menuTitle: {
+    paddingHorizontal: 22,
+    paddingBottom: 12,
+    fontSize: 18,
+    fontWeight: "700",
+    color: COLORS.black,
+  },
+
+  menuItem: {
+    minHeight: 56,
+    paddingHorizontal: 22,
+    flexDirection: "row",
+    alignItems: "center",
+  },
+
+  menuItemText: {
+    marginLeft: 16,
+    fontSize: 15,
+    fontWeight: "500",
+    color: COLORS.black,
+  },
+
+  menuChevron: {
+    marginLeft: "auto",
+  },
+
+  menuDivider: {
+    height: StyleSheet.hairlineWidth,
+    backgroundColor:
+      COLORS.border,
+    marginVertical: 7,
+  },
+
+  editScreen: {
+    flex: 1,
+    backgroundColor:
+      COLORS.white,
+  },
+
+  editHeader: {
+    height: 55,
+    paddingHorizontal: 16,
+    borderBottomWidth:
+      StyleSheet.hairlineWidth,
+    borderBottomColor:
+      COLORS.border,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+
+  editHeaderTitle: {
+    fontSize: 17,
+    fontWeight: "700",
+    color: COLORS.black,
+  },
+
+  saveText: {
+    fontSize: 15,
+    fontWeight: "700",
+    color: COLORS.blue,
+  },
+
+  disabledText: {
+    opacity: 0.4,
+  },
+
+  editContent: {
+    paddingHorizontal: 18,
+    paddingTop: 24,
+    paddingBottom: 50,
+  },
+
+  editAvatarContainer: {
+    alignItems: "center",
+    marginBottom: 26,
+  },
+
+  editAvatar: {
+    width: 92,
+    height: 92,
+    borderRadius: 46,
+    backgroundColor:
+      COLORS.lightGray,
+  },
+
+  changePhotoText: {
+    marginTop: 11,
+    fontSize: 14,
+    fontWeight: "600",
+    color: COLORS.blue,
+  },
+
+  editField: {
+    marginBottom: 20,
+  },
+
+  editLabel: {
+    marginBottom: 7,
+    fontSize: 13,
+    color: COLORS.gray,
+  },
+
+  editInput: {
+    minHeight: 44,
+    borderWidth: 1,
+    borderColor:
+      COLORS.border,
+    borderRadius: 9,
+    paddingHorizontal: 13,
+    paddingVertical: 10,
+    fontSize: 15,
+    color: COLORS.black,
+    backgroundColor:
+      COLORS.white,
+  },
+
+  bioInput: {
+    minHeight: 90,
+    textAlignVertical: "top",
+  },
+
+  highlightModal: {
+    flex: 1,
+    backgroundColor:
+      COLORS.white,
+  },
+
+  highlightModalHeader: {
+    height: 55,
+    paddingHorizontal: 16,
+    borderBottomWidth:
+      StyleSheet.hairlineWidth,
+    borderBottomColor:
+      COLORS.border,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+
+  highlightModalTitle: {
+    fontSize: 17,
+    fontWeight: "700",
+    color: COLORS.black,
+  },
+
+  highlightNameContainer: {
+    paddingHorizontal: 16,
+    paddingTop: 14,
+  },
+
+  highlightNameInput: {
+    height: 44,
+    borderWidth: 1,
+    borderColor:
+      COLORS.border,
+    borderRadius: 9,
+    paddingHorizontal: 13,
+    fontSize: 15,
+    color: COLORS.black,
+  },
+
+  selectedCountContainer: {
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+  },
+
+  selectedCountText: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: COLORS.black,
+  },
+
+  highlightLoading: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  highlightLoadingText: {
+    fontSize: 15,
+    color: COLORS.gray,
+  },
+
+  storyPickerGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+  },
+
+  storyPickerItem: {
+    width: "33.3333%",
+    aspectRatio: 0.72,
+    padding: 1,
+    position: "relative",
+  },
+
+  storyPickerImage: {
+    width: "100%",
+    height: "100%",
+  },
+
+  storyPickerPlaceholder: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor:
+      COLORS.lightGray,
+  },
+
+  storySelectedOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor:
+      "rgba(0,0,0,0.25)",
+    alignItems: "flex-end",
+    justifyContent: "flex-start",
+    padding: 8,
+  },
+
+  storyCheck: {
+    width: 25,
+    height: 25,
+    borderRadius: 13,
+    backgroundColor:
+      COLORS.blue,
+    borderWidth: 2,
+    borderColor:
+      COLORS.white,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+});

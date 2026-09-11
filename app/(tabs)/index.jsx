@@ -1,6 +1,7 @@
 import React, {
   useCallback,
   useEffect,
+  useRef,
   useState,
 } from "react";
 
@@ -16,7 +17,7 @@ import {
 
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
-import { useRouter } from "expo-router";
+import { router } from "expo-router";
 
 import PostCard from "../../components/post/PostCard";
 import StoryTray from "../../components/story/StoryTray";
@@ -26,9 +27,51 @@ import { getStories } from "../../services/storyService";
 
 import { useAuth } from "../../context/AuthContext";
 
+function normalizePosts(response) {
+  if (Array.isArray(response)) {
+    return response;
+  }
+
+  if (Array.isArray(response?.posts)) {
+    return response.posts;
+  }
+
+  if (Array.isArray(response?.data?.posts)) {
+    return response.data.posts;
+  }
+
+  if (Array.isArray(response?.data)) {
+    return response.data;
+  }
+
+  return [];
+}
+
+function normalizeStories(response) {
+  if (Array.isArray(response)) {
+    return response;
+  }
+
+  if (Array.isArray(response?.stories)) {
+    return response.stories;
+  }
+
+  if (Array.isArray(response?.data?.stories)) {
+    return response.data.stories;
+  }
+
+  if (Array.isArray(response?.data)) {
+    return response.data;
+  }
+
+  return [];
+}
+
 export default function HomeScreen() {
-  const router = useRouter();
   const { user, loading: authLoading } = useAuth();
+
+  const mountedRef = useRef(true);
+  const loadingRef = useRef(false);
 
   const [posts, setPosts] = useState([]);
   const [stories, setStories] = useState([]);
@@ -37,149 +80,120 @@ export default function HomeScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState("");
 
-  /*
-   * --------------------------------------------------
-   * NORMALIZERS
-   * --------------------------------------------------
-   */
+  useEffect(() => {
+    mountedRef.current = true;
 
-  const normalizePosts = useCallback((response) => {
-    if (Array.isArray(response)) {
-      return response;
-    }
-
-    if (Array.isArray(response?.posts)) {
-      return response.posts;
-    }
-
-    if (Array.isArray(response?.data?.posts)) {
-      return response.data.posts;
-    }
-
-    if (Array.isArray(response?.data)) {
-      return response.data;
-    }
-
-    return [];
+    return () => {
+      mountedRef.current = false;
+    };
   }, []);
-
-  const normalizeStories = useCallback((response) => {
-    if (Array.isArray(response)) {
-      return response;
-    }
-
-    if (Array.isArray(response?.stories)) {
-      return response.stories;
-    }
-
-    if (Array.isArray(response?.data?.stories)) {
-      return response.data.stories;
-    }
-
-    if (Array.isArray(response?.data)) {
-      return response.data;
-    }
-
-    return [];
-  }, []);
-
-  /*
-   * --------------------------------------------------
-   * LOAD HOME
-   * --------------------------------------------------
-   */
 
   const loadHome = useCallback(
-    async ({ isRefresh = false } = {}) => {
-      if (!user) {
-        setPosts([]);
-        setStories([]);
-        setLoading(false);
-        setRefreshing(false);
+    async ({ refresh = false } = {}) => {
+      if (loadingRef.current && !refresh) {
         return;
       }
 
-      try {
-        setError("");
-
-        if (isRefresh) {
-          setRefreshing(true);
-        } else {
-          setLoading(true);
+      if (!user) {
+        if (!mountedRef.current) {
+          return;
         }
 
-        const [feedResult, storiesResult] =
+        setPosts([]);
+        setStories([]);
+        setError("");
+        setLoading(false);
+        setRefreshing(false);
+
+        return;
+      }
+
+      loadingRef.current = true;
+
+      if (refresh) {
+        setRefreshing(true);
+      } else {
+        setLoading(true);
+      }
+
+      setError("");
+
+      try {
+        const results =
           await Promise.allSettled([
             getHomeFeed(),
             getStories(),
           ]);
 
-        /*
-         * ------------------------------
-         * FEED
-         * ------------------------------
-         */
+        if (!mountedRef.current) {
+          return;
+        }
+
+        const feedResult = results[0];
 
         if (feedResult.status === "fulfilled") {
-          const normalizedPosts = normalizePosts(
-            feedResult.value
-          );
+          const nextPosts =
+            normalizePosts(
+              feedResult.value
+            );
 
-          setPosts(normalizedPosts);
+          setPosts(nextPosts);
         } else {
           console.error(
             "HOME FEED ERROR:",
             feedResult.reason
           );
 
+          if (!refresh) {
+            setPosts([]);
+          }
+
           setError(
-            "We couldn't load your feed. Please try again."
+            "We couldn't load your feed."
           );
         }
 
-        /*
-         * ------------------------------
-         * STORIES
-         * ------------------------------
-         */
+        const storiesResult = results[1];
 
-        if (storiesResult.status === "fulfilled") {
-          const normalizedStories = normalizeStories(
-            storiesResult.value
+        if (
+          storiesResult.status ===
+          "fulfilled"
+        ) {
+          setStories(
+            normalizeStories(
+              storiesResult.value
+            )
           );
-
-          setStories(normalizedStories);
         } else {
           console.error(
             "STORIES ERROR:",
             storiesResult.reason
           );
 
-          /*
-           * Stories should not break the entire
-           * home feed if the stories request fails.
-           */
           setStories([]);
         }
-      } catch (err) {
-        console.error("LOAD HOME ERROR:", err);
-
-        setError(
-          "Something went wrong while loading your feed."
+      } catch (error) {
+        console.error(
+          "LOAD HOME ERROR:",
+          error
         );
+
+        if (mountedRef.current) {
+          setError(
+            "Something went wrong while loading your feed."
+          );
+        }
       } finally {
-        setLoading(false);
-        setRefreshing(false);
+        loadingRef.current = false;
+
+        if (mountedRef.current) {
+          setLoading(false);
+          setRefreshing(false);
+        }
       }
     },
-    [user, normalizePosts, normalizeStories]
+    [user]
   );
-
-  /*
-   * --------------------------------------------------
-   * INITIAL LOAD
-   * --------------------------------------------------
-   */
 
   useEffect(() => {
     if (authLoading) {
@@ -189,21 +203,11 @@ export default function HomeScreen() {
     loadHome();
   }, [authLoading, loadHome]);
 
-  /*
-   * --------------------------------------------------
-   * REFRESH
-   * --------------------------------------------------
-   */
-
   const handleRefresh = useCallback(() => {
-    loadHome({ isRefresh: true });
+    loadHome({
+      refresh: true,
+    });
   }, [loadHome]);
-
-  /*
-   * --------------------------------------------------
-   * NAVIGATION
-   * --------------------------------------------------
-   */
 
   const handleCreate = useCallback(() => {
     router.push({
@@ -212,7 +216,7 @@ export default function HomeScreen() {
         mode: "post",
       },
     });
-  }, [router]);
+  }, []);
 
   const handleCreateStory = useCallback(() => {
     router.push({
@@ -221,25 +225,19 @@ export default function HomeScreen() {
         mode: "story",
       },
     });
-  }, [router]);
+  }, []);
 
   const handleNotifications = useCallback(() => {
     router.push("/notifications");
-  }, [router]);
+  }, []);
 
   const handleMessages = useCallback(() => {
     router.push("/messages");
-  }, [router]);
+  }, []);
 
   const handleExplore = useCallback(() => {
     router.push("/(tabs)/explore");
-  }, [router]);
-
-  /*
-   * --------------------------------------------------
-   * STORY PRESS
-   * --------------------------------------------------
-   */
+  }, []);
 
   const handleStoryPress = useCallback(
     (story) => {
@@ -252,19 +250,16 @@ export default function HomeScreen() {
         console.warn(
           "Cannot open story: missing story ID"
         );
+
         return;
       }
 
-      router.push(`/stories/${storyId}`);
+      router.push(
+        `/stories/${storyId}`
+      );
     },
-    [router]
+    []
   );
-
-  /*
-   * --------------------------------------------------
-   * POST PRESS
-   * --------------------------------------------------
-   */
 
   const handlePostPress = useCallback(
     (post) => {
@@ -277,16 +272,12 @@ export default function HomeScreen() {
         return;
       }
 
-      router.push(`/post/${postId}`);
+      router.push(
+        `/post/${postId}`
+      );
     },
-    [router]
+    []
   );
-
-  /*
-   * --------------------------------------------------
-   * POST RENDERER
-   * --------------------------------------------------
-   */
 
   const renderPost = useCallback(
     ({ item }) => {
@@ -297,53 +288,195 @@ export default function HomeScreen() {
       return (
         <PostCard
           post={item}
-          onPress={() => handlePostPress(item)}
+          onPress={() =>
+            handlePostPress(item)
+          }
         />
       );
     },
     [handlePostPress]
   );
 
-  /*
-   * --------------------------------------------------
-   * EMPTY / ERROR CONTENT
-   * --------------------------------------------------
-   */
+  const getPostKey = useCallback(
+    (item, index) => {
+      return String(
+        item?._id ||
+          item?.id ||
+          item?.postId ||
+          `post-${index}`
+      );
+    },
+    []
+  );
+
+  const renderHeader = useCallback(() => {
+    return (
+      <View style={styles.headerContainer}>
+
+        <View style={styles.header}>
+          <Pressable
+            onPress={handleCreate}
+            hitSlop={10}
+            style={({ pressed }) => [
+              styles.headerButton,
+              pressed &&
+                styles.headerButtonPressed,
+            ]}
+            accessibilityRole="button"
+            accessibilityLabel="Create post"
+          >
+            <Ionicons
+              name="add-outline"
+              size={29}
+              color="#000"
+            />
+          </Pressable>
+
+          <Text style={styles.logo}>
+            Snapgram
+          </Text>
+
+          <View style={styles.headerActions}>
+            <Pressable
+              onPress={
+                handleNotifications
+              }
+              hitSlop={10}
+              style={({ pressed }) => [
+                styles.headerButton,
+                pressed &&
+                  styles.headerButtonPressed,
+              ]}
+              accessibilityRole="button"
+              accessibilityLabel="Notifications"
+            >
+              <Ionicons
+                name="heart-outline"
+                size={27}
+                color="#000"
+              />
+            </Pressable>
+
+            <Pressable
+              onPress={handleMessages}
+              hitSlop={10}
+              style={({ pressed }) => [
+                styles.headerButton,
+                pressed &&
+                  styles.headerButtonPressed,
+              ]}
+              accessibilityRole="button"
+              accessibilityLabel="Messages"
+            >
+              <Ionicons
+                name="chatbubble-outline"
+                size={25}
+                color="#000"
+              />
+            </Pressable>
+          </View>
+        </View>
+
+        {stories.length > 0 ? (
+          <View style={styles.storyContainer}>
+            <StoryTray
+              stories={stories}
+              onStoryPress={
+                handleStoryPress
+              }
+              onCreateStory={
+                handleCreateStory
+              }
+            />
+          </View>
+        ) : (
+          <View style={styles.storyEmpty}>
+            <Pressable
+              onPress={
+                handleCreateStory
+              }
+              style={({ pressed }) => [
+                styles.createStoryButton,
+                pressed &&
+                  styles.createStoryPressed,
+              ]}
+            >
+              <View style={styles.createStoryIcon}>
+                <Ionicons
+                  name="add"
+                  size={24}
+                  color="#000"
+                />
+              </View>
+
+              <Text
+                style={styles.createStoryText}
+              >
+                Your story
+              </Text>
+            </Pressable>
+          </View>
+        )}
+
+        {!!error && posts.length > 0 && (
+          <Pressable
+            onPress={() =>
+              loadHome()
+            }
+            style={styles.errorStrip}
+          >
+            <Ionicons
+              name="alert-circle-outline"
+              size={17}
+              color="#000"
+            />
+
+            <Text
+              style={styles.errorStripText}
+            >
+              Couldn't refresh your feed.
+              Tap to retry.
+            </Text>
+          </Pressable>
+        )}
+      </View>
+    );
+  }, [
+    stories,
+    posts.length,
+    error,
+    handleCreate,
+    handleCreateStory,
+    handleStoryPress,
+    handleNotifications,
+    handleMessages,
+    loadHome,
+  ]);
 
   const renderEmpty = useCallback(() => {
-    /*
-     * Initial loading
-     */
     if (loading) {
       return (
-        <View style={styles.emptyContainer}>
+        <View style={styles.empty}>
           <ActivityIndicator
             size="small"
-            color="#111111"
+            color="#000"
           />
 
           <Text style={styles.emptyTitle}>
-            Loading your feed
-          </Text>
-
-          <Text style={styles.emptySubtitle}>
-            Getting the latest posts for you.
+            Loading
           </Text>
         </View>
       );
     }
 
-    /*
-     * Authentication not ready
-     */
     if (!user) {
       return (
-        <View style={styles.emptyContainer}>
-          <View style={styles.emptyIcon}>
+        <View style={styles.empty}>
+          <View style={styles.emptyCircle}>
             <Ionicons
               name="person-outline"
               size={28}
-              color="#111111"
+              color="#000"
             />
           </View>
 
@@ -352,24 +485,21 @@ export default function HomeScreen() {
           </Text>
 
           <Text style={styles.emptySubtitle}>
-            Log in to see posts and stories from people
-            you follow.
+            Log in to see posts from
+            people you follow.
           </Text>
         </View>
       );
     }
 
-    /*
-     * Error state
-     */
     if (error) {
       return (
-        <View style={styles.emptyContainer}>
-          <View style={styles.emptyIcon}>
+        <View style={styles.empty}>
+          <View style={styles.emptyCircle}>
             <Ionicons
               name="cloud-offline-outline"
               size={28}
-              color="#111111"
+              color="#000"
             />
           </View>
 
@@ -378,15 +508,19 @@ export default function HomeScreen() {
           </Text>
 
           <Text style={styles.emptySubtitle}>
-            {error}
+            Check your connection and
+            try again.
           </Text>
 
           <Pressable
-            onPress={() => loadHome()}
-            style={styles.retryButton}
-            android_ripple={{
-              color: "#E5E5E5",
-            }}
+            onPress={() =>
+              loadHome()
+            }
+            style={({ pressed }) => [
+              styles.retryButton,
+              pressed &&
+                styles.retryPressed,
+            ]}
           >
             <Text style={styles.retryText}>
               Try again
@@ -396,16 +530,13 @@ export default function HomeScreen() {
       );
     }
 
-    /*
-     * No posts
-     */
     return (
-      <View style={styles.emptyContainer}>
-        <View style={styles.emptyIcon}>
+      <View style={styles.empty}>
+        <View style={styles.emptyCircle}>
           <Ionicons
             name="images-outline"
-            size={28}
-            color="#111111"
+            size={29}
+            color="#000"
           />
         </View>
 
@@ -414,16 +545,17 @@ export default function HomeScreen() {
         </Text>
 
         <Text style={styles.emptySubtitle}>
-          Follow people and discover new accounts to see
-          their posts here.
+          Follow people to see their
+          photos and videos here.
         </Text>
 
         <Pressable
           onPress={handleExplore}
-          style={styles.exploreButton}
-          android_ripple={{
-            color: "#E5E5E5",
-          }}
+          style={({ pressed }) => [
+            styles.exploreButton,
+            pressed &&
+              styles.explorePressed,
+          ]}
         >
           <Text style={styles.exploreText}>
             Discover people
@@ -439,111 +571,54 @@ export default function HomeScreen() {
     handleExplore,
   ]);
 
-  /*
-   * --------------------------------------------------
-   * HEADER
-   * --------------------------------------------------
-   */
+  const renderFooter = useCallback(() => {
+    if (
+      loading ||
+      refreshing ||
+      posts.length === 0
+    ) {
+      return null;
+    }
 
-  const renderHeader = useCallback(() => {
     return (
-      <View style={styles.headerWrapper}>
-        {/* -------------------------------------------
-            TOP NAVIGATION
-        -------------------------------------------- */}
+      <View style={styles.footer}>
+        <Ionicons
+          name="checkmark-circle-outline"
+          size={18}
+          color="#8e8e8e"
+        />
 
-        <View style={styles.header}>
-          <Pressable
-            onPress={handleCreate}
-            style={styles.headerButton}
-            hitSlop={8}
-            android_ripple={{
-              color: "#EDEDED",
-              borderless: true,
-            }}
-            accessibilityRole="button"
-            accessibilityLabel="Create"
-          >
-            <Ionicons
-              name="add-outline"
-              size={29}
-              color="#111111"
-            />
-          </Pressable>
-
-          <Text
-            style={styles.logo}
-            numberOfLines={1}
-          >
-            Snapgram
-          </Text>
-
-          <View style={styles.headerRight}>
-            <Pressable
-              onPress={handleNotifications}
-              style={styles.headerButton}
-              hitSlop={8}
-              android_ripple={{
-                color: "#EDEDED",
-                borderless: true,
-              }}
-              accessibilityRole="button"
-              accessibilityLabel="Notifications"
-            >
-              <Ionicons
-                name="heart-outline"
-                size={27}
-                color="#111111"
-              />
-            </Pressable>
-
-            <Pressable
-              onPress={handleMessages}
-              style={styles.headerButton}
-              hitSlop={8}
-              android_ripple={{
-                color: "#EDEDED",
-                borderless: true,
-              }}
-              accessibilityRole="button"
-              accessibilityLabel="Messages"
-            >
-              <Ionicons
-                name="chatbubble-outline"
-                size={25}
-                color="#111111"
-              />
-            </Pressable>
-          </View>
-        </View>
-
-        {/* -------------------------------------------
-            STORIES
-        -------------------------------------------- */}
-
-        <View style={styles.storiesSection}>
-          <StoryTray
-            stories={stories}
-            onStoryPress={handleStoryPress}
-            onCreateStory={handleCreateStory}
-          />
-        </View>
+        <Text style={styles.footerText}>
+          You're all caught up
+        </Text>
       </View>
     );
   }, [
-    stories,
-    handleCreate,
-    handleCreateStory,
-    handleStoryPress,
-    handleNotifications,
-    handleMessages,
+    loading,
+    refreshing,
+    posts.length,
   ]);
 
-  /*
-   * --------------------------------------------------
-   * MAIN UI
-   * --------------------------------------------------
-   */
+  if (authLoading) {
+    return (
+      <SafeAreaView
+        style={styles.safeArea}
+        edges={["top"]}
+      >
+        <View style={styles.authLoading}>
+          <Text style={styles.logo}>
+            Snapgram
+          </Text>
+
+          <ActivityIndicator
+            size="small"
+            color="#000"
+            style={styles.authSpinner}
+          />
+        </View>
+      </SafeAreaView>
+    );
+  }
 
   return (
     <SafeAreaView
@@ -552,65 +627,70 @@ export default function HomeScreen() {
     >
       <FlatList
         data={posts}
-        keyExtractor={(item, index) =>
-          String(
-            item?._id ||
-              item?.id ||
-              item?.postId ||
-              `post-${index}`
-          )
-        }
         renderItem={renderPost}
-        ListHeaderComponent={renderHeader}
-        ListEmptyComponent={renderEmpty}
-        showsVerticalScrollIndicator={false}
+        keyExtractor={getPostKey}
+        ListHeaderComponent={
+          renderHeader
+        }
+        ListEmptyComponent={
+          renderEmpty
+        }
+        ListFooterComponent={
+          renderFooter
+        }
+        showsVerticalScrollIndicator={
+          false
+        }
         contentContainerStyle={
           posts.length === 0
-            ? styles.emptyListContent
-            : styles.listContent
+            ? styles.emptyList
+            : styles.feedList
         }
         refreshControl={
           <RefreshControl
             refreshing={refreshing}
             onRefresh={handleRefresh}
-            tintColor="#111111"
-            colors={["#111111"]}
+            tintColor="#000"
+            colors={["#000"]}
           />
         }
         removeClippedSubviews={false}
         keyboardShouldPersistTaps="handled"
+        initialNumToRender={4}
+        maxToRenderPerBatch={5}
+        windowSize={7}
       />
     </SafeAreaView>
   );
 }
 
-/*
- * =====================================================
- * STYLES
- * =====================================================
- */
-
 const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
-    backgroundColor: "#FFFFFF",
+    backgroundColor: "#fff",
   },
 
-  listContent: {
+  feedList: {
     paddingBottom: 24,
   },
 
-  emptyListContent: {
+  emptyList: {
     flexGrow: 1,
     paddingBottom: 24,
   },
 
-  /*
-   * HEADER
-   */
+  authLoading: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+  },
 
-  headerWrapper: {
-    backgroundColor: "#FFFFFF",
+  authSpinner: {
+    marginTop: 18,
+  },
+
+  headerContainer: {
+    backgroundColor: "#fff",
   },
 
   header: {
@@ -619,119 +699,190 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    backgroundColor: "#FFFFFF",
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: "#DBDBDB",
-  },
-
-  headerButton: {
-    width: 40,
-    height: 40,
-    alignItems: "center",
-    justifyContent: "center",
-    borderRadius: 20,
+    backgroundColor: "#fff",
+    borderBottomWidth:
+      StyleSheet.hairlineWidth,
+    borderBottomColor: "#dbdbdb",
   },
 
   logo: {
     position: "absolute",
-    left: 70,
-    right: 70,
+    left: 72,
+    right: 72,
     textAlign: "center",
-    fontSize: 21,
-    fontWeight: "700",
-    letterSpacing: -0.4,
-    color: "#111111",
+    fontSize: 22,
+    fontWeight: "800",
+    letterSpacing: -0.5,
+    color: "#000",
   },
 
-  headerRight: {
+  headerActions: {
     marginLeft: "auto",
     flexDirection: "row",
     alignItems: "center",
     gap: 2,
   },
 
-  /*
-   * STORIES
-   */
-
-  storiesSection: {
-    backgroundColor: "#FFFFFF",
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: "#DBDBDB",
-    paddingBottom: 2,
-  },
-
-  /*
-   * EMPTY STATE
-   */
-
-  emptyContainer: {
-    flex: 1,
-    minHeight: 360,
-    paddingHorizontal: 32,
+  headerButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
     alignItems: "center",
     justifyContent: "center",
   },
 
-  emptyIcon: {
-    width: 68,
-    height: 68,
-    borderRadius: 34,
+  headerButtonPressed: {
+    backgroundColor: "#f2f2f2",
+  },
+
+  storyContainer: {
+    backgroundColor: "#fff",
+    borderBottomWidth:
+      StyleSheet.hairlineWidth,
+    borderBottomColor: "#dbdbdb",
+  },
+
+  storyEmpty: {
+    height: 108,
+    paddingHorizontal: 14,
+    alignItems: "flex-start",
+    justifyContent: "center",
+    borderBottomWidth:
+      StyleSheet.hairlineWidth,
+    borderBottomColor: "#dbdbdb",
+  },
+
+  createStoryButton: {
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  createStoryIcon: {
+    width: 62,
+    height: 62,
+    borderRadius: 31,
     borderWidth: 1,
-    borderColor: "#DBDBDB",
+    borderColor: "#dbdbdb",
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#fafafa",
+  },
+
+  createStoryText: {
+    marginTop: 6,
+    fontSize: 11,
+    color: "#000",
+    fontWeight: "500",
+  },
+
+  createStoryPressed: {
+    opacity: 0.65,
+  },
+
+  errorStrip: {
+    minHeight: 38,
+    paddingHorizontal: 14,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 7,
+    backgroundColor: "#fafafa",
+    borderBottomWidth:
+      StyleSheet.hairlineWidth,
+    borderBottomColor: "#dbdbdb",
+  },
+
+  errorStripText: {
+    fontSize: 12,
+    fontWeight: "600",
+    color: "#000",
+  },
+
+  empty: {
+    minHeight: 390,
+    paddingHorizontal: 30,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  emptyCircle: {
+    width: 70,
+    height: 70,
+    borderRadius: 35,
+    borderWidth: 1,
+    borderColor: "#dbdbdb",
     alignItems: "center",
     justifyContent: "center",
     marginBottom: 18,
   },
 
   emptyTitle: {
-    marginBottom: 7,
-    textAlign: "center",
     fontSize: 18,
-    lineHeight: 23,
     fontWeight: "700",
-    color: "#111111",
+    color: "#000",
+    textAlign: "center",
   },
 
   emptySubtitle: {
     maxWidth: 300,
-    textAlign: "center",
+    marginTop: 7,
     fontSize: 14,
     lineHeight: 20,
     color: "#737373",
+    textAlign: "center",
   },
 
   retryButton: {
     minWidth: 100,
     height: 38,
     marginTop: 20,
-    paddingHorizontal: 18,
+    paddingHorizontal: 20,
     borderRadius: 8,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "#EFEFEF",
+    backgroundColor: "#efefef",
+  },
+
+  retryPressed: {
+    opacity: 0.65,
   },
 
   retryText: {
     fontSize: 14,
     fontWeight: "700",
-    color: "#111111",
+    color: "#000",
   },
 
   exploreButton: {
-    minWidth: 140,
+    minWidth: 145,
     height: 38,
     marginTop: 20,
-    paddingHorizontal: 18,
+    paddingHorizontal: 20,
     borderRadius: 8,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "#0095F6",
+    backgroundColor: "#0095f6",
+  },
+
+  explorePressed: {
+    opacity: 0.7,
   },
 
   exploreText: {
     fontSize: 14,
     fontWeight: "700",
-    color: "#FFFFFF",
+    color: "#fff",
+  },
+
+  footer: {
+    height: 70,
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 5,
+  },
+
+  footerText: {
+    fontSize: 12,
+    color: "#8e8e8e",
   },
 });
