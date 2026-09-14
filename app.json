@@ -13,8 +13,10 @@
         "NSCameraUsageDescription": "Snapgram uses your camera for photos, videos, stories, and video calls.",
         "NSMicrophoneUsageDescription": "Snapgram uses your microphone for voice messages, voice calls, and video calls.",
         "NSPhotoLibraryUsageDescription": "Snapgram needs access to your photos and videos so you can share them.",
-        "NSPhotoLibraryAddUsageDescription": "Snapgram needs permission to save photos and videos to your library."
-      }
+        "NSPhotoLibraryAddUsageDescription": "Snapgram needs permission to save photos and videos to your library.",
+        "ITSAppUsesNonExemptEncryption": false
+      },
+      "bundleIdentifier": "com.emsapp254.snapgramapp"
     },
     "android": {
       "package": "com.emsapp254.snapgramapp",
