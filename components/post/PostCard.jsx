@@ -42,112 +42,88 @@ const COLORS = {
   red: "#ED4956",
 };
 
+/* =========================================================
+   USER HELPERS
+========================================================= */
+
 function cleanText(value) {
-  if (
-    value === null ||
-    value === undefined
-  ) {
+  if (value === null || value === undefined) {
     return "";
   }
 
   return String(value).trim();
 }
 
-function getUserUsername(user, post) {
-  return cleanText(
-    user?.username ||
-      post?.username ||
-      post?.authorUsername ||
-      post?.author?.username ||
-      ""
-  );
-}
+/*
+ * Snapgram User schema:
+ *
+ * user.fullName
+ * user.username
+ * user.avatar
+ * user.isVerified
+ */
 
-function getUserFullName(user, post, username) {
-  const firstName = cleanText(
-    user?.firstName ||
-      user?.profile?.firstName ||
-      post?.firstName ||
-      ""
-  );
-
-  const lastName = cleanText(
-    user?.lastName ||
-      user?.profile?.lastName ||
-      post?.lastName ||
-      ""
-  );
-
-  const combinedName = cleanText(
-    `${firstName} ${lastName}`
-  );
-
-  const candidates = [
-    user?.fullName,
-    user?.name,
-    user?.displayName,
-    user?.profile?.fullName,
-    user?.profile?.name,
-    user?.profile?.displayName,
-    post?.fullName,
-    post?.name,
-    post?.displayName,
-    combinedName,
-  ];
-
-  const normalizedUsername =
-    cleanText(username).toLowerCase();
-
-  for (const candidate of candidates) {
-    const value = cleanText(candidate);
-
-    if (!value) {
-      continue;
-    }
-
-    if (
-      value.toLowerCase() ===
-      normalizedUsername
-    ) {
-      continue;
-    }
-
-    return value;
+function getPostUser(post) {
+  if (!post) {
+    return {};
   }
 
-  return cleanText(username) || "User";
+  if (
+    post.user &&
+    typeof post.user === "object"
+  ) {
+    return post.user;
+  }
+
+  return {};
 }
 
-function getAvatar(user, post) {
-  return (
-    user?.avatar ||
-    user?.avatarUrl ||
-    user?.profilePicture ||
-    user?.profileImage ||
-    user?.photo ||
-    user?.photoURL ||
-    user?.image ||
-    user?.profile?.avatar ||
-    user?.profile?.profilePicture ||
-    post?.avatar ||
-    post?.avatarUrl ||
-    post?.profilePicture ||
-    post?.profileImage ||
-    null
-  );
+function getUsername(user) {
+  return cleanText(user?.username);
 }
 
-function getUserVerified(user, post) {
-  return Boolean(
-    user?.isVerified ??
-      user?.verified ??
-      user?.verification?.isVerified ??
-      user?.verification?.verified ??
-      post?.isVerified ??
-      post?.verified ??
-      false
+function getFullName(user, username) {
+  const fullName = cleanText(
+    user?.fullName
   );
+
+  /*
+   * IMPORTANT:
+   * Never use username as the full-name fallback.
+   *
+   * This prevents:
+   *
+   * rolex
+   * @rolex
+   *
+   * from appearing when fullName is missing.
+   */
+
+  if (fullName) {
+    return fullName;
+  }
+
+  /*
+   * If an old account does not have a fullName,
+   * use a neutral fallback instead of duplicating
+   * the username.
+   */
+  return username
+    ? "User"
+    : "User";
 }
+
+function getAvatar(user) {
+  return cleanText(user?.avatar);
+}
+
+function getUserVerified(user) {
+  return user?.isVerified === true;
+}
+
+/* =========================================================
+   POST CARD
+========================================================= */
 
 export default function PostCard({
   post,
@@ -156,6 +132,9 @@ export default function PostCard({
   onShare,
   onMore,
 }) {
+  /* =======================================================
+     BASIC POST DATA
+  ======================================================= */
 
   const postId =
     post?._id ||
@@ -163,54 +142,55 @@ export default function PostCard({
     post?.postId ||
     null;
 
-  const postUser = useMemo(() => {
-    return (
-      post?.user ||
-      post?.author ||
-      post?.owner ||
-      {}
-    );
-  }, [post]);
+  /*
+   * IMPORTANT:
+   * The backend populates:
+   *
+   * post.user = {
+   *   _id,
+   *   username,
+   *   fullName,
+   *   avatar,
+   *   isVerified
+   * }
+   */
+  const postUser = useMemo(
+    () => getPostUser(post),
+    [post]
+  );
 
-  const username = useMemo(() => {
-    return getUserUsername(
-      postUser,
-      post
-    );
-  }, [postUser, post]);
+  const username = useMemo(
+    () => getUsername(postUser),
+    [postUser]
+  );
 
-  const fullName = useMemo(() => {
-    return getUserFullName(
-      postUser,
-      post,
-      username
-    );
-  }, [postUser, post, username]);
+  const fullName = useMemo(
+    () =>
+      getFullName(
+        postUser,
+        username
+      ),
+    [postUser, username]
+  );
 
-  const displayName =
-    fullName || username || "User";
+  const avatar = useMemo(
+    () => getAvatar(postUser),
+    [postUser]
+  );
 
-  const avatar = useMemo(() => {
-    return getAvatar(
-      postUser,
-      post
-    );
-  }, [postUser, post]);
-
-  const isVerified = useMemo(() => {
-    return getUserVerified(
-      postUser,
-      post
-    );
-  }, [postUser, post]);
+  const isVerified = useMemo(
+    () => getUserVerified(postUser),
+    [postUser]
+  );
 
   const userId =
     postUser?._id ||
     postUser?.id ||
-    post?.userId ||
-    post?.authorId ||
-    post?.ownerId ||
     null;
+
+  /* =======================================================
+     MEDIA
+  ======================================================= */
 
   const mediaItem =
     Array.isArray(post?.media)
@@ -236,6 +216,10 @@ export default function PostCard({
     mediaItem?.mimeType?.startsWith?.(
       "video/"
     );
+
+  /* =======================================================
+     LIKE / SAVE STATE
+  ======================================================= */
 
   const initialLiked = Boolean(
     post?.isLiked ??
@@ -293,11 +277,19 @@ export default function PostCard({
   const [shareLoading, setShareLoading] =
     useState(false);
 
+  /* =======================================================
+     MEDIA STATE
+  ======================================================= */
+
   const [imageLoading, setImageLoading] =
     useState(Boolean(image));
 
   const [imageError, setImageError] =
     useState(false);
+
+  /* =======================================================
+     MENU STATE
+  ======================================================= */
 
   const [menuVisible, setMenuVisible] =
     useState(false);
@@ -307,6 +299,10 @@ export default function PostCard({
 
   const doubleTapTimeout =
     useRef(null);
+
+  /* =======================================================
+     CLEANUP
+  ======================================================= */
 
   useEffect(() => {
     return () => {
@@ -319,6 +315,10 @@ export default function PostCard({
       }
     };
   }, []);
+
+  /* =======================================================
+     LIKE
+  ======================================================= */
 
   const handleLike = useCallback(
     async () => {
@@ -410,6 +410,10 @@ export default function PostCard({
     ]
   );
 
+  /* =======================================================
+     MEDIA PRESS / DOUBLE TAP LIKE
+  ======================================================= */
+
   const handleMediaPress =
     useCallback(() => {
       if (!postId) {
@@ -451,6 +455,10 @@ export default function PostCard({
       liked,
       handleLike,
     ]);
+
+  /* =======================================================
+     SAVE
+  ======================================================= */
 
   const handleSave = useCallback(
     async () => {
@@ -516,6 +524,10 @@ export default function PostCard({
     ]
   );
 
+  /* =======================================================
+     SHARE
+  ======================================================= */
+
   const handleShare =
     useCallback(async () => {
       if (
@@ -551,6 +563,10 @@ export default function PostCard({
       post,
     ]);
 
+  /* =======================================================
+     COMMENTS
+  ======================================================= */
+
   const handleComment =
     useCallback(() => {
       if (!postId) {
@@ -578,6 +594,10 @@ export default function PostCard({
       post,
     ]);
 
+  /* =======================================================
+     PROFILE
+  ======================================================= */
+
   const openProfile =
     useCallback(() => {
       if (!username) {
@@ -594,6 +614,10 @@ export default function PostCard({
         },
       });
     }, [username]);
+
+  /* =======================================================
+     MENU
+  ======================================================= */
 
   const openMenu =
     useCallback(() => {
@@ -723,24 +747,32 @@ export default function PostCard({
       openMenu,
     ]);
 
+  /* =======================================================
+     DISPLAY VALUES
+  ======================================================= */
+
   const formattedLikes =
     likesCount.toLocaleString();
 
-  const avatarLetter =
-    (
-      displayName ||
-      username ||
-      "S"
-    )
-      .charAt(0)
-      .toUpperCase();
+  const avatarLetter = (
+    fullName !== "User"
+      ? fullName
+      : username || "S"
+  )
+    .charAt(0)
+    .toUpperCase();
+
+  /* =======================================================
+     RENDER
+  ======================================================= */
 
   return (
     <>
       <View style={styles.card}>
-        {/* ------------------------------------------ */}
-        {/* POST HEADER                                */}
-        {/* ------------------------------------------ */}
+
+        {/* =================================================
+            POST HEADER
+        ================================================= */}
 
         <View style={styles.header}>
           <TouchableOpacity
@@ -748,8 +780,10 @@ export default function PostCard({
             activeOpacity={0.75}
             onPress={openProfile}
             accessibilityRole="button"
-            accessibilityLabel={`Open ${username}'s profile`}
+            accessibilityLabel={`Open ${username || "user"}'s profile`}
           >
+            {/* AVATAR */}
+
             <View style={styles.avatar}>
               {avatar ? (
                 <Image
@@ -771,22 +805,24 @@ export default function PostCard({
               )}
             </View>
 
+            {/* IDENTITY */}
+
             <View
               style={styles.identity}
             >
-              {/* FULL NAME + VERIFIED */}
+              {/* FULL NAME + VERIFIED BADGE */}
+
               <View
-                style={
-                  styles.nameRow
-                }
+                style={styles.nameRow}
               >
                 <Text
                   style={
                     styles.fullName
                   }
                   numberOfLines={1}
+                  ellipsizeMode="tail"
                 >
-                  {displayName}
+                  {fullName}
                 </Text>
 
                 {isVerified ? (
@@ -803,16 +839,22 @@ export default function PostCard({
               </View>
 
               {/* USERNAME */}
-              <Text
-                style={
-                  styles.username
-                }
-                numberOfLines={1}
-              >
-                @{username}
-              </Text>
+
+              {username ? (
+                <Text
+                  style={
+                    styles.username
+                  }
+                  numberOfLines={1}
+                  ellipsizeMode="tail"
+                >
+                  @{username}
+                </Text>
+              ) : null}
             </View>
           </TouchableOpacity>
+
+          {/* MORE */}
 
           <TouchableOpacity
             style={
@@ -833,9 +875,9 @@ export default function PostCard({
           </TouchableOpacity>
         </View>
 
-        {/* ------------------------------------------ */}
-        {/* MEDIA                                      */}
-        {/* ------------------------------------------ */}
+        {/* =================================================
+            MEDIA
+        ================================================= */}
 
         <TouchableOpacity
           activeOpacity={1}
@@ -869,6 +911,7 @@ export default function PostCard({
                   setImageLoading(
                     false
                   );
+
                   setImageError(
                     true
                   );
@@ -883,7 +926,9 @@ export default function PostCard({
                 >
                   <ActivityIndicator
                     size="small"
-                    color="#FFFFFF"
+                    color={
+                      COLORS.white
+                    }
                   />
                 </View>
               ) : null}
@@ -897,7 +942,9 @@ export default function PostCard({
                   <Ionicons
                     name="play"
                     size={15}
-                    color="#FFFFFF"
+                    color={
+                      COLORS.white
+                    }
                   />
                 </View>
               ) : null}
@@ -925,9 +972,9 @@ export default function PostCard({
           )}
         </TouchableOpacity>
 
-        {/* ------------------------------------------ */}
-        {/* ACTIONS                                    */}
-        {/* ------------------------------------------ */}
+        {/* =================================================
+            ACTIONS
+        ================================================= */}
 
         <View
           style={styles.actions}
@@ -937,6 +984,8 @@ export default function PostCard({
               styles.leftActions
             }
           >
+            {/* LIKE */}
+
             <TouchableOpacity
               style={
                 styles.actionButton
@@ -964,6 +1013,8 @@ export default function PostCard({
               />
             </TouchableOpacity>
 
+            {/* COMMENT */}
+
             <TouchableOpacity
               style={
                 styles.actionButton
@@ -981,6 +1032,8 @@ export default function PostCard({
                 }
               />
             </TouchableOpacity>
+
+            {/* SHARE */}
 
             <TouchableOpacity
               style={
@@ -1012,6 +1065,8 @@ export default function PostCard({
               )}
             </TouchableOpacity>
           </View>
+
+          {/* SAVE */}
 
           <TouchableOpacity
             style={
@@ -1048,9 +1103,9 @@ export default function PostCard({
           </TouchableOpacity>
         </View>
 
-        {/* ------------------------------------------ */}
-        {/* LIKES                                      */}
-        {/* ------------------------------------------ */}
+        {/* =================================================
+            LIKES
+        ================================================= */}
 
         {likesCount > 0 ? (
           <TouchableOpacity
@@ -1082,9 +1137,9 @@ export default function PostCard({
           </TouchableOpacity>
         ) : null}
 
-        {/* ------------------------------------------ */}
-        {/* CAPTION                                    */}
-        {/* ------------------------------------------ */}
+        {/* =================================================
+            CAPTION
+        ================================================= */}
 
         {post?.caption ? (
           <View
@@ -1097,24 +1152,28 @@ export default function PostCard({
                 styles.captionText
               }
             >
-              <Text
-                style={
-                  styles.captionUsername
-                }
-              >
-                {username}
-              </Text>
+              {username ? (
+                <>
+                  <Text
+                    style={
+                      styles.captionUsername
+                    }
+                  >
+                    {username}
+                  </Text>
 
-              {" "}
+                  {" "}
+                </>
+              ) : null}
 
               {post.caption}
             </Text>
           </View>
         ) : null}
 
-        {/* ------------------------------------------ */}
-        {/* COMMENTS                                   */}
-        {/* ------------------------------------------ */}
+        {/* =================================================
+            COMMENTS
+        ================================================= */}
 
         {commentsCount > 0 ? (
           <TouchableOpacity
@@ -1140,9 +1199,9 @@ export default function PostCard({
           </TouchableOpacity>
         ) : null}
 
-        {/* ------------------------------------------ */}
-        {/* DATE                                       */}
-        {/* ------------------------------------------ */}
+        {/* =================================================
+            DATE
+        ================================================= */}
 
         {post?.createdAt ? (
           <Text
@@ -1157,9 +1216,9 @@ export default function PostCard({
         ) : null}
       </View>
 
-      {/* -------------------------------------------- */}
-      {/* OPTIONS MODAL                               */}
-      {/* -------------------------------------------- */}
+      {/* ===================================================
+          OPTIONS MODAL
+      =================================================== */}
 
       <Modal
         visible={menuVisible}
@@ -1231,6 +1290,8 @@ export default function PostCard({
               }
             />
 
+            {/* SAVE */}
+
             <TouchableOpacity
               style={
                 styles.menuOption
@@ -1265,6 +1326,8 @@ export default function PostCard({
               </Text>
             </TouchableOpacity>
 
+            {/* GO TO POST */}
+
             <TouchableOpacity
               style={
                 styles.menuOption
@@ -1289,6 +1352,8 @@ export default function PostCard({
                 Go to post
               </Text>
             </TouchableOpacity>
+
+            {/* SHARE */}
 
             <TouchableOpacity
               style={
@@ -1315,6 +1380,8 @@ export default function PostCard({
               </Text>
             </TouchableOpacity>
 
+            {/* NOT INTERESTED */}
+
             <TouchableOpacity
               style={
                 styles.menuOption
@@ -1340,6 +1407,8 @@ export default function PostCard({
               </Text>
             </TouchableOpacity>
 
+            {/* MUTE */}
+
             <TouchableOpacity
               style={
                 styles.menuOption
@@ -1364,6 +1433,8 @@ export default function PostCard({
                 Mute @{username}
               </Text>
             </TouchableOpacity>
+
+            {/* REPORT */}
 
             <TouchableOpacity
               style={[
@@ -1402,6 +1473,10 @@ export default function PostCard({
     </>
   );
 }
+
+/* =========================================================
+   DATE FORMATTER
+========================================================= */
 
 function formatPostDate(date) {
   const timestamp =
@@ -1482,6 +1557,10 @@ function formatPostDate(date) {
   );
 }
 
+/* =========================================================
+   STYLES
+========================================================= */
+
 const styles = StyleSheet.create({
   card: {
     backgroundColor:
@@ -1549,6 +1628,10 @@ const styles = StyleSheet.create({
     marginLeft: 9,
   },
 
+  /*
+   * Full name and blue verification badge
+   * live together in this row.
+   */
   nameRow: {
     flexDirection: "row",
     alignItems: "center",
@@ -1571,12 +1654,19 @@ const styles = StyleSheet.create({
       COLORS.black,
   },
 
+  /*
+   * BLUE TICK IS HERE.
+   * It is intentionally inside nameRow,
+   * directly after the full name.
+   */
   verifiedContainer: {
     marginLeft: 4,
 
     alignItems: "center",
     justifyContent:
       "center",
+
+    flexShrink: 0,
   },
 
   username: {
@@ -1765,6 +1855,10 @@ const styles = StyleSheet.create({
       Colors.secondaryText ||
       "#8E8E8E",
   },
+
+  /* =======================================================
+     MODAL
+  ======================================================= */
 
   modalRoot: {
     flex: 1,

@@ -1,9 +1,18 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import api from "./api";
 
-const TOKEN_KEY = "snapgram_token";
-const USER_KEY = "snapgram_user";
-const ACCOUNTS_KEY = "snapgram_saved_accounts";
+export const TOKEN_KEY =
+  "snapgram_token";
+
+export const USER_KEY =
+  "snapgram_user";
+
+export const ACCOUNTS_KEY =
+  "snapgram_saved_accounts";
+
+/* =========================================================
+   HELPERS
+========================================================= */
 
 function getUserId(user) {
   return String(
@@ -13,19 +22,55 @@ function getUserId(user) {
   );
 }
 
-function normalizeAccount(user, token) {
+function normalizeAccount(
+  user,
+  token
+) {
   return {
     id: getUserId(user),
-    username: user?.username || "",
-    email: user?.email || "",
+
+    username:
+      user?.username || "",
+
+    email:
+      user?.email || "",
+
     name:
       user?.fullName ||
       user?.name ||
       "",
-    avatar: user?.avatar || "",
+
+    avatar:
+      user?.avatar || "",
+
     token,
   };
 }
+
+function getLoginIdentifierType(
+  identifier
+) {
+  const value =
+    String(identifier || "").trim();
+
+  if (value.includes("@")) {
+    return "email";
+  }
+
+  if (
+    /^[+0-9][0-9\s().-]*$/.test(
+      value
+    )
+  ) {
+    return "phone";
+  }
+
+  return "username";
+}
+
+/* =========================================================
+   AUTH SESSION
+========================================================= */
 
 export async function saveAuthSession(
   user,
@@ -46,7 +91,7 @@ export async function saveAuthSession(
   await AsyncStorage.multiSet([
     [
       TOKEN_KEY,
-      token,
+      String(token),
     ],
     [
       USER_KEY,
@@ -59,19 +104,19 @@ export async function saveAuthSession(
     token
   );
 
-  const storedToken =
+  const savedToken =
     await AsyncStorage.getItem(
       TOKEN_KEY
     );
 
-  if (!storedToken) {
+  if (!savedToken) {
     throw new Error(
       "Authentication succeeded, but the token could not be saved."
     );
   }
 
   console.log(
-    "AUTH SESSION SAVED:",
+    "[AUTH] SESSION SAVED:",
     user?.username ||
       user?.email ||
       user?._id ||
@@ -84,6 +129,10 @@ export async function saveAuthSession(
     user,
   };
 }
+
+/* =========================================================
+   SAVED ACCOUNTS
+========================================================= */
 
 async function getStoredAccounts() {
   try {
@@ -111,14 +160,13 @@ async function getStoredAccounts() {
     );
   } catch (error) {
     console.error(
-      "GET STORED ACCOUNTS ERROR:",
-      error?.message ||
-        error
+      "[AUTH] GET STORED ACCOUNTS ERROR:",
+      error?.message || error
     );
 
     return [];
   }
-  }
+}
 
 async function saveStoredAccounts(
   accounts
@@ -172,32 +220,63 @@ async function saveLoggedInAccount(
   );
 }
 
+/* =========================================================
+   REGISTER
+========================================================= */
+
 export async function registerUser(
-  data
+  data = {}
 ) {
   const payload = {
     username:
-      data?.username
-        ?.trim()
-        .toLowerCase() || "",
+      String(
+        data?.username || ""
+      )
+        .trim()
+        .toLowerCase(),
 
     email:
-      data?.email
-        ?.trim()
-        .toLowerCase() || "",
+      String(
+        data?.email || ""
+      )
+        .trim()
+        .toLowerCase(),
 
     password:
-      data?.password || "",
+      String(
+        data?.password || ""
+      ),
 
     phone:
-      data?.phone
-        ?.trim() || "",
+      String(
+        data?.phone || ""
+      ).trim(),
 
     fullName:
-      data?.fullName?.trim() ||
-      data?.name?.trim() ||
-      "",
+      String(
+        data?.fullName ||
+          data?.name ||
+          ""
+      ).trim(),
   };
+
+  if (!payload.username) {
+    throw new Error(
+      "Username is required."
+    );
+  }
+
+  if (!payload.email) {
+    throw new Error(
+      "Email is required."
+    );
+  }
+
+  if (!payload.password) {
+    throw new Error(
+      "Password is required."
+    );
+  }
 
   const response =
     await api.post(
@@ -208,32 +287,28 @@ export async function registerUser(
   return response.data;
 }
 
+/* =========================================================
+   LOGIN
+========================================================= */
 
 export async function loginUser(
-  data
+  data = {}
 ) {
-  const email =
-    data?.email
-      ?.trim()
-      .toLowerCase() || "";
-
-  const phone =
-    data?.phone
-      ?.trim() || "";
-
-  const username =
-    data?.username
-      ?.trim()
-      .toLowerCase() || "";
+  const identifier =
+    String(
+      data?.identifier ||
+        data?.email ||
+        data?.phone ||
+        data?.username ||
+        ""
+    ).trim();
 
   const password =
-    data?.password || "";
+    String(
+      data?.password || ""
+    );
 
-  if (
-    !email &&
-    !phone &&
-    !username
-  ) {
+  if (!identifier) {
     throw new Error(
       "Email, username, or phone number is required."
     );
@@ -245,79 +320,132 @@ export async function loginUser(
     );
   }
 
+  const type =
+    getLoginIdentifierType(
+      identifier
+    );
+
   const payload = {
     password,
   };
 
-  if (email) {
-    payload.email = email;
+  if (type === "email") {
+    payload.email =
+      identifier
+        .toLowerCase();
   }
 
-  if (phone) {
-    payload.phone = phone;
+  if (type === "phone") {
+    payload.phone =
+      identifier;
   }
 
-  if (username) {
-    payload.username = username;
+  if (type === "username") {
+    payload.username =
+      identifier
+        .toLowerCase();
   }
-
-  const response =
-    await api.post(
-      "/auth/login",
-      payload
-    );
-
-  const {
-    token,
-    user,
-  } =
-    response.data || {};
-
-  if (!token) {
-    throw new Error(
-      "Login succeeded but no authentication token was returned."
-    );
-  }
-
-  if (!user) {
-    throw new Error(
-      "Login succeeded but no user information was returned."
-    );
-  }
-
-  await saveAuthSession(
-    user,
-    token
-  );
 
   console.log(
     "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
   );
 
   console.log(
-    "LOGIN SUCCESS"
+    "[AUTH] LOGIN START"
   );
 
   console.log(
-    "AUTH TOKEN SAVED:",
-    true
+    "[AUTH] IDENTIFIER TYPE:",
+    type
   );
 
   console.log(
-    "AUTH USER:",
-    user?.username ||
-      user?.email ||
-      user?._id ||
-      user?.id ||
-      "unknown"
+    "[AUTH] IDENTIFIER:",
+    identifier
   );
 
   console.log(
     "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
   );
 
-  return response.data;
+  try {
+    const response =
+      await api.post(
+        "/auth/login",
+        payload
+      );
+
+    const {
+      token,
+      user,
+    } =
+      response.data || {};
+
+    if (!token) {
+      throw new Error(
+        "Login succeeded but no authentication token was returned."
+      );
+    }
+
+    if (!user) {
+      throw new Error(
+        "Login succeeded but no user information was returned."
+      );
+    }
+
+    await saveAuthSession(
+      user,
+      token
+    );
+
+    console.log(
+      "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    );
+
+    console.log(
+      "[AUTH] LOGIN SUCCESS"
+    );
+
+    console.log(
+      "[AUTH] TOKEN SAVED:",
+      true
+    );
+
+    console.log(
+      "[AUTH] USER:",
+      user?.username ||
+        user?.email ||
+        user?._id ||
+        user?.id ||
+        "unknown"
+    );
+
+    console.log(
+      "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    );
+
+    return response.data;
+  } catch (error) {
+    const message =
+      error?.response?.data
+        ?.message ||
+      error?.message ||
+      "Login failed.";
+
+    console.error(
+      "[AUTH] LOGIN FAILED:",
+      message
+    );
+
+    throw new Error(
+      message
+    );
+  }
 }
+
+/* =========================================================
+   GOOGLE LOGIN
+========================================================= */
 
 export async function loginWithGoogle(
   idToken
@@ -328,47 +456,68 @@ export async function loginWithGoogle(
     );
   }
 
-  const response =
-    await api.post(
-      "/auth/google",
-      {
-        idToken,
-      }
+  try {
+    const response =
+      await api.post(
+        "/auth/google",
+        {
+          idToken,
+        }
+      );
+
+    const {
+      token,
+      user,
+    } =
+      response.data || {};
+
+    if (!token) {
+      throw new Error(
+        "Google login succeeded but no authentication token was returned."
+      );
+    }
+
+    if (!user) {
+      throw new Error(
+        "Google login succeeded but no user information was returned."
+      );
+    }
+
+    await saveAuthSession(
+      user,
+      token
     );
 
-  const {
-    token,
-    user,
-  } =
-    response.data || {};
+    console.log(
+      "[AUTH] GOOGLE LOGIN SUCCESS:",
+      user?.username ||
+        user?.email ||
+        user?._id ||
+        user?.id
+    );
 
-  if (!token) {
+    return response.data;
+  } catch (error) {
+    const message =
+      error?.response?.data
+        ?.message ||
+      error?.message ||
+      "Google login failed.";
+
+    console.error(
+      "[AUTH] GOOGLE LOGIN FAILED:",
+      message
+    );
+
     throw new Error(
-      "Google login succeeded but no authentication token was returned."
+      message
     );
   }
-
-  if (!user) {
-    throw new Error(
-      "Google login succeeded but no user information was returned."
-    );
-  }
-
-  await saveAuthSession(
-    user,
-    token
-  );
-
-  console.log(
-    "GOOGLE LOGIN SUCCESS:",
-    user?.username ||
-      user?.email ||
-      user?._id ||
-      user?.id
-  );
-
-  return response.data;
 }
+
+/* =========================================================
+   FACEBOOK LOGIN
+========================================================= */
 
 export async function loginWithFacebook(
   accessToken
@@ -379,82 +528,124 @@ export async function loginWithFacebook(
     );
   }
 
-  const response =
-    await api.post(
-      "/auth/facebook",
-      {
-        accessToken,
-      }
-    );
+  try {
+    const response =
+      await api.post(
+        "/auth/facebook",
+        {
+          accessToken,
+        }
+      );
 
-  const {
-    token,
-    user,
-  } =
-    response.data || {};
+    const {
+      token,
+      user,
+    } =
+      response.data || {};
 
-  if (!token) {
-    throw new Error(
-      "Facebook login succeeded but no authentication token was returned."
-    );
-  }
+    if (!token) {
+      throw new Error(
+        "Facebook login succeeded but no authentication token was returned."
+      );
+    }
 
-  if (!user) {
-    throw new Error(
-      "Facebook login succeeded but no user information was returned."
-    );
-  }
+    if (!user) {
+      throw new Error(
+        "Facebook login succeeded but no user information was returned."
+      );
+    }
 
-  await saveAuthSession(
-    user,
-    token
-  );
-
-  console.log(
-    "FACEBOOK LOGIN SUCCESS:",
-    user?.username ||
-      user?.email ||
-      user?._id ||
-      user?.id
-  );
-
-  return response.data;
-}
-
-export async function getCurrentUser() {
-  const response =
-    await api.get(
-      "/auth/me"
-    );
-
-  const user =
-    response.data?.user;
-
-  if (!user) {
-    throw new Error(
-      "The server did not return the current user."
-    );
-  }
-
-  await AsyncStorage.setItem(
-    USER_KEY,
-    JSON.stringify(user)
-  );
-
-  const token =
-    await AsyncStorage.getItem(
-      TOKEN_KEY
-    );
-
-  if (token) {
-    await saveLoggedInAccount(
+    await saveAuthSession(
       user,
       token
     );
-  }
 
-  return user;
+    console.log(
+      "[AUTH] FACEBOOK LOGIN SUCCESS:",
+      user?.username ||
+        user?.email ||
+        user?._id ||
+        user?.id
+    );
+
+    return response.data;
+  } catch (error) {
+    const message =
+      error?.response?.data
+        ?.message ||
+      error?.message ||
+      "Facebook login failed.";
+
+    console.error(
+      "[AUTH] FACEBOOK LOGIN FAILED:",
+      message
+    );
+
+    throw new Error(
+      message
+    );
+  }
 }
+
+/* =========================================================
+   CURRENT USER
+========================================================= */
+
+export async function getCurrentUser() {
+  try {
+    const response =
+      await api.get(
+        "/auth/me"
+      );
+
+    const user =
+      response.data?.user;
+
+    if (!user) {
+      throw new Error(
+        "The server did not return the current user."
+      );
+    }
+
+    await AsyncStorage.setItem(
+      USER_KEY,
+      JSON.stringify(user)
+    );
+
+    const token =
+      await AsyncStorage.getItem(
+        TOKEN_KEY
+      );
+
+    if (token) {
+      await saveLoggedInAccount(
+        user,
+        token
+      );
+    }
+
+    return user;
+  } catch (error) {
+    const status =
+      error?.response?.status;
+
+    if (
+      status === 401 ||
+      status === 403
+    ) {
+      await AsyncStorage.multiRemove([
+        TOKEN_KEY,
+        USER_KEY,
+      ]);
+    }
+
+    throw error;
+  }
+}
+
+/* =========================================================
+   TOKEN / USER STORAGE
+========================================================= */
 
 export async function getAuthToken() {
   return AsyncStorage.getItem(
@@ -474,7 +665,12 @@ export async function getStoredUser() {
     }
 
     return JSON.parse(raw);
-  } catch {
+  } catch (error) {
+    console.error(
+      "[AUTH] GET STORED USER ERROR:",
+      error?.message || error
+    );
+
     return null;
   }
 }
@@ -482,6 +678,10 @@ export async function getStoredUser() {
 export async function getSavedAccounts() {
   return getStoredAccounts();
 }
+
+/* =========================================================
+   SWITCH SAVED ACCOUNT
+========================================================= */
 
 export async function switchSavedAccount(
   accountId
@@ -507,6 +707,16 @@ export async function switchSavedAccount(
       "Saved account could not be found."
     );
   }
+
+  const previousToken =
+    await AsyncStorage.getItem(
+      TOKEN_KEY
+    );
+
+  const previousUserRaw =
+    await AsyncStorage.getItem(
+      USER_KEY
+    );
 
   await AsyncStorage.setItem(
     TOKEN_KEY,
@@ -540,43 +750,10 @@ export async function switchSavedAccount(
 
     return user;
   } catch (error) {
-    
-    const previousUserRaw =
-      await AsyncStorage.getItem(
-        USER_KEY
-      );
-
-    let previousUser = null;
-
-    try {
-      previousUser =
-        previousUserRaw
-          ? JSON.parse(
-              previousUserRaw
-            )
-          : null;
-    } catch {
-      previousUser = null;
-    }
-
-    const previousUserId =
-      getUserId(
-        previousUser
-      );
-
-    const previousAccount =
-      accounts.find(
-        (item) =>
-          String(item.id) ===
-          String(previousUserId)
-      );
-
-    if (
-      previousAccount?.token
-    ) {
+    if (previousToken) {
       await AsyncStorage.setItem(
         TOKEN_KEY,
-        previousAccount.token
+        previousToken
       );
     } else {
       await AsyncStorage.removeItem(
@@ -584,9 +761,24 @@ export async function switchSavedAccount(
       );
     }
 
+    if (previousUserRaw) {
+      await AsyncStorage.setItem(
+        USER_KEY,
+        previousUserRaw
+      );
+    } else {
+      await AsyncStorage.removeItem(
+        USER_KEY
+      );
+    }
+
     throw error;
   }
 }
+
+/* =========================================================
+   REMOVE SAVED ACCOUNT
+========================================================= */
 
 export async function removeSavedAccount(
   accountId
@@ -647,10 +839,11 @@ export async function removeSavedAccount(
     remainingAccounts
   );
 
-  if (
-    String(currentUserId) !==
-    String(accountId)
-  ) {
+  const removingCurrentAccount =
+    String(currentUserId) ===
+    String(accountId);
+
+  if (!removingCurrentAccount) {
     return {
       removed: true,
       switched: false,
@@ -661,70 +854,77 @@ export async function removeSavedAccount(
   const nextAccount =
     remainingAccounts[0];
 
-  if (nextAccount) {
-    await AsyncStorage.setItem(
+  if (!nextAccount) {
+    await AsyncStorage.multiRemove([
       TOKEN_KEY,
+      USER_KEY,
+    ]);
+
+    return {
+      removed: true,
+      switched: false,
+      user: null,
+    };
+  }
+
+  await AsyncStorage.setItem(
+    TOKEN_KEY,
+    nextAccount.token
+  );
+
+  try {
+    const response =
+      await api.get(
+        "/auth/me"
+      );
+
+    const user =
+      response.data?.user;
+
+    if (!user) {
+      throw new Error(
+        "Unable to activate the next saved account."
+      );
+    }
+
+    await AsyncStorage.setItem(
+      USER_KEY,
+      JSON.stringify(user)
+    );
+
+    await saveLoggedInAccount(
+      user,
       nextAccount.token
     );
 
-    try {
-      const response =
-        await api.get(
-          "/auth/me"
-        );
+    return {
+      removed: true,
+      switched: true,
+      user,
+    };
+  } catch (error) {
+    await AsyncStorage.multiRemove([
+      TOKEN_KEY,
+      USER_KEY,
+    ]);
 
-      const user =
-        response.data?.user;
-
-      if (!user) {
-        throw new Error(
-          "Unable to activate the next saved account."
-        );
-      }
-
-      await AsyncStorage.setItem(
-        USER_KEY,
-        JSON.stringify(user)
-      );
-
-      await saveLoggedInAccount(
-        user,
-        nextAccount.token
-      );
-
-      return {
-        removed: true,
-        switched: true,
-        user,
-      };
-    } catch (error) {
-      await AsyncStorage.multiRemove([
-        TOKEN_KEY,
-        USER_KEY,
-      ]);
-
-      throw error;
-    }
+    throw error;
   }
-
-  await AsyncStorage.multiRemove([
-    TOKEN_KEY,
-    USER_KEY,
-  ]);
-
-  return {
-    removed: true,
-    switched: false,
-    user: null,
-  };
 }
 
+/* =========================================================
+   LOGOUT
+========================================================= */
+
 export async function logoutUser() {
-  
   await AsyncStorage.multiRemove([
     TOKEN_KEY,
     USER_KEY,
   ]);
+
+  console.log(
+    "[AUTH] LOGGED OUT"
+  );
 
   return {
     switched: false,
