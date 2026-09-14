@@ -462,14 +462,7 @@ export default function StoryViewer() {
 
     try {
       setSavingHighlight(true);
-
-      // Saves THIS story as a new
-      // highlight. If the user already
-      // has a highlight with this name,
-      // your backend can merge them —
-      // or swap this for
-      // addStoryToHighlight(existingId, storyId)
-      // once you have a highlight picker.
+      
       await createHighlight({
         title: cleanTitle,
         storyIds: [story._id],
@@ -842,7 +835,6 @@ export default function StoryViewer() {
           styles.overlay
         }
       >
-        {/* PROGRESS */}
 
         <View
           style={
@@ -894,8 +886,6 @@ export default function StoryViewer() {
             )
           )}
         </View>
-
-        {/* HEADER */}
 
         <View
           style={
@@ -1038,8 +1028,6 @@ export default function StoryViewer() {
           </View>
         </View>
 
-        {/* CAPTION */}
-
         {story.caption ? (
           <View
             style={
@@ -1056,8 +1044,6 @@ export default function StoryViewer() {
           </View>
         ) : null}
 
-        {/* PREVIOUS */}
-
         <Pressable
           style={
             styles.leftTouch
@@ -1067,8 +1053,6 @@ export default function StoryViewer() {
           }
         />
 
-        {/* NEXT */}
-
         <Pressable
           style={
             styles.rightTouch
@@ -1077,8 +1061,6 @@ export default function StoryViewer() {
             nextStory
           }
         />
-
-        {/* REPLY / LIKE */}
 
         <KeyboardAvoidingView
           behavior={
@@ -1186,8 +1168,6 @@ export default function StoryViewer() {
         </KeyboardAvoidingView>
       </SafeAreaView>
 
-      {/* ADD TO HIGHLIGHT MODAL */}
-
       <Modal
         visible={
           highlightModalVisible
@@ -1287,8 +1267,6 @@ export default function StoryViewer() {
           </View>
         </View>
       </Modal>
-
-      {/* VIEWERS MODAL */}
 
       <Modal
         visible={

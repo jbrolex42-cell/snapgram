@@ -1,6 +1,4 @@
-import React, {
-  useEffect,
-} from "react";
+import React, { useEffect, useRef } from "react";
 
 import {
   ActivityIndicator,
@@ -9,25 +7,35 @@ import {
   View,
 } from "react-native";
 
-import {
-  router,
-} from "expo-router";
+import { router } from "expo-router";
 
 export default function StoryCameraScreen() {
+  const redirectedRef = useRef(false);
+
   useEffect(() => {
-    router.replace({
-      pathname: "/create/camera",
-      params: {
-        mode: "story",
-      },
-    });
+    if (redirectedRef.current) {
+      return;
+    }
+
+    redirectedRef.current = true;
+
+    const timer = setTimeout(() => {
+      router.replace({
+        pathname: "/create/camera",
+        params: {
+          mode: "story",
+        },
+      });
+    }, 100);
+
+    return () => clearTimeout(timer);
   }, []);
 
   return (
     <View style={styles.container}>
       <ActivityIndicator
         size="large"
-        color="#fff"
+        color="#ffffff"
       />
 
       <Text style={styles.text}>
@@ -40,14 +48,14 @@ export default function StoryCameraScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#000",
+    backgroundColor: "#000000",
     alignItems: "center",
     justifyContent: "center",
   },
 
   text: {
     marginTop: 14,
-    color: "#fff",
+    color: "#ffffff",
     fontSize: 14,
     fontWeight: "600",
   },

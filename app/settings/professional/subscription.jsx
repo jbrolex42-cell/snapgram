@@ -34,22 +34,12 @@ import {
   startSubscriptionCheckout,
 } from "../../../services/subscriptionService";
 
-
-// ============================================================
-// PLAN ORDER
-// ============================================================
-
 const PLAN_ORDER = [
   "free",
   "plus",
   "pro",
   "premium",
 ];
-
-
-// ============================================================
-// CURRENCY
-// ============================================================
 
 function formatCurrency(
   amount,
@@ -68,24 +58,6 @@ function formatCurrency(
   ).format(value);
 }
 
-
-// ============================================================
-// PHONE HELPERS
-// ============================================================
-
-/**
- * Removes spaces, hyphens, brackets and other
- * formatting characters from a phone number.
- *
- * Examples:
- *
- * 0712 345 678
- * 0712-345-678
- * +254 712 345 678
- * (0712) 345 678
- *
- * become a clean numeric value.
- */
 function cleanPhone(value) {
   return String(value || "").replace(
     /[^\d+]/g,
@@ -93,25 +65,6 @@ function cleanPhone(value) {
   );
 }
 
-
-/**
- * Converts supported Kenyan phone formats into
- * the international +254 format expected by
- * the backend / M-PESA service.
- *
- * Supported examples:
- *
- * 0712345678
- * 0722345678
- * 0110123456
- * 0111123456
- *
- * +254712345678
- * +254 712 345 678
- *
- * 254712345678
- * 254 712 345 678
- */
 function normalizeKenyanPhone(value) {
   let phone = cleanPhone(value);
 
@@ -119,7 +72,6 @@ function normalizeKenyanPhone(value) {
     return "";
   }
 
-  // Keep only digits except for a leading +
   if (phone.startsWith("+")) {
     phone =
       "+" +
@@ -130,32 +82,13 @@ function normalizeKenyanPhone(value) {
     phone = phone.replace(/\D/g, "");
   }
 
-  // ----------------------------------------------------------
-  // +254XXXXXXXXX
-  // ----------------------------------------------------------
-
   if (phone.startsWith("+254")) {
     return phone;
   }
 
-  // ----------------------------------------------------------
-  // 254XXXXXXXXX
-  // ----------------------------------------------------------
-
   if (phone.startsWith("254")) {
     return `+${phone}`;
   }
-
-  // ----------------------------------------------------------
-  // 0XXXXXXXXX
-  //
-  // Kenyan local format.
-  // Convert:
-  //
-  // 0712345678
-  // to:
-  // +254712345678
-  // ----------------------------------------------------------
 
   if (phone.startsWith("0")) {
     return `+254${phone.slice(1)}`;
@@ -164,24 +97,10 @@ function normalizeKenyanPhone(value) {
   return phone;
 }
 
-
-/**
- * Validates Kenyan mobile numbers.
- *
- * Accepted prefixes include the commonly used
- * Kenyan mobile ranges:
- *
- * 07XXXXXXXX
- * 01XXXXXXXX
- *
- * after normalization to +254.
- */
 function isValidKenyanPhone(value) {
   const phone =
     normalizeKenyanPhone(value);
 
-  // Kenyan numbers after +254 contain
-  // exactly 9 digits.
   if (!/^\+254\d{9}$/.test(phone)) {
     return false;
   }
@@ -189,16 +108,6 @@ function isValidKenyanPhone(value) {
   const localNumber =
     phone.slice(4);
 
-  // Kenya mobile numbers commonly use:
-  // 07XXXXXXXX
-  // 01XXXXXXXX
-  //
-  // Since the first digit after +254 is:
-  // 7 or 1
-  //
-  // examples:
-  // +254712345678
-  // +254112345678
   if (!/^[17]\d{8}$/.test(localNumber)) {
     return false;
   }
@@ -206,14 +115,6 @@ function isValidKenyanPhone(value) {
   return true;
 }
 
-
-/**
- * Formats the entered number for display while
- * preserving the user's ability to type naturally.
- *
- * We intentionally do NOT put a number into the
- * input when the screen loads.
- */
 function formatPhoneInput(value) {
   const raw = String(value || "");
 
@@ -221,7 +122,6 @@ function formatPhoneInput(value) {
     return "";
   }
 
-  // Keep + if the user starts with international format.
   const hasPlus = raw.trim().startsWith("+");
 
   const digits = raw.replace(/\D/g, "");
@@ -230,7 +130,6 @@ function formatPhoneInput(value) {
     return hasPlus ? "+" : "";
   }
 
-  // +254XXXXXXXXX
   if (
     hasPlus ||
     digits.startsWith("254")
@@ -291,14 +190,6 @@ function formatPhoneInput(value) {
     }
   }
 
-  // Kenyan local format:
-  //
-  // 0712 345 678
-  //
-  // or
-  //
-  // 0111 234 567
-  //
   const local = digits.slice(0, 10);
 
   if (local.length <= 4) {
@@ -321,11 +212,6 @@ function formatPhoneInput(value) {
   )} ${local.slice(7, 10)}`;
 }
 
-
-// ============================================================
-// PLAN DESCRIPTION
-// ============================================================
-
 function planDescription(planId) {
   switch (planId) {
     case "plus":
@@ -343,11 +229,6 @@ function planDescription(planId) {
   }
 }
 
-
-// ============================================================
-// SUBSCRIPTION SCREEN
-// ============================================================
-
 export default function SubscriptionScreen() {
   const [plans, setPlans] =
     useState([]);
@@ -358,8 +239,6 @@ export default function SubscriptionScreen() {
   const [selectedPlan, setSelectedPlan] =
     useState("plus");
 
-  // IMPORTANT:
-  // This starts completely blank.
   const [phoneNumber, setPhoneNumber] =
     useState("");
 
@@ -374,11 +253,6 @@ export default function SubscriptionScreen() {
 
   const [error, setError] =
     useState(null);
-
-
-  // ==========================================================
-  // LOAD DATA
-  // ==========================================================
 
   const loadData = useCallback(
     async ({
@@ -414,7 +288,6 @@ export default function SubscriptionScreen() {
                   b.id
                 );
 
-              // Unknown plans go to the end.
               return (
                 (aIndex === -1
                   ? 999
@@ -491,11 +364,6 @@ export default function SubscriptionScreen() {
     loadData();
   }, [loadData]);
 
-
-  // ==========================================================
-  // WAIT FOR PAYMENT
-  // ==========================================================
-
   async function waitForPayment(
     paymentId
   ) {
@@ -544,11 +412,6 @@ export default function SubscriptionScreen() {
     );
   }
 
-
-  // ==========================================================
-  // SUBSCRIBE
-  // ==========================================================
-
   async function subscribe() {
     if (processing) {
       return;
@@ -581,18 +444,10 @@ export default function SubscriptionScreen() {
       return;
     }
 
-    // --------------------------------------------------------
-    // Normalize the phone number.
-    // --------------------------------------------------------
-
     const phone =
       normalizeKenyanPhone(
         phoneNumber
       );
-
-    // --------------------------------------------------------
-    // Validate Kenyan phone.
-    // --------------------------------------------------------
 
     if (
       !isValidKenyanPhone(
@@ -601,7 +456,7 @@ export default function SubscriptionScreen() {
     ) {
       Alert.alert(
         "Invalid M-PESA number",
-        "Enter a valid Kenyan number such as 0712345678, 0111234567, +254712345678, or 254712345678."
+        "Enter a valid Phone number ."
       );
 
       return;
@@ -609,10 +464,6 @@ export default function SubscriptionScreen() {
 
     try {
       setProcessing(true);
-
-      // ------------------------------------------------------
-      // Send normalized +254 number to backend.
-      // ------------------------------------------------------
 
       const result =
         await startSubscriptionCheckout(
@@ -673,11 +524,6 @@ export default function SubscriptionScreen() {
     }
   }
 
-
-  // ==========================================================
-  // CANCEL CONFIRMATION
-  // ==========================================================
-
   function confirmCancel() {
     Alert.alert(
       "Cancel subscription?",
@@ -696,11 +542,6 @@ export default function SubscriptionScreen() {
       ]
     );
   }
-
-
-  // ==========================================================
-  // CANCEL SUBSCRIPTION
-  // ==========================================================
 
   async function performCancel() {
     try {
@@ -738,11 +579,6 @@ export default function SubscriptionScreen() {
     }
   }
 
-
-  // ==========================================================
-  // LOADING
-  // ==========================================================
-
   if (loading) {
     return (
       <Page
@@ -755,11 +591,6 @@ export default function SubscriptionScreen() {
       </Page>
     );
   }
-
-
-  // ==========================================================
-  // SCREEN
-  // ==========================================================
 
   return (
     <Page
@@ -794,11 +625,6 @@ export default function SubscriptionScreen() {
           text="Choose the Snapgram experience that fits you."
         />
 
-
-        {/* ==================================================
-            ERROR
-        ================================================== */}
-
         {error ? (
           <>
             <Notice tone="danger">
@@ -814,11 +640,6 @@ export default function SubscriptionScreen() {
           </>
         ) : null}
 
-
-        {/* ==================================================
-            CURRENT SUBSCRIPTION
-        ================================================== */}
-
         {subscription ? (
           <Notice tone="success">
             Current plan:{" "}
@@ -833,11 +654,6 @@ export default function SubscriptionScreen() {
               : ""}
           </Notice>
         ) : null}
-
-
-        {/* ==================================================
-            PLANS
-        ================================================== */}
 
         <View
           style={styles.plans}
@@ -908,9 +724,6 @@ export default function SubscriptionScreen() {
                   ) : null}
                 </View>
 
-
-                {/* PRICE */}
-
                 <Text
                   style={
                     styles.planPrice
@@ -930,9 +743,6 @@ export default function SubscriptionScreen() {
                     / month
                   </Text>
                 </Text>
-
-
-                {/* FEATURES */}
 
                 <View
                   style={
@@ -974,9 +784,6 @@ export default function SubscriptionScreen() {
                   )}
                 </View>
 
-
-                {/* PLAN SELECTION */}
-
                 {isCurrent ? (
                   <PrimaryButton
                     text="Current plan"
@@ -1004,11 +811,6 @@ export default function SubscriptionScreen() {
             );
           })}
         </View>
-
-
-        {/* ==================================================
-            M-PESA PAYMENT
-        ================================================== */}
 
         {selectedPlan !==
         "free" ? (
@@ -1070,11 +872,6 @@ export default function SubscriptionScreen() {
           </>
         ) : null}
 
-
-        {/* ==================================================
-            PAYMENT HISTORY
-        ================================================== */}
-
         {subscription &&
         subscription.plan !==
           "free" ? (
@@ -1116,11 +913,6 @@ export default function SubscriptionScreen() {
     </Page>
   );
 }
-
-
-// ============================================================
-// STYLES
-// ============================================================
 
 const styles =
   StyleSheet.create({

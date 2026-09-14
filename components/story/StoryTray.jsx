@@ -23,10 +23,6 @@ import {
 import { useAuth } from "../../context/AuthContext";
 import { getStoryGroups } from "../../services/storyService";
 
-/* -------------------------------------------------------------------------- */
-/* Helpers                                                                    */
-/* -------------------------------------------------------------------------- */
-
 function getGroupStories(group) {
   const stories =
     group?.stories ||
@@ -58,10 +54,6 @@ function groupHasUnseenStory(stories) {
   );
 }
 
-/* -------------------------------------------------------------------------- */
-/* Component                                                                  */
-/* -------------------------------------------------------------------------- */
-
 export default function StoryTray() {
   const {
     user,
@@ -76,15 +68,8 @@ export default function StoryTray() {
       ""
   );
 
-  /* ------------------------------------------------------------------------ */
-  /* Load story groups                                                        */
-  /* ------------------------------------------------------------------------ */
-
   const loadGroups = useCallback(async () => {
-    /*
-     * Never request protected story data until authentication
-     * has finished restoring and a user is available.
-     */
+
     if (authLoading || !user) {
       return;
     }
@@ -115,10 +100,6 @@ export default function StoryTray() {
     }
   }, [authLoading, user]);
 
-  /* ------------------------------------------------------------------------ */
-  /* Initial load                                                             */
-  /* ------------------------------------------------------------------------ */
-
   useEffect(() => {
     if (authLoading || !user) {
       return;
@@ -130,10 +111,6 @@ export default function StoryTray() {
     user,
     loadGroups,
   ]);
-
-  /* ------------------------------------------------------------------------ */
-  /* Refresh whenever the screen comes back into focus                       */
-  /* ------------------------------------------------------------------------ */
 
   useFocusEffect(
     useCallback(() => {
@@ -148,10 +125,6 @@ export default function StoryTray() {
       loadGroups,
     ])
   );
-
-  /* ------------------------------------------------------------------------ */
-  /* Separate current user's story                                           */
-  /* ------------------------------------------------------------------------ */
 
   const myGroup = groups.find((group) => {
     const ownerId =
@@ -174,10 +147,6 @@ export default function StoryTray() {
 
   const hasMyStory =
     myStories.length > 0;
-
-  /* ------------------------------------------------------------------------ */
-  /* Navigation                                                               */
-  /* ------------------------------------------------------------------------ */
 
   const openStory = useCallback(
     (storyId) => {
@@ -227,10 +196,6 @@ export default function StoryTray() {
       goToCreateStory,
     ]);
 
-  /* ------------------------------------------------------------------------ */
-  /* Render                                                                   */
-  /* ------------------------------------------------------------------------ */
-
   return (
     <ScrollView
       horizontal
@@ -239,9 +204,6 @@ export default function StoryTray() {
         styles.container
       }
     >
-      {/* ------------------------------------------------------------------ */}
-      {/* YOUR STORY                                                         */}
-      {/* ------------------------------------------------------------------ */}
 
       <TouchableOpacity
         style={styles.item}
@@ -302,10 +264,6 @@ export default function StoryTray() {
           Your story
         </Text>
       </TouchableOpacity>
-
-      {/* ------------------------------------------------------------------ */}
-      {/* OTHER USERS' STORIES                                               */}
-      {/* ------------------------------------------------------------------ */}
 
       {otherGroups.map((group) => {
         const stories =
@@ -398,16 +356,8 @@ export default function StoryTray() {
   );
 }
 
-/* -------------------------------------------------------------------------- */
-/* Constants                                                                  */
-/* -------------------------------------------------------------------------- */
-
 const RING_SIZE = 66;
 const AVATAR_SIZE = 58;
-
-/* -------------------------------------------------------------------------- */
-/* Styles                                                                     */
-/* -------------------------------------------------------------------------- */
 
 const styles = StyleSheet.create({
   container: {
@@ -435,7 +385,7 @@ const styles = StyleSheet.create({
   },
 
   ringActive: {
-    borderColor: "#dd2a7b",
+    borderColor: "#06f5f5",
   },
 
   ringSeen: {

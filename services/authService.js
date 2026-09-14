@@ -285,9 +285,6 @@ export async function loginUser(
     );
   }
 
-  /*
-   * Save session.
-   */
   await saveAuthSession(
     user,
     token
@@ -357,9 +354,6 @@ export async function loginWithGoogle(
     );
   }
 
-  /*
-   * Save the Snapgram JWT.
-   */
   await saveAuthSession(
     user,
     token
@@ -411,9 +405,6 @@ export async function loginWithFacebook(
     );
   }
 
-  /*
-   * Save the Snapgram JWT.
-   */
   await saveAuthSession(
     user,
     token

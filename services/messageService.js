@@ -1,11 +1,5 @@
 import api from "./api";
 
-/*
-|--------------------------------------------------------------------------
-| Conversations
-|--------------------------------------------------------------------------
-*/
-
 export async function getConversations() {
   const response = await api.get("/messages/conversations");
 
@@ -25,12 +19,6 @@ export async function getOrCreateConversation(userId) {
 
   return response.data?.conversation || null;
 }
-
-/*
-|--------------------------------------------------------------------------
-| Messages
-|--------------------------------------------------------------------------
-*/
 
 export async function getMessages(conversationId) {
   if (!conversationId) {
@@ -91,12 +79,6 @@ export async function markMessagesRead(conversationId) {
   return response.data || {};
 }
 
-/*
-|--------------------------------------------------------------------------
-| Message reactions
-|--------------------------------------------------------------------------
-*/
-
 export async function reactToMessage(messageId, emoji) {
   if (!messageId) {
     throw new Error("Message ID is required");
@@ -118,12 +100,6 @@ export async function reactToMessage(messageId, emoji) {
   return response.data || {};
 }
 
-/*
-|--------------------------------------------------------------------------
-| Unsend
-|--------------------------------------------------------------------------
-*/
-
 export async function unsendMessage(messageId) {
   if (!messageId) {
     throw new Error("Message ID is required");
@@ -136,12 +112,6 @@ export async function unsendMessage(messageId) {
   return response.data || {};
 }
 
-/*
-|--------------------------------------------------------------------------
-| Delete
-|--------------------------------------------------------------------------
-*/
-
 export async function deleteMessage(messageId) {
   if (!messageId) {
     throw new Error("Message ID is required");
@@ -153,12 +123,6 @@ export async function deleteMessage(messageId) {
 
   return response.data || {};
 }
-
-/*
-|--------------------------------------------------------------------------
-| Media
-|--------------------------------------------------------------------------
-*/
 
 export async function sendMediaMessage({
   conversationId,
@@ -225,12 +189,6 @@ export async function sendMediaMessage({
 
   return response.data?.message || null;
 }
-
-/*
-|--------------------------------------------------------------------------
-| Voice
-|--------------------------------------------------------------------------
-*/
 
 export async function sendVoiceMessage({
   conversationId,
@@ -305,12 +263,6 @@ export async function sendVoiceMessage({
 
   return response.data?.message || null;
 }
-
-/*
-|--------------------------------------------------------------------------
-| Search
-|--------------------------------------------------------------------------
-*/
 
 export async function searchMessages(
   conversationId,

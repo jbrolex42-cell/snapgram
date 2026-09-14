@@ -1,48 +1,40 @@
-import {
-    useCallback,
-    useState,
+import React, {
+  useCallback,
+  useState,
 } from "react";
 
 import {
-    ActivityIndicator,
-    FlatList,
-    RefreshControl,
-    StyleSheet,
-    Text,
-    View,
+  ActivityIndicator,
+  FlatList,
+  RefreshControl,
+  StyleSheet,
+  Text,
+  View,
 } from "react-native";
 
 import {
-    router,
-    useFocusEffect,
+  router,
+  useFocusEffect,
 } from "expo-router";
+
+import {
+  Ionicons,
+} from "@expo/vector-icons";
 
 import CallHistoryItem from "../../components/calls/CallHistoryItem";
 
 import {
-    getCallHistory,
+  getCallHistory,
 } from "../../services/callService";
 
 export default function CallHistoryScreen() {
-  const [calls, setCalls] =
-    useState([]);
+  const [calls, setCalls] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
 
-  const [loading, setLoading] =
-    useState(true);
-
-  const [refreshing, setRefreshing] =
-    useState(false);
-
-  useFocusEffect(
-    useCallback(() => {
-      loadCalls();
-    }, [])
-  );
-
-  async function loadCalls() {
+  const loadCalls = useCallback(async () => {
     try {
-      const data =
-        await getCallHistory();
+      const data = await getCallHistory();
 
       setCalls(
         Array.isArray(data)
@@ -54,70 +46,141 @@ export default function CallHistoryScreen() {
         "CALL HISTORY ERROR:",
         error
       );
+
+      setCalls([]);
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
-  }
+  }, []);
 
-  async function refresh() {
+  useFocusEffect(
+    useCallback(() => {
+      let active = true;
+
+      const load = async () => {
+        try {
+          const data = await getCallHistory();
+
+          if (!active) {
+            return;
+          }
+
+          setCalls(
+            Array.isArray(data)
+              ? data
+              : []
+          );
+        } catch (error) {
+          if (active) {
+            console.error(
+              "CALL HISTORY ERROR:",
+              error
+            );
+
+            setCalls([]);
+          }
+        } finally {
+          if (active) {
+            setLoading(false);
+            setRefreshing(false);
+          }
+        }
+      };
+
+      load();
+
+      return () => {
+        active = false;
+      };
+    }, [])
+  );
+
+  const handleRefresh = useCallback(async () => {
     setRefreshing(true);
 
     await loadCalls();
-  }
+  }, [loadCalls]);
 
-  function openCall(call) {
+  const openCall = useCallback((call) => {
+    if (!call?._id) {
+      return;
+    }
+
+    const callerId =
+      call?.caller?._id ||
+      call?.caller?.id;
+
+    const receiverId =
+      call?.receiver?._id ||
+      call?.receiver?.id;
+
+    const currentUserId =
+      call?.currentUserId;
+
     const isCaller =
-      String(
-        call.caller?._id
-      ) ===
-      String(
-        call.currentUserId
+      currentUserId &&
+      callerId
+        ? String(callerId) ===
+          String(currentUserId)
+        : false;
+
+    const otherUser =
+      isCaller
+        ? call?.receiver
+        : call?.caller;
+
+    const otherUserId =
+      otherUser?._id ||
+      otherUser?.id;
+
+    if (!otherUserId) {
+      console.warn(
+        "CALL HISTORY: Missing other user ID"
       );
 
+      return;
+    }
+
     router.push({
-      pathname:
-        "/calls/[callId]",
+      pathname: "/calls/[callId]",
 
       params: {
-        callId: call._id,
+      
+        callId: String(call._id),
 
         username:
-          isCaller
-            ? call.receiver
-                ?.username
-            : call.caller
-                ?.username,
+          String(
+            otherUser?.username ||
+            otherUser?.name ||
+            "User"
+          ),
 
         avatar:
-          isCaller
-            ? call.receiver
-                ?.avatar
-            : call.caller
-                ?.avatar,
+          String(
+            otherUser?.avatar ||
+            ""
+          ),
 
         type:
-          call.type,
+          String(
+            call?.type || "voice"
+          ),
 
         otherUserId:
-          isCaller
-            ? call.receiver
-                ?._id
-            : call.caller
-                ?._id,
+          String(otherUserId),
 
         isCaller: "true",
       },
     });
-  }
+  }, []);
 
   if (loading) {
     return (
-      <View
-        style={styles.center}
-      >
+      <View style={styles.loadingScreen}>
         <ActivityIndicator
-          size="large"
+          size="small"
+          color="#111"
         />
       </View>
     );
@@ -132,52 +195,48 @@ export default function CallHistoryScreen() {
       </View>
 
       {calls.length === 0 ? (
-        <View
-          style={styles.empty}
-        >
-          <Text
-            style={styles.emptyIcon}
-          >
-            📞
-          </Text>
+        <View style={styles.empty}>
+          <View style={styles.emptyIconContainer}>
+            <Ionicons
+              name="call-outline"
+              size={34}
+              color="#111"
+            />
+          </View>
 
-          <Text
-            style={styles.emptyTitle}
-          >
+          <Text style={styles.emptyTitle}>
             No calls yet
           </Text>
 
-          <Text
-            style={styles.emptyText}
-          >
-            Your call history will
-            appear here.
+          <Text style={styles.emptyText}>
+            Your call history will appear here.
           </Text>
         </View>
       ) : (
         <FlatList
           data={calls}
-          keyExtractor={(item) =>
-            item._id
+          keyExtractor={(item, index) =>
+            String(
+              item?._id ||
+              item?.id ||
+              index
+            )
           }
-          renderItem={({
-            item,
-          }) => (
+          renderItem={({ item }) => (
             <CallHistoryItem
               call={item}
-              onPress={
-                openCall
-              }
+              onPress={openCall}
             />
           )}
+          showsVerticalScrollIndicator={false}
+          contentContainerStyle={
+            styles.listContent
+          }
           refreshControl={
             <RefreshControl
-              refreshing={
-                refreshing
-              }
-              onRefresh={
-                refresh
-              }
+              refreshing={refreshing}
+              onRefresh={handleRefresh}
+              tintColor="#111"
             />
           }
         />
@@ -192,24 +251,31 @@ const styles = StyleSheet.create({
     backgroundColor: "#fff",
   },
 
+  loadingScreen: {
+    flex: 1,
+    backgroundColor: "#fff",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
   header: {
     height: 60,
-    borderBottomWidth: 1,
-    borderBottomColor: "#eee",
-    justifyContent: "center",
     paddingHorizontal: 16,
+    justifyContent: "center",
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: "#dbdbdb",
+    backgroundColor: "#fff",
   },
 
   title: {
-    fontSize: 20,
+    fontSize: 24,
     fontWeight: "700",
     color: "#111",
+    letterSpacing: -0.4,
   },
 
-  center: {
-    flex: 1,
-    alignItems: "center",
-    justifyContent: "center",
+  listContent: {
+    paddingBottom: 24,
   },
 
   empty: {
@@ -219,19 +285,28 @@ const styles = StyleSheet.create({
     paddingHorizontal: 40,
   },
 
-  emptyIcon: {
-    fontSize: 60,
-    marginBottom: 15,
+  emptyIconContainer: {
+    width: 76,
+    height: 76,
+    borderRadius: 38,
+    borderWidth: 2,
+    borderColor: "#111",
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 18,
   },
 
   emptyTitle: {
     fontSize: 20,
     fontWeight: "700",
+    color: "#111",
   },
 
   emptyText: {
-    color: "#888",
-    textAlign: "center",
     marginTop: 8,
+    fontSize: 14,
+    lineHeight: 20,
+    color: "#8e8e8e",
+    textAlign: "center",
   },
 });

@@ -64,9 +64,6 @@ export default function NewMessageScreen() {
     }
   }, []);
 
-  /**
-   * Debounced search
-   */
   useEffect(() => {
     const trimmed = query.trim();
 
@@ -83,9 +80,6 @@ export default function NewMessageScreen() {
     return () => clearTimeout(timer);
   }, [query, handleSearch]);
 
-  /**
-   * Open or create a conversation with the selected user.
-   */
   const handleUserPress = useCallback(
     async (user) => {
       if (starting) {
@@ -162,9 +156,6 @@ export default function NewMessageScreen() {
     [starting]
   );
 
-  /**
-   * Render user
-   */
   const renderUser = useCallback(
     ({ item }) => {
       const avatar =
@@ -244,9 +235,6 @@ export default function NewMessageScreen() {
     [handleUserPress]
   );
 
-  /**
-   * Empty state
-   */
   const emptyMessage = useMemo(() => {
     if (loading) {
       return null;
@@ -272,7 +260,7 @@ export default function NewMessageScreen() {
             : undefined
         }
       >
-        {/* HEADER */}
+
         <View style={styles.header}>
           <TouchableOpacity
             activeOpacity={0.7}
@@ -291,7 +279,6 @@ export default function NewMessageScreen() {
           <View style={styles.headerSpacer} />
         </View>
 
-        {/* SEARCH */}
         <View style={styles.searchContainer}>
           <Text style={styles.searchIcon}>
             ⌕
@@ -321,7 +308,6 @@ export default function NewMessageScreen() {
           )}
         </View>
 
-        {/* RESULTS */}
         {loading ? (
           <View style={styles.center}>
             <ActivityIndicator size="small" />

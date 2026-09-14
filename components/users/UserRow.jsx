@@ -1,4 +1,8 @@
-import React, { useEffect, useState } from "react";
+import React, {
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
 
 import {
   ActivityIndicator,
@@ -20,75 +24,235 @@ import {
 
 import VerifiedBadge from "../common/VerifiedBadge";
 
+function getUserId(user) {
+  if (!user) {
+    return null;
+  }
+
+  return (
+    user?._id ||
+    user?.id ||
+    user?.userId ||
+    null
+  );
+}
+
+
+function getUsername(user) {
+  const value =
+    user?.username ||
+    user?.profile?.username ||
+    "";
+
+  return String(value)
+    .trim()
+    .replace(/^@/, "")
+    .toLowerCase();
+}
+
+
+function getFullName(user) {
+  const username = getUsername(user);
+
+  const candidates = [
+    user?.fullName,
+    user?.name,
+    user?.displayName,
+    user?.profile?.fullName,
+    user?.profile?.name,
+  ];
+
+  for (const candidate of candidates) {
+    const value = String(
+      candidate || ""
+    ).trim();
+
+    if (!value) {
+      continue;
+    }
+
+    if (
+      username &&
+      value.toLowerCase() ===
+        username.toLowerCase()
+    ) {
+      continue;
+    }
+
+    return value;
+  }
+
+  return "User";
+}
+
+
+function getAvatar(user) {
+  return (
+    user?.avatar ||
+    user?.avatarUrl ||
+    user?.profilePicture ||
+    user?.profileImage ||
+    user?.photoURL ||
+    user?.profile?.avatar ||
+    null
+  );
+}
+
+
+function getFollowersCount(user) {
+  return Number(
+    user?.followersCount ??
+      user?.followerCount ??
+      user?.followers?.length ??
+      0
+  );
+}
+
+
+function getVerificationStatus(user) {
+ 
+  return Boolean(
+    user?.isVerified ||
+    user?.verified ||
+    user?.verification?.isVerified ||
+    user?.verification?.verified ||
+    user?.profile?.isVerified ||
+    user?.profile?.verified
+  );
+}
+
 export default function UserRow({
   user,
   showFollow = true,
 }) {
-  const [following, setFollowing] = useState(
-    Boolean(user?.isFollowing)
+  const userId = getUserId(user);
+
+  const username = getUsername(user);
+
+  const fullName = getFullName(user);
+
+  const avatar = getAvatar(user);
+
+  const isVerified =
+    getVerificationStatus(user);
+
+  const isOwnProfile = Boolean(
+    user?.isOwnProfile
   );
 
-  const [followersCount, setFollowersCount] = useState(
-    Number(user?.followersCount || 0)
-  );
+  const [following, setFollowing] =
+    useState(
+      Boolean(
+        user?.isFollowing
+      )
+    );
 
-  const [loading, setLoading] = useState(false);
+  const [followersCount, setFollowersCount] =
+    useState(
+      getFollowersCount(user)
+    );
 
-  /*
-   * Keep local state synchronized when the
-   * parent reloads the user object.
-   */
+  const [loading, setLoading] =
+    useState(false);
+
   useEffect(() => {
-    setFollowing(Boolean(user?.isFollowing));
+    setFollowing(
+      Boolean(
+        user?.isFollowing
+      )
+    );
+
     setFollowersCount(
-      Number(user?.followersCount || 0)
+      getFollowersCount(user)
     );
   }, [
-    user?._id,
     user?.isFollowing,
     user?.followersCount,
+    user?.followerCount,
+    user?.followers?.length,
   ]);
 
-  async function handleFollow() {
-    if (loading || !user?._id) {
+  const avatarLetter = useMemo(() => {
+    const value = String(
+      fullName || "U"
+    ).trim();
+
+    return (
+      value.charAt(0).toUpperCase() ||
+      "U"
+    );
+  }, [fullName]);
+
+  const handleFollow = async () => {
+    if (
+      loading ||
+      !userId
+    ) {
       return;
     }
 
-    const userId = String(user._id);
-    const previousFollowing = following;
-    const previousCount = followersCount;
+    const previousFollowing =
+      following;
+
+    const previousCount =
+      followersCount;
 
     try {
       setLoading(true);
 
       if (previousFollowing) {
-        const result = await unfollowUser(userId);
+        const result =
+          await unfollowUser(
+            String(userId)
+          );
 
         setFollowing(false);
 
         if (
-          result?.followersCount !== undefined
+          result?.followersCount !==
+          undefined
         ) {
           setFollowersCount(
-            Number(result.followersCount)
+            Number(
+              result.followersCount
+            )
           );
         } else {
           setFollowersCount(
-            Math.max(0, previousCount - 1)
+            Math.max(
+              0,
+              previousCount - 1
+            )
           );
         }
       } else {
-        const result = await followUser(userId);
+        const result =
+          await followUser(
+            String(userId)
+          );
 
-        setFollowing(true);
+        const requested =
+          result?.isRequested ||
+          result?.requested ||
+          result?.status ===
+            "requested";
+
+        setFollowing(
+          requested
+            ? false
+            : true
+        );
 
         if (
-          result?.followersCount !== undefined
+          result?.followersCount !==
+          undefined
         ) {
           setFollowersCount(
-            Number(result.followersCount)
+            Number(
+              result.followersCount
+            )
           );
-        } else {
+        } else if (!requested) {
           setFollowersCount(
             previousCount + 1
           );
@@ -102,87 +266,82 @@ export default function UserRow({
           error
       );
 
-      /*
-       * Restore the UI if the server rejected
-       * the operation.
-       */
-      setFollowing(previousFollowing);
-      setFollowersCount(previousCount);
+      setFollowing(
+        previousFollowing
+      );
+
+      setFollowersCount(
+        previousCount
+      );
     } finally {
       setLoading(false);
     }
-  }
+  };
 
-  function openProfile() {
-    if (!user?.username) {
+  const openProfile = () => {
+    if (!username) {
       return;
     }
 
     router.push({
-      pathname: "/profile/[username]",
+      pathname:
+        "/profile/[username]",
       params: {
-        username: String(user.username),
+        username,
       },
     });
-  }
-
-  const fullName =
-    user?.name ||
-    user?.fullName ||
-    user?.displayName ||
-    user?.username ||
-    "User";
-
-  const username =
-    user?.username || "user";
-
-  const avatar =
-    user?.avatar ||
-    user?.avatarUrl ||
-    user?.profilePicture ||
-    user?.profileImage ||
-    user?.photoURL ||
-    null;
-
-  const isVerified = Boolean(
-    user?.isVerified ??
-      user?.verified ??
-      user?.verification?.isVerified
-  );
-
-  const isOwnProfile = Boolean(
-    user?.isOwnProfile
-  );
-
-  const avatarLetter =
-    String(fullName)
-      .charAt(0)
-      .toUpperCase() || "U";
+  };
 
   return (
     <View style={styles.container}>
-      {/* USER */}
+      {/* ------------------------------------------------------------------ */}
+      {/* USER                                                                */}
+      {/* ------------------------------------------------------------------ */}
 
       <TouchableOpacity
         style={styles.userInfo}
         onPress={openProfile}
         activeOpacity={0.7}
+        disabled={!username}
       >
-        <View style={styles.avatar}>
+        {/* Avatar */}
+
+        <View
+          style={styles.avatar}
+        >
           {avatar ? (
             <Image
-              source={{ uri: String(avatar) }}
-              style={styles.avatarImage}
+              source={{
+                uri: String(
+                  avatar
+                ),
+              }}
+              style={
+                styles.avatarImage
+              }
             />
           ) : (
-            <Text style={styles.avatarText}>
+            <Text
+              style={
+                styles.avatarText
+              }
+            >
               {avatarLetter}
             </Text>
           )}
         </View>
 
-        <View style={styles.details}>
-          <View style={styles.nameRow}>
+
+        {/* Identity */}
+
+        <View
+          style={styles.details}
+        >
+          {/* Full name + blue tick */}
+
+          <View
+            style={styles.nameRow}
+          >
             <Text
               style={styles.name}
               numberOfLines={1}
@@ -191,56 +350,73 @@ export default function UserRow({
             </Text>
 
             {isVerified && (
-              <VerifiedBadge size={14} />
+              <VerifiedBadge
+                size={15}
+                style={
+                  styles.verifiedBadge
+                }
+              />
             )}
           </View>
 
-          <Text
-            style={styles.username}
-            numberOfLines={1}
-          >
-            @{username}
-          </Text>
+
+          {/* Username */}
+
+          {!!username && (
+            <Text
+              style={styles.username}
+              numberOfLines={1}
+            >
+              @{username}
+            </Text>
+          )}
         </View>
       </TouchableOpacity>
 
-      {/* FOLLOW / FOLLOWING */}
 
-      {showFollow && !isOwnProfile && (
-        <TouchableOpacity
-          style={[
-            styles.followButton,
-            following &&
-              styles.followingButton,
-          ]}
-          onPress={handleFollow}
-          disabled={loading}
-          activeOpacity={0.8}
-        >
-          {loading ? (
-            <ActivityIndicator
-              size="small"
-              color={
-                following
-                  ? Colors.black
-                  : Colors.white
-              }
-            />
-          ) : (
-            <Text
-              style={[
-                styles.followText,
-                following &&
-                  styles.followingText,
-              ]}
-            >
-              {following
-                ? "Following"
-                : "Follow"}
-            </Text>
-          )}
-        </TouchableOpacity>
-      )}
+      {/* ------------------------------------------------------------------ */}
+      {/* FOLLOW BUTTON                                                       */}
+      {/* ------------------------------------------------------------------ */}
+
+      {showFollow &&
+        !isOwnProfile &&
+        userId && (
+          <TouchableOpacity
+            style={[
+              styles.followButton,
+              following &&
+                styles.followingButton,
+            ]}
+            onPress={
+              handleFollow
+            }
+            disabled={loading}
+            activeOpacity={0.8}
+          >
+            {loading ? (
+              <ActivityIndicator
+                size="small"
+                color={
+                  following
+                    ? Colors.black
+                    : Colors.white
+                }
+              />
+            ) : (
+              <Text
+                style={[
+                  styles.followText,
+                  following &&
+                    styles.followingText,
+                ]}
+              >
+                {following
+                  ? "Following"
+                  : "Follow"}
+              </Text>
+            )}
+          </TouchableOpacity>
+        )}
     </View>
   );
 }
@@ -252,42 +428,51 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    backgroundColor: Colors.white,
+    backgroundColor:
+      Colors.white ||
+      Colors.background ||
+      "#FFFFFF",
   },
 
   userInfo: {
     flex: 1,
+    minWidth: 0,
     flexDirection: "row",
     alignItems: "center",
     marginRight: 10,
-    minWidth: 0,
   },
 
   avatar: {
     width: 48,
     height: 48,
     borderRadius: 24,
-    backgroundColor: Colors.surface,
     alignItems: "center",
     justifyContent: "center",
     overflow: "hidden",
+    backgroundColor:
+      Colors.surface ||
+      "#F2F2F2",
   },
 
   avatarImage: {
     width: "100%",
     height: "100%",
+    resizeMode: "cover",
   },
 
   avatarText: {
     fontSize: 18,
     fontWeight: "800",
-    color: Colors.black,
+    color:
+      Colors.text ||
+      Colors.black ||
+      "#000000",
   },
 
   details: {
     flex: 1,
-    marginLeft: 12,
     minWidth: 0,
+    marginLeft: 12,
   },
 
   nameRow: {
@@ -299,40 +484,61 @@ const styles = StyleSheet.create({
   name: {
     flexShrink: 1,
     fontSize: 14,
-    fontWeight: "800",
-    color: Colors.black,
+    fontWeight: "700",
+    color:
+      Colors.text ||
+      Colors.black ||
+      "#000000",
+  },
+
+  verifiedBadge: {
+    marginLeft: 4,
+    flexShrink: 0,
   },
 
   username: {
     marginTop: 2,
     fontSize: 12,
+    fontWeight: "400",
     color:
-      Colors.secondaryText || "#777",
+      Colors.secondaryText ||
+      "#737373",
   },
 
   followButton: {
-    minWidth: 90,
+    minWidth: 88,
     height: 34,
-    paddingHorizontal: 12,
-    borderRadius: 7,
-    backgroundColor: Colors.primary,
+    paddingHorizontal: 13,
+    borderRadius: 8,
     alignItems: "center",
     justifyContent: "center",
+    backgroundColor:
+      Colors.primary ||
+      "#0095F6",
   },
 
   followingButton: {
-    backgroundColor: Colors.surface,
+    backgroundColor:
+      Colors.surface ||
+      "#EFEFEF",
     borderWidth: 1,
-    borderColor: Colors.border,
+    borderColor:
+      Colors.border ||
+      "#DBDBDB",
   },
 
   followText: {
     fontSize: 13,
-    fontWeight: "800",
-    color: Colors.white,
+    fontWeight: "700",
+    color:
+      Colors.white ||
+      "#FFFFFF",
   },
 
   followingText: {
-    color: Colors.black,
+    color:
+      Colors.text ||
+      Colors.black ||
+      "#000000",
   },
 });

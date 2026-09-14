@@ -1,11 +1,5 @@
 import api from "./api";
 
-/*
-|--------------------------------------------------------------------------
-| Get a user's highlights
-|--------------------------------------------------------------------------
-*/
-
 export async function getHighlights(userId) {
   if (!userId) {
     throw new Error("User ID is required");
@@ -21,12 +15,6 @@ export async function getHighlights(userId) {
   );
 }
 
-/*
-|--------------------------------------------------------------------------
-| Get my highlights
-|--------------------------------------------------------------------------
-*/
-
 export async function getMyHighlights() {
   const response = await api.get("/highlights");
 
@@ -37,12 +25,6 @@ export async function getMyHighlights() {
     []
   );
 }
-
-/*
-|--------------------------------------------------------------------------
-| Get one highlight
-|--------------------------------------------------------------------------
-*/
 
 export async function getHighlight(highlightId) {
   if (!highlightId) {
@@ -57,12 +39,6 @@ export async function getHighlight(highlightId) {
     response.data
   );
 }
-
-/*
-|--------------------------------------------------------------------------
-| Create highlight
-|--------------------------------------------------------------------------
-*/
 
 export async function createHighlight({
   title,
@@ -87,12 +63,6 @@ export async function createHighlight({
     response.data
   );
 }
-
-/*
-|--------------------------------------------------------------------------
-| Update highlight
-|--------------------------------------------------------------------------
-*/
 
 export async function updateHighlight(
   highlightId,
@@ -132,12 +102,6 @@ export async function updateHighlight(
   );
 }
 
-/*
-|--------------------------------------------------------------------------
-| Delete highlight
-|--------------------------------------------------------------------------
-*/
-
 export async function deleteHighlight(highlightId) {
   if (!highlightId) {
     throw new Error("Highlight ID is required");
@@ -149,12 +113,6 @@ export async function deleteHighlight(highlightId) {
 
   return response.data;
 }
-
-/*
-|--------------------------------------------------------------------------
-| Add stories to highlight
-|--------------------------------------------------------------------------
-*/
 
 export async function addStoriesToHighlight(
   highlightId,
@@ -181,12 +139,6 @@ export async function addStoriesToHighlight(
     response.data
   );
 }
-
-/*
-|--------------------------------------------------------------------------
-| Remove story from highlight
-|--------------------------------------------------------------------------
-*/
 
 export async function removeStoryFromHighlight(
   highlightId,

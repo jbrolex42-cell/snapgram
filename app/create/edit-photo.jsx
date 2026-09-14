@@ -186,7 +186,6 @@ export default function EditPhotoScreen() {
     <View
       style={styles.container}
     >
-      {/* HEADER */}
 
       <View
         style={styles.header}
@@ -228,8 +227,6 @@ export default function EditPhotoScreen() {
         </TouchableOpacity>
       </View>
 
-      {/* PREVIEW */}
-
       <View
         style={
           styles.previewContainer
@@ -261,8 +258,6 @@ export default function EditPhotoScreen() {
           </View>
         )}
       </View>
-
-      {/* MODE TABS */}
 
       <View
         style={styles.tabs}
@@ -318,8 +313,6 @@ export default function EditPhotoScreen() {
           </Text>
         </TouchableOpacity>
       </View>
-
-      {/* TOOLS */}
 
       <ScrollView
         style={styles.tools}

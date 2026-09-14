@@ -12,14 +12,12 @@ export default function ActivityScreen() {
       title="Your activity"
       onBack={() => router.back()}
     >
-      {/* Header */}
       <InfoCard
         icon="pulse-outline"
         title="Your activity"
         text="Manage and review your activity, content, and interactions on Snapgram."
       />
 
-      {/* Your content */}
       <SettingItem
         icon="bookmark-outline"
         title="Saved"
@@ -55,7 +53,6 @@ export default function ActivityScreen() {
         onPress={() => router.push("/settings/activity/your-stories")}
       />
 
-      {/* Interactions */}
       <InfoCard
         icon="people-outline"
         title="Interactions"
@@ -83,7 +80,6 @@ export default function ActivityScreen() {
         onPress={() => router.push("/settings/activity/mentions")}
       />
 
-      {/* Account activity */}
       <InfoCard
         icon="time-outline"
         title="Account activity"
@@ -111,7 +107,6 @@ export default function ActivityScreen() {
         onPress={() => router.push("/settings/activity/links")}
       />
 
-      {/* Recently deleted */}
       <InfoCard
         icon="trash-outline"
         title="Recently deleted"
@@ -127,4 +122,3 @@ export default function ActivityScreen() {
     </Page>
   );
 }
-

@@ -1,58 +1,66 @@
 import axios from "axios";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
-const API_URL = "http://10.0.2.2:5000/api";
+const API_URL =process.env.EXPO_PUBLIC_API_URL;
+
+export const TOKEN_KEY = "snapgram_token";
 
 const api = axios.create({
   baseURL: API_URL,
   timeout: 30000,
   headers: {
     Accept: "application/json",
+    "Content-Type": "application/json",
   },
 });
 
 api.interceptors.request.use(
   async (config) => {
-    const token =
-      await AsyncStorage.getItem("snapgram_token");
-
-    console.log(
-      "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-    );
-
-    console.log(
-      "API REQUEST:",
-      config.method?.toUpperCase(),
-      `${config.baseURL}${config.url}`
-    );
-
-    console.log(
-      "TOKEN EXISTS:",
-      !!token
-    );
-
-    if (token) {
-      config.headers =
-        config.headers || {};
-
-      config.headers.Authorization =
-        `Bearer ${token}`;
+    try {
+      const token =
+        await AsyncStorage.getItem(TOKEN_KEY);
 
       console.log(
-        "AUTH HEADER ATTACHED: YES"
+        "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
       );
-    } else {
+
       console.log(
-        "AUTH HEADER ATTACHED: NO TOKEN"
+        "API REQUEST:",
+        config.method?.toUpperCase(),
+        `${config.baseURL}${config.url}`
       );
+
+      console.log(
+        "TOKEN EXISTS:",
+        !!token
+      );
+
+      if (token) {
+        config.headers =
+          config.headers || {};
+
+        config.headers.Authorization =
+          `Bearer ${token}`;
+
+        console.log(
+          "AUTH HEADER ATTACHED: YES"
+        );
+      } else {
+        console.log(
+          "AUTH HEADER ATTACHED: NO TOKEN"
+        );
+      }
+
+      console.log(
+        "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+      );
+
+      return config;
+    } catch (error) {
+      return Promise.reject(error);
     }
-
-    console.log(
-      "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-    );
-
-    return config;
   },
+
   (error) => {
     return Promise.reject(error);
   }

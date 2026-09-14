@@ -567,7 +567,6 @@ export default function ReelItem({
         style={styles.actionsWrapper}
       >
         <View style={styles.actions}>
-          {/* LIKE */}
 
           <Pressable
             onPress={handleLike}
@@ -595,8 +594,6 @@ export default function ReelItem({
               {formatCount(likes)}
             </Text>
           </Pressable>
-
-          {/* COMMENT */}
 
           <Pressable
             onPress={() =>
@@ -663,8 +660,6 @@ export default function ReelItem({
             </Text>
           </Pressable>
 
-          {/* MORE */}
-
           <Pressable
             onPress={() => {
 
@@ -689,7 +684,6 @@ export default function ReelItem({
         style={styles.bottomOverlay}
       >
         <View style={styles.bottomContent}>
-          {/* USER ROW */}
 
           <View style={styles.userRow}>
             <Pressable

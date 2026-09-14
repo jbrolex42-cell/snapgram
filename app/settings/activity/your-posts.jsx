@@ -165,21 +165,19 @@ export default function PostsScreen() {
           />
         }
       >
-        {/* Header */}
+
         <InfoCard
           icon="images-outline"
           title="Your posts"
           text="View and manage the posts you've shared on Snapgram."
         />
 
-        {/* Error */}
         {error ? (
           <Notice>
             {error}
           </Notice>
         ) : null}
 
-        {/* Post count */}
         {!error ? (
           <View style={styles.countCard}>
             <Text style={styles.countNumber}>
@@ -202,7 +200,6 @@ export default function PostsScreen() {
           </View>
         ) : null}
 
-        {/* Posts */}
         {items.length > 0 ? (
           <View style={styles.list}>
             {items.map((item, index) => {
@@ -241,7 +238,6 @@ export default function PostsScreen() {
           </View>
         ) : null}
 
-        {/* Information */}
         {items.length > 0 ? (
           <Notice>
             Tap a post to view its details and manage its settings.
@@ -294,4 +290,3 @@ const styles = StyleSheet.create({
     marginTop: 10,
   },
 });
-

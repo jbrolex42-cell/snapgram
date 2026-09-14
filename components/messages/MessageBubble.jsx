@@ -21,9 +21,6 @@ export default function MessageBubble({
     return null;
   }
 
-  /*
-   * DELETED MESSAGE
-   */
   if (message.deleted) {
     return (
       <TouchableOpacity
@@ -49,9 +46,6 @@ export default function MessageBubble({
     );
   }
 
-  /*
-   * VOICE MESSAGE
-   */
   if (message.type === "voice") {
     return (
       <TouchableOpacity
@@ -100,9 +94,6 @@ export default function MessageBubble({
     );
   }
 
-  /*
-   * IMAGE MESSAGE
-   */
   if (message.type === "image") {
     return (
       <TouchableOpacity
@@ -162,9 +153,6 @@ export default function MessageBubble({
     );
   }
 
-  /*
-   * VIDEO MESSAGE
-   */
   if (message.type === "video") {
     return (
       <TouchableOpacity
@@ -216,9 +204,6 @@ export default function MessageBubble({
     );
   }
 
-  /*
-   * TEXT MESSAGE
-   */
   return (
     <TouchableOpacity
       onLongPress={onLongPress}
@@ -296,12 +281,6 @@ export default function MessageBubble({
   );
 }
 
-/*
-|--------------------------------------------------------------------------
-| REACTION DISPLAY
-|--------------------------------------------------------------------------
-*/
-
 function ReactionDisplay({
   reactions,
   isMine,
@@ -313,10 +292,6 @@ function ReactionDisplay({
     return null;
   }
 
-  /*
-   * Prevent displaying the same emoji repeatedly
-   * in the small floating reaction pill.
-   */
   const uniqueReactions = [];
 
   reactions.forEach((reaction) => {
@@ -369,12 +344,6 @@ function ReactionDisplay({
   );
 }
 
-/*
-|--------------------------------------------------------------------------
-| HELPERS
-|--------------------------------------------------------------------------
-*/
-
 function getReplyMediaLabel(message) {
   if (!message) {
     return "Message";
@@ -395,18 +364,7 @@ function getReplyMediaLabel(message) {
   }
 }
 
-/*
-|--------------------------------------------------------------------------
-| STYLES
-|--------------------------------------------------------------------------
-*/
-
 const styles = StyleSheet.create({
-  /*
-  |--------------------------------------------------------------------------
-  | ALIGNMENT
-  |--------------------------------------------------------------------------
-  */
 
   alignRight: {
     alignSelf: "flex-end",
@@ -415,12 +373,6 @@ const styles = StyleSheet.create({
   alignLeft: {
     alignSelf: "flex-start",
   },
-
-  /*
-  |--------------------------------------------------------------------------
-  | TEXT MESSAGES
-  |--------------------------------------------------------------------------
-  */
 
   textWrapper: {
     position: "relative",
@@ -461,12 +413,6 @@ const styles = StyleSheet.create({
     color: "#111111",
   },
 
-  /*
-  |--------------------------------------------------------------------------
-  | REPLY
-  |--------------------------------------------------------------------------
-  */
-
   replyReference: {
     flexDirection: "row",
     alignItems: "center",
@@ -505,12 +451,6 @@ const styles = StyleSheet.create({
   otherReplyText: {
     color: "#777777",
   },
-
-  /*
-  |--------------------------------------------------------------------------
-  | IMAGE / VIDEO
-  |--------------------------------------------------------------------------
-  */
 
   mediaWrapper: {
     position: "relative",
@@ -557,12 +497,6 @@ const styles = StyleSheet.create({
     fontSize: 13,
   },
 
-  /*
-  |--------------------------------------------------------------------------
-  | VIDEO
-  |--------------------------------------------------------------------------
-  */
-
   videoBubble: {
     width: 240,
     borderRadius: 19,
@@ -596,12 +530,6 @@ const styles = StyleSheet.create({
     fontWeight: "600",
   },
 
-  /*
-  |--------------------------------------------------------------------------
-  | VOICE
-  |--------------------------------------------------------------------------
-  */
-
   voiceWrapper: {
     position: "relative",
     maxWidth: "84%",
@@ -634,12 +562,6 @@ const styles = StyleSheet.create({
     lineHeight: 19,
   },
 
-  /*
-  |--------------------------------------------------------------------------
-  | DELETED
-  |--------------------------------------------------------------------------
-  */
-
   deletedBubble: {
     flexDirection: "row",
     alignItems: "center",
@@ -667,12 +589,6 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontStyle: "italic",
   },
-
-  /*
-  |--------------------------------------------------------------------------
-  | REACTIONS
-  |--------------------------------------------------------------------------
-  */
 
   reactions: {
     position: "absolute",

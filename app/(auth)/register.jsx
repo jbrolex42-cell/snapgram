@@ -347,11 +347,6 @@ export default function RegisterScreen() {
                 </TouchableOpacity>
               </View>
 
-              <Text style={styles.infoText}>
-                People who use our service may have uploaded
-                your contact information to Snapgram.
-              </Text>
-
               <Text style={styles.termsText}>
                 By signing up, you agree to our Terms, Privacy
                 Policy and Cookies Policy.

@@ -84,7 +84,7 @@ export default function Stories({
         styles.container
       }
     >
-      {/* YOUR STORY */}
+
       <Pressable
         onPress={handleCreateStory}
         style={({ pressed }) => [
@@ -134,7 +134,6 @@ export default function Stories({
         </Text>
       </Pressable>
 
-      {/* OTHER STORIES */}
       {safeStories.map(
         (story, index) => {
           const user =

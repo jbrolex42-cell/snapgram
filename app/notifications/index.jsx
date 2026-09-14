@@ -6,20 +6,25 @@ import React, {
 import {
   ActivityIndicator,
   FlatList,
+  Pressable,
   RefreshControl,
-  SafeAreaView,
   StyleSheet,
   Text,
-  TouchableOpacity,
   View,
 } from "react-native";
 
-import { Ionicons } from "@expo/vector-icons";
+import {
+  Ionicons,
+} from "@expo/vector-icons";
 
 import {
   router,
   useFocusEffect,
 } from "expo-router";
+
+import {
+  SafeAreaView,
+} from "react-native-safe-area-context";
 
 import Colors from "../../constants/Colors";
 import { useAuth } from "../../context/AuthContext";
@@ -31,6 +36,7 @@ import {
 } from "../../services/notificationService";
 
 import NotificationRow from "../../components/notifications/NotificationRow";
+
 
 export default function NotificationsScreen() {
   const {
@@ -47,165 +53,621 @@ export default function NotificationsScreen() {
   const [refreshing, setRefreshing] =
     useState(false);
 
+  const [markingAllRead, setMarkingAllRead] =
+    useState(false);
+
+  const [error, setError] =
+    useState("");
+
   const loadNotifications =
-    useCallback(async () => {
-      if (
-        authLoading ||
-        !user
-      ) {
-        if (!authLoading) {
-          setLoading(false);
+    useCallback(
+      async ({
+        showLoader = true,
+      } = {}) => {
+        if (authLoading || !user) {
+          if (!authLoading) {
+            setLoading(false);
+          }
+
+          return;
         }
 
+        try {
+          if (showLoader) {
+            setLoading(true);
+          }
+
+          setError("");
+
+          const result =
+            await getNotifications();
+
+          const list =
+            Array.isArray(result)
+              ? result
+              : Array.isArray(
+                  result?.notifications
+                )
+              ? result.notifications
+              : Array.isArray(
+                  result?.data
+                )
+              ? result.data
+              : [];
+
+          setNotifications(list);
+        } catch (error) {
+          console.error(
+            "NOTIFICATIONS ERROR:",
+            error
+          );
+
+          setError(
+            error?.response?.data?.message ||
+            "Unable to load notifications."
+          );
+
+          if (showLoader) {
+            setNotifications([]);
+          }
+        } finally {
+          if (showLoader) {
+            setLoading(false);
+          }
+
+          setRefreshing(false);
+        }
+      },
+      [
+        authLoading,
+        user,
+      ]
+    );
+
+  useFocusEffect(
+    useCallback(() => {
+      loadNotifications({
+        showLoader: true,
+      });
+    }, [loadNotifications])
+  );
+
+  const handleRefresh =
+    useCallback(async () => {
+      setRefreshing(true);
+
+      await loadNotifications({
+        showLoader: false,
+      });
+    }, [loadNotifications]);
+
+  const getNotificationType =
+    useCallback(
+      (notification) => {
+        return String(
+          notification?.type ||
+          notification?.notificationType ||
+          notification?.action ||
+          ""
+        )
+          .trim()
+          .toLowerCase()
+          .replace(/[\s-]+/g, "_");
+      },
+      []
+    );
+
+  const markAsRead =
+    useCallback(
+      async (notification) => {
+        const notificationId =
+          notification?._id ||
+          notification?.id;
+
+        if (
+          !notificationId ||
+          notification?.isRead
+        ) {
+          return;
+        }
+
+        setNotifications(
+          (current) =>
+            current.map((item) =>
+              String(
+                item?._id ||
+                item?.id
+              ) ===
+              String(notificationId)
+                ? {
+                    ...item,
+                    isRead: true,
+                  }
+                : item
+            )
+        );
+
+        try {
+          await markNotificationRead(
+            notificationId
+          );
+        } catch (error) {
+          console.error(
+            "MARK NOTIFICATION READ ERROR:",
+            error
+          );
+
+          setNotifications(
+            (current) =>
+              current.map((item) =>
+                String(
+                  item?._id ||
+                  item?.id
+                ) ===
+                String(notificationId)
+                  ? {
+                      ...item,
+                      isRead: false,
+                    }
+                  : item
+              )
+          );
+        }
+      },
+      []
+    );
+
+  const getSender =
+    useCallback(
+      (notification) => {
+        return (
+          notification?.sender ||
+          notification?.from ||
+          notification?.user ||
+          notification?.actor ||
+          null
+        );
+      },
+      []
+    );
+
+  const getPost =
+    useCallback(
+      (notification) => {
+        return (
+          notification?.post ||
+          notification?.targetPost ||
+          notification?.postData ||
+          null
+        );
+      },
+      []
+    );
+
+  const getUserId =
+    useCallback(
+      (value) => {
+        if (!value) {
+          return "";
+        }
+
+        if (
+          typeof value === "string"
+        ) {
+          return value;
+        }
+
+        return String(
+          value?._id ||
+          value?.id ||
+          ""
+        );
+      },
+      []
+    );
+
+  const getUsername =
+    useCallback(
+      (value) => {
+        if (!value) {
+          return "";
+        }
+
+        if (
+          typeof value === "string"
+        ) {
+          return value;
+        }
+
+        return String(
+          value?.username ||
+          value?.userName ||
+          ""
+        );
+      },
+      []
+    );
+
+  const openNotification =
+    useCallback(
+      async (notification) => {
+        if (!notification) {
+          return;
+        }
+
+        await markAsRead(
+          notification
+        );
+
+        const type =
+          getNotificationType(
+            notification
+          );
+
+        const sender =
+          getSender(
+            notification
+          );
+
+        const post =
+          getPost(
+            notification
+          );
+
+        const senderId =
+          getUserId(sender) ||
+          getUserId(
+            notification?.senderId
+          ) ||
+          getUserId(
+            notification?.userId
+          );
+
+        const username =
+          getUsername(sender) ||
+          String(
+            notification?.username ||
+            ""
+          );
+
+        const postId =
+          getUserId(post) ||
+          getUserId(
+            notification?.postId
+          );
+
+        if (
+          type === "like" ||
+          type === "liked" ||
+          type === "post_like" ||
+          type === "like_post"
+        ) {
+          if (postId) {
+            router.push({
+              pathname:
+                "/post/[id]",
+
+              params: {
+                id: postId,
+              },
+            });
+
+            return;
+          }
+        }
+
+        if (
+          type === "comment" ||
+          type === "commented" ||
+          type === "post_comment" ||
+          type === "comment_post"
+        ) {
+          if (postId) {
+            router.push({
+              pathname:
+                "/post/[id]/comments",
+
+              params: {
+                id: postId,
+              },
+            });
+
+            return;
+          }
+        }
+
+        if (
+          type === "reply" ||
+          type === "comment_reply" ||
+          type === "replied"
+        ) {
+          if (postId) {
+            router.push({
+              pathname:
+                "/post/[id]/comments",
+
+              params: {
+                id: postId,
+              },
+            });
+
+            return;
+          }
+        }
+
+        if (
+          type === "mention" ||
+          type === "mentioned" ||
+          type === "post_mention"
+        ) {
+          if (postId) {
+            router.push({
+              pathname:
+                "/post/[id]",
+
+              params: {
+                id: postId,
+              },
+            });
+
+            return;
+          }
+
+          if (senderId) {
+            router.push({
+              pathname:
+                "/profile/[username]",
+
+              params: {
+                username:
+                  username ||
+                  senderId,
+              },
+            });
+
+            return;
+          }
+        }
+
+        if (
+          type === "follow" ||
+          type === "followed" ||
+          type === "new_follower"
+        ) {
+          if (senderId) {
+            router.push({
+              pathname:
+                "/profile/[username]",
+
+              params: {
+                username:
+                  username ||
+                  senderId,
+              },
+            });
+
+            return;
+          }
+        }
+
+        if (
+          type === "follow_request" ||
+          type === "followrequest" ||
+          type === "requested_to_follow" ||
+          type === "follow_request_received"
+        ) {
+          if (senderId) {
+
+            router.push({
+              pathname:
+                "/profile/[username]",
+
+              params: {
+                username:
+                  username ||
+                  senderId,
+              },
+            });
+
+            return;
+          }
+        }
+
+        if (
+          type === "follow_request_accepted" ||
+          type === "follow_accepted" ||
+          type === "accepted_follow_request"
+        ) {
+          if (senderId) {
+            router.push({
+              pathname:
+                "/profile/[username]",
+
+              params: {
+                username:
+                  username ||
+                  senderId,
+              },
+            });
+
+            return;
+          }
+        }
+
+        if (
+          type === "story_like" ||
+          type === "story_liked" ||
+          type === "story_reaction" ||
+          type === "story_reply" ||
+          type === "story_replied"
+        ) {
+          const storyId =
+            getUserId(
+              notification?.story
+            ) ||
+            getUserId(
+              notification?.storyId
+            );
+
+          if (storyId) {
+
+            router.push({
+              pathname:
+                "/story/[id]",
+
+              params: {
+                id: storyId,
+              },
+            });
+
+            return;
+          }
+
+          if (senderId) {
+            router.push({
+              pathname:
+                "/profile/[username]",
+
+              params: {
+                username:
+                  username ||
+                  senderId,
+              },
+            });
+
+            return;
+          }
+        }
+
+        if (
+          type === "post_shared" ||
+          type === "shared_post" ||
+          type === "share" ||
+          type === "shared"
+        ) {
+          if (postId) {
+            router.push({
+              pathname:
+                "/post/[id]",
+
+              params: {
+                id: postId,
+              },
+            });
+
+            return;
+          }
+        }
+
+        if (
+          type === "profile_visit" ||
+          type === "profile_view" ||
+          type === "verified" ||
+          type === "verification"
+        ) {
+          if (senderId) {
+            router.push({
+              pathname:
+                "/profile/[username]",
+
+              params: {
+                username:
+                  username ||
+                  senderId,
+              },
+            });
+
+            return;
+          }
+        }
+
+        if (postId) {
+          router.push({
+            pathname:
+              "/post/[id]",
+
+            params: {
+              id: postId,
+            },
+          });
+
+          return;
+        }
+
+        if (senderId) {
+          router.push({
+            pathname:
+              "/profile/[username]",
+
+            params: {
+              username:
+                username ||
+                senderId,
+            },
+          });
+        }
+      },
+      [
+        getNotificationType,
+        getPost,
+        getSender,
+        getUserId,
+        getUsername,
+        markAsRead,
+      ]
+    );
+
+  const handleMarkAllRead =
+    useCallback(async () => {
+      if (markingAllRead) {
         return;
       }
 
       try {
-        console.log(
-          "LOADING NOTIFICATIONS"
-        );
+        setMarkingAllRead(true);
 
-        setLoading(true);
-
-        const result =
-          await getNotifications();
-
-        setNotifications(
-          Array.isArray(result)
-            ? result
-            : []
-        );
-      } catch (error) {
-        console.error(
-          "NOTIFICATIONS ERROR:",
-          error
-        );
-
-        setNotifications([]);
-      } finally {
-        setLoading(false);
-        setRefreshing(false);
-      }
-    }, [
-      authLoading,
-      user,
-    ]);
-
-  useFocusEffect(
-    useCallback(() => {
-      loadNotifications();
-    }, [loadNotifications])
-  );
-
-  async function handleRefresh() {
-    setRefreshing(true);
-    await loadNotifications();
-  }
-
-  async function handleNotificationPress(
-    notification
-  ) {
-    try {
-      if (!notification?.isRead) {
-        await markNotificationRead(
-          notification._id
-        );
+        await markAllNotificationsRead();
 
         setNotifications(
           (current) =>
             current.map(
-              (item) =>
-                String(item?._id) ===
-                String(notification?._id)
-                  ? {
-                      ...item,
-                      isRead: true,
-                    }
-                  : item
+              (item) => ({
+                ...item,
+                isRead: true,
+              })
             )
         );
+      } catch (error) {
+        console.error(
+          "MARK ALL READ ERROR:",
+          error
+        );
+      } finally {
+        setMarkingAllRead(false);
       }
-    } catch (error) {
-      console.error(
-        "MARK READ ERROR:",
-        error
-      );
-    }
+    }, [
+      markingAllRead,
+    ]);
 
-    if (
-      notification?.post?._id
-    ) {
-      router.push({
-        pathname:
-          "/post/[id]",
-
-        params: {
-          id: String(
-            notification.post._id
-          ),
-        },
-      });
-
-      return;
-    }
-
-    if (
-      notification?.sender?._id
-    ) {
-      router.push({
-        pathname:
-          "/profile/[username]",
-
-        params: {
-          username:
-            notification.sender.username ||
-            String(
-              notification.sender._id
-            ),
-        },
-      });
-    }
-  }
-
-  async function handleMarkAllRead() {
-    try {
-      await markAllNotificationsRead();
-
-      setNotifications(
-        (current) =>
-          current.map(
-            (item) => ({
-              ...item,
-              isRead: true,
-            })
-          )
-      );
-    } catch (error) {
-      console.error(
-        "MARK ALL READ ERROR:",
-        error
-      );
-    }
-  }
 
   const hasUnread =
     notifications.some(
       (item) =>
-        !item?.isRead
+        item?.isRead !== true
     );
 
   if (authLoading) {
     return (
       <SafeAreaView
         style={styles.container}
+        edges={["top"]}
       >
-        <View
-          style={styles.center}
-        >
+        <View style={styles.center}>
           <ActivityIndicator
-            size="large"
+            size="small"
             color={
-              Colors.primary
+              Colors.primary ||
+              "#0095F6"
             }
           />
         </View>
@@ -214,21 +676,40 @@ export default function NotificationsScreen() {
   }
 
   if (!user) {
-    return null;
+    return (
+      <SafeAreaView
+        style={styles.container}
+        edges={["top"]}
+      >
+        <View style={styles.center}>
+          <Ionicons
+            name="lock-closed-outline"
+            size={42}
+            color="#111"
+          />
+
+          <Text
+            style={styles.emptyTitle}
+          >
+            Sign in to see notifications
+          </Text>
+        </View>
+      </SafeAreaView>
+    );
   }
 
   if (loading) {
     return (
       <SafeAreaView
         style={styles.container}
+        edges={["top"]}
       >
-        <View
-          style={styles.center}
-        >
+        <View style={styles.center}>
           <ActivityIndicator
-            size="large"
+            size="small"
             color={
-              Colors.primary
+              Colors.primary ||
+              "#0095F6"
             }
           />
         </View>
@@ -236,211 +717,324 @@ export default function NotificationsScreen() {
     );
   }
 
+
   return (
     <SafeAreaView
       style={styles.container}
+      edges={["top"]}
     >
-      <View
-        style={styles.header}
-      >
-        <TouchableOpacity
+
+      <View style={styles.header}>
+        <Pressable
           onPress={() =>
             router.back()
           }
-          style={
-            styles.backButton
-          }
-          activeOpacity={0.7}
+          hitSlop={10}
+          style={styles.headerButton}
         >
           <Ionicons
             name="arrow-back"
             size={25}
             color={
-              Colors.black
+              Colors.black ||
+              "#111"
             }
           />
-        </TouchableOpacity>
+        </Pressable>
 
-        <Text
-          style={styles.title}
-        >
+        <Text style={styles.title}>
           Notifications
         </Text>
 
         {hasUnread ? (
-          <TouchableOpacity
+          <Pressable
             onPress={
               handleMarkAllRead
             }
-            activeOpacity={0.7}
+            disabled={
+              markingAllRead
+            }
+            hitSlop={8}
+            style={styles.markAllButton}
           >
-            <Text
-              style={
-                styles.readAll
-              }
-            >
-              Mark all read
-            </Text>
-          </TouchableOpacity>
+            {markingAllRead ? (
+              <ActivityIndicator
+                size="small"
+                color={
+                  Colors.primary ||
+                  "#0095F6"
+                }
+              />
+            ) : (
+              <Text
+                style={styles.readAll}
+              >
+                Mark all
+              </Text>
+            )}
+          </Pressable>
         ) : (
           <View
-            style={
-              styles.headerSpacer
-            }
+            style={styles.headerButton}
           />
         )}
       </View>
 
-      <FlatList
-        data={notifications}
-        keyExtractor={(
-          item,
-          index
-        ) =>
-          item?._id
-            ? String(
-                item._id
-              )
-            : `notification-${index}`
-        }
-        renderItem={({
-          item,
-        }) => (
-          <NotificationRow
-            notification={item}
-            onPress={
-              handleNotificationPress
-            }
+      {error &&
+      notifications.length === 0 ? (
+        <View
+          style={styles.errorContainer}
+        >
+          <Ionicons
+            name="cloud-offline-outline"
+            size={46}
+            color="#111"
           />
-        )}
-        refreshControl={
-          <RefreshControl
-            refreshing={
-              refreshing
-            }
-            onRefresh={
-              handleRefresh
-            }
-          />
-        }
-        showsVerticalScrollIndicator={
-          false
-        }
-        ListEmptyComponent={
-          <View
-            style={styles.empty}
+
+          <Text
+            style={styles.emptyTitle}
           >
-            <Ionicons
-              name="notifications-outline"
-              size={60}
-              color={
-                Colors.secondaryText
+            Couldn't load notifications
+          </Text>
+
+          <Text
+            style={styles.emptyText}
+          >
+            {error}
+          </Text>
+
+          <Pressable
+            style={styles.retryButton}
+            onPress={() =>
+              loadNotifications({
+                showLoader: true,
+              })
+            }
+          >
+            <Text
+              style={styles.retryText}
+            >
+              Try again
+            </Text>
+          </Pressable>
+        </View>
+      ) : (
+        <FlatList
+          data={notifications}
+          keyExtractor={(
+            item,
+            index
+          ) =>
+            String(
+              item?._id ||
+              item?.id ||
+              `notification-${index}`
+            )
+          }
+          renderItem={({
+            item,
+          }) => (
+            <NotificationRow
+              notification={item}
+              onPress={
+                openNotification
               }
             />
-
-            <Text
-              style={
-                styles.emptyTitle
+          )}
+          showsVerticalScrollIndicator={
+            false
+          }
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={
+                handleRefresh
               }
-            >
-              No notifications yet
-            </Text>
-
-            <Text
-              style={
-                styles.emptyText
+              tintColor={
+                Colors.primary ||
+                "#0095F6"
               }
+              colors={[
+                Colors.primary ||
+                "#0095F6",
+              ]}
+            />
+          }
+          ListEmptyComponent={
+            <View
+              style={styles.empty}
             >
-              When people interact with you,
-              your notifications will appear here.
-            </Text>
-          </View>
-        }
-      />
+              <View
+                style={
+                  styles.emptyIcon
+                }
+              >
+                <Ionicons
+                  name="notifications-outline"
+                  size={36}
+                  color="#111"
+                />
+              </View>
+
+              <Text
+                style={
+                  styles.emptyTitle
+                }
+              >
+                No notifications yet
+              </Text>
+
+              <Text
+                style={
+                  styles.emptyText
+                }
+              >
+                When people interact with
+                you, their activity will
+                appear here.
+              </Text>
+            </View>
+          }
+        />
+      )}
     </SafeAreaView>
   );
 }
 
-const styles =
-  StyleSheet.create({
-    container: {
-      flex: 1,
-      backgroundColor:
-        Colors.white ||
-        "#fff",
-    },
 
-    header: {
-      height: 58,
-      paddingHorizontal: 15,
-      borderBottomWidth: 0.5,
-      borderBottomColor:
-        Colors.border ||
-        "#ddd",
-      flexDirection: "row",
-      alignItems: "center",
-      justifyContent:
-        "space-between",
-    },
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor:
+      Colors.white ||
+      "#FFFFFF",
+  },
 
-    backButton: {
-      width: 70,
-      alignItems: "flex-start",
-      justifyContent:
-        "center",
-    },
+  header: {
+    height: 58,
+    paddingHorizontal: 14,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent:
+      "space-between",
+    borderBottomWidth:
+      StyleSheet.hairlineWidth,
+    borderBottomColor:
+      Colors.border ||
+      "#DBDBDB",
+    backgroundColor:
+      Colors.white ||
+      "#FFFFFF",
+  },
 
-    title: {
-      flex: 1,
-      textAlign: "center",
-      fontSize: 18,
-      fontWeight: "800",
-      color:
-        Colors.black,
-    },
+  headerButton: {
+    width: 72,
+    height: 42,
+    alignItems: "flex-start",
+    justifyContent:
+      "center",
+  },
 
-    readAll: {
-      width: 70,
-      textAlign: "right",
-      color:
-        Colors.primary ||
-        "#0095F6",
-      fontSize: 12,
-      fontWeight: "700",
-    },
+  markAllButton: {
+    width: 72,
+    height: 42,
+    alignItems: "flex-end",
+    justifyContent:
+      "center",
+  },
 
-    headerSpacer: {
-      width: 70,
-    },
+  title: {
+    flex: 1,
+    textAlign: "center",
+    fontSize: 18,
+    fontWeight: "700",
+    color:
+      Colors.black ||
+      "#111111",
+  },
 
-    center: {
-      flex: 1,
-      alignItems: "center",
-      justifyContent:
-        "center",
-    },
+  readAll: {
+    color:
+      Colors.primary ||
+      "#0095F6",
+    fontSize: 13,
+    fontWeight: "700",
+  },
 
-    empty: {
-      paddingTop: 140,
-      paddingHorizontal: 35,
-      alignItems:
-        "center",
-    },
+  center: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent:
+      "center",
+    paddingHorizontal: 35,
+  },
 
-    emptyTitle: {
-      marginTop: 15,
-      fontSize: 20,
-      fontWeight: "800",
-      color:
-        Colors.black,
-    },
+  empty: {
+    minHeight: 500,
+    paddingHorizontal: 35,
+    alignItems: "center",
+    justifyContent:
+      "center",
+  },
 
-    emptyText: {
-      marginTop: 8,
-      textAlign: "center",
-      color:
-        Colors.secondaryText ||
-        "#888",
-      lineHeight: 20,
-    },
-  });
+  emptyIcon: {
+    width: 76,
+    height: 76,
+    borderRadius: 38,
+    borderWidth: 2,
+    borderColor: "#111111",
+    alignItems: "center",
+    justifyContent:
+      "center",
+    marginBottom: 18,
+  },
+
+  emptyTitle: {
+    marginTop: 8,
+    fontSize: 20,
+    fontWeight: "700",
+    color:
+      Colors.black ||
+      "#111111",
+    textAlign: "center",
+  },
+
+  emptyText: {
+    marginTop: 8,
+    maxWidth: 320,
+    fontSize: 14,
+    lineHeight: 20,
+    textAlign: "center",
+    color:
+      Colors.secondaryText ||
+      "#8E8E8E",
+  },
+
+  errorContainer: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent:
+      "center",
+    paddingHorizontal: 40,
+  },
+
+  retryButton: {
+    marginTop: 20,
+    minWidth: 110,
+    height: 40,
+    paddingHorizontal: 20,
+    borderRadius: 8,
+    alignItems: "center",
+    justifyContent:
+      "center",
+    backgroundColor:
+      Colors.black ||
+      "#111111",
+  },
+
+  retryText: {
+    color: "#FFFFFF",
+    fontSize: 14,
+    fontWeight: "700",
+  },
+});

@@ -2,19 +2,27 @@ import api from "./api";
 import * as Notifications from "expo-notifications";
 
 export async function getNotifications() {
-  const response = await api.get(
-    "/notifications"
-  );
+  try {
+    const response = await api.get("/notifications");
 
-  return response.data?.notifications || [];
+    return Array.isArray(response.data?.notifications)
+      ? response.data.notifications
+      : [];
+  } catch (error) {
+    console.error("GET NOTIFICATIONS ERROR:", error);
+    throw error;
+  }
 }
 
 export async function getUnreadNotificationCount() {
-  const response = await api.get(
-    "/notifications/unread-count"
-  );
+  try {
+    const response = await api.get("/notifications/unread-count");
 
-  return response.data?.count || 0;
+    return Number(response.data?.count || 0);
+  } catch (error) {
+    console.error("GET UNREAD NOTIFICATION COUNT ERROR:", error);
+    return 0;
+  }
 }
 
 export async function getUnreadCount() {
@@ -22,27 +30,47 @@ export async function getUnreadCount() {
 }
 
 export async function markNotificationRead(id) {
-  const response = await api.patch(
-    `/notifications/${id}/read`
-  );
+  if (!id) {
+    throw new Error("Notification ID is required.");
+  }
 
-  return response.data?.notification;
+  try {
+    const response = await api.patch(
+      `/notifications/${encodeURIComponent(id)}/read`
+    );
+
+    return response.data?.notification || null;
+  } catch (error) {
+    console.error("MARK NOTIFICATION READ ERROR:", error);
+    throw error;
+  }
 }
 
 export async function markAllNotificationsRead() {
-  const response = await api.patch(
-    "/notifications/read-all"
-  );
+  try {
+    const response = await api.patch("/notifications/read-all");
 
-  return response.data;
+    return response.data || {};
+  } catch (error) {
+    console.error("MARK ALL NOTIFICATIONS READ ERROR:", error);
+    throw error;
+  }
 }
 
 export async function showIncomingCallNotification({
-  callerName,
-  callType,
+  callerName = "Someone",
+  callerId = null,
+  callerAvatar = null,
+  callType = "voice",
   callId,
 }) {
   try {
+    if (!callId) {
+      console.warn(
+        "CALL NOTIFICATION: Missing callId."
+      );
+    }
+
     await Notifications.scheduleNotificationAsync({
       content: {
         title:
@@ -52,13 +80,19 @@ export async function showIncomingCallNotification({
 
         body: `${callerName} is calling you`,
 
+        sound: "default",
+
         data: {
           type: "incoming-call",
-          callId,
-          callType,
+          callId: callId || null,
+          callerId: callerId || null,
+          callerName: callerName || "Someone",
+          callerAvatar: callerAvatar || null,
+          username: callerName || "Someone",
+          avatar: callerAvatar || null,
+          callType: callType || "voice",
+          typeOfCall: callType || "voice",
         },
-
-        sound: "default",
       },
 
       trigger: null,
@@ -71,23 +105,8 @@ export async function showIncomingCallNotification({
   }
 }
 
-Notifications.addNotificationResponseReceivedListener(
-  (response) => {
-    const data =
-      response.notification
-        ?.request
-        ?.content
-        ?.data;
-
-    if (
-      data?.type !== "incoming-call"
-    ) {
-      return;
-    }
-
-    console.log(
-      "CALL NOTIFICATION TAPPED:",
-      data
-    );
-  }
-);
+export function getNotificationResponseData(response) {
+  return (
+    response?.notification?.request?.content?.data || null
+  );
+}

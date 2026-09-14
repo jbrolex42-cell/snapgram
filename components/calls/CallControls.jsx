@@ -20,7 +20,7 @@ export default function CallControls({
 }) {
   return (
     <View style={styles.container}>
-      {/* Mute */}
+
       <TouchableOpacity
         style={styles.button}
         onPress={onMute}
@@ -35,7 +35,6 @@ export default function CallControls({
         </Text>
       </TouchableOpacity>
 
-      {/* Speaker */}
       <TouchableOpacity
         style={styles.button}
         onPress={onSpeaker}
@@ -50,7 +49,6 @@ export default function CallControls({
         </Text>
       </TouchableOpacity>
 
-      {/* Video */}
       {videoCall && (
         <TouchableOpacity
           style={styles.button}
@@ -69,7 +67,6 @@ export default function CallControls({
         </TouchableOpacity>
       )}
 
-      {/* Switch Camera */}
       {videoCall && videoEnabled && (
         <TouchableOpacity
           style={styles.button}
@@ -86,7 +83,6 @@ export default function CallControls({
         </TouchableOpacity>
       )}
 
-      {/* End Call */}
       <TouchableOpacity
         style={[
           styles.button,

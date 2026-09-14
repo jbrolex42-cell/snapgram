@@ -129,21 +129,19 @@ export default function ReelsScreen() {
           />
         }
       >
-        {/* Header */}
+
         <InfoCard
           icon="play-circle-outline"
           title="Your reels"
           text="Manage the reels you've created and shared on Snapgram."
         />
 
-        {/* Error */}
         {error ? (
           <Notice>
             {error}
           </Notice>
         ) : null}
 
-        {/* Count */}
         {!error ? (
           <Notice>
             {items.length
@@ -154,7 +152,6 @@ export default function ReelsScreen() {
           </Notice>
         ) : null}
 
-        {/* Reels */}
         {items.length > 0 ? (
           <View>
             {items.map((item, index) => (
@@ -178,4 +175,3 @@ export default function ReelsScreen() {
     </Page>
   );
 }
-

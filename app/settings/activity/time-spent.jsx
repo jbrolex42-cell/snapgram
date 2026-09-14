@@ -223,14 +223,13 @@ export default function TimeSpentScreen() {
         showsVerticalScrollIndicator={false}
         contentContainerStyle={styles.container}
       >
-        {/* Header */}
+
         <InfoCard
           icon="time-outline"
           title="Time spent"
           text="Manage how much time you spend on Snapgram and set reminders to help you take breaks."
         />
 
-        {/* Today's usage */}
         <View style={styles.usageCard}>
           <Text style={styles.sectionLabel}>
             TODAY
@@ -272,7 +271,6 @@ export default function TimeSpentScreen() {
           )}
         </View>
 
-        {/* Weekly overview */}
         <View style={styles.card}>
           <Text style={styles.cardTitle}>
             Your weekly activity
@@ -343,7 +341,6 @@ export default function TimeSpentScreen() {
           </View>
         </View>
 
-        {/* Controls */}
         <Text style={styles.sectionHeading}>
           Manage your time
         </Text>
@@ -394,7 +391,6 @@ export default function TimeSpentScreen() {
           }
         />
 
-        {/* Break reminder */}
         <SwitchRow
           title="Take a break reminder"
           subtitle="Get occasional reminders to step away from Snapgram."
@@ -409,7 +405,6 @@ export default function TimeSpentScreen() {
           }
         />
 
-        {/* Information */}
         <Notice>
           Time-spent totals on this screen are tracked locally on this
           device. For account-wide usage across multiple devices, the
@@ -638,4 +633,3 @@ const styles = StyleSheet.create({
     opacity: 0.4,
   },
 });
-

@@ -40,7 +40,7 @@ export default function MessageSearch({
 
   return (
     <View style={styles.container}>
-      {/* Search icon */}
+
       <View style={styles.searchIconContainer}>
         <Ionicons
           name="search-outline"
@@ -49,7 +49,6 @@ export default function MessageSearch({
         />
       </View>
 
-      {/* Search input */}
       <TextInput
         autoFocus
         value={query}
@@ -63,7 +62,6 @@ export default function MessageSearch({
         clearButtonMode="never"
       />
 
-      {/* Clear / close */}
       {query.length > 0 ? (
         <TouchableOpacity
           style={styles.clearButton}
@@ -80,7 +78,6 @@ export default function MessageSearch({
         </TouchableOpacity>
       ) : null}
 
-      {/* Close search */}
       <TouchableOpacity
         style={styles.closeButton}
         onPress={handleClose}

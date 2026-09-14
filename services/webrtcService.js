@@ -5,9 +5,6 @@ import {
 
 import { getTurnCredentials } from "./callService";
 
-/**
- * Default public STUN servers.
- */
 const DEFAULT_STUN_SERVERS = [
   {
     urls: "stun:stun.l.google.com:19302",
@@ -17,54 +14,45 @@ const DEFAULT_STUN_SERVERS = [
   },
 ];
 
-/**
- * Group-call peer connections.
- */
 const groupPeers = new Map();
 
-/**
- * Prevent malformed TURN responses from breaking
- * RTCPeerConnection configuration.
- */
 function normalizeIceServers(turnServers) {
-  const servers = [];
-
-  for (const server of turnServers || []) {
-    if (!server) continue;
-
-    if (typeof server === "string") {
-      servers.push({
-        urls: server,
-      });
-
-      continue;
-    }
-
-    if (
-      typeof server === "object" &&
-      server.urls
-    ) {
-      servers.push(server);
-    }
+  if (!Array.isArray(turnServers)) {
+    return [];
   }
 
-  return servers;
+  return turnServers
+    .filter(Boolean)
+    .map((server) => {
+      if (typeof server === "string") {
+        return {
+          urls: server,
+        };
+      }
+
+      if (
+        typeof server === "object" &&
+        server.urls
+      ) {
+        return server;
+      }
+
+      return null;
+    })
+    .filter(Boolean);
 }
 
-/**
- * Get WebRTC ICE configuration.
- */
 export async function getWebRTCConfiguration() {
   try {
     const turnServers =
       await getTurnCredentials();
 
-    const validTurnServers =
+    const normalizedTurnServers =
       normalizeIceServers(turnServers);
 
     const iceServers = [
       ...DEFAULT_STUN_SERVERS,
-      ...validTurnServers,
+      ...normalizedTurnServers,
     ];
 
     console.log(
@@ -74,6 +62,8 @@ export async function getWebRTCConfiguration() {
 
     return {
       iceServers,
+
+      iceCandidatePoolSize: 10,
     };
   } catch (error) {
     console.warn(
@@ -85,13 +75,11 @@ export async function getWebRTCConfiguration() {
       iceServers: [
         ...DEFAULT_STUN_SERVERS,
       ],
+      iceCandidatePoolSize: 10,
     };
   }
 }
 
-/**
- * Create a WebRTC peer connection.
- */
 export async function createPeerConnection() {
   const configuration =
     await getWebRTCConfiguration();
@@ -118,9 +106,6 @@ export async function createPeerConnection() {
   return peer;
 }
 
-/**
- * Create/reuse a group-call peer.
- */
 export async function createGroupPeer(
   userId
 ) {
@@ -161,9 +146,6 @@ export async function createGroupPeer(
   return peer;
 }
 
-/**
- * Request microphone/camera access.
- */
 export async function getLocalStream(
   video = false
 ) {
@@ -173,40 +155,118 @@ export async function getLocalStream(
       "function"
   ) {
     throw new Error(
-      "react-native-webrtc mediaDevices.getUserMedia is unavailable."
+      "Camera and microphone access is unavailable on this device."
     );
   }
+
+  const constraints = {
+    audio: true,
+    video: Boolean(video),
+  };
 
   console.log(
     "REQUESTING LOCAL MEDIA:",
-    {
-      audio: true,
-      video: Boolean(video),
-    }
+    constraints
   );
 
-  const stream =
-    await mediaDevices.getUserMedia({
-      audio: true,
-      video: Boolean(video),
-    });
+  try {
+    const stream =
+      await mediaDevices.getUserMedia(
+        constraints
+      );
 
-  if (!stream) {
+    if (!stream) {
+      throw new Error(
+        "Unable to create local media stream."
+      );
+    }
+
+    console.log(
+      "LOCAL MEDIA STREAM CREATED"
+    );
+
+    return stream;
+  } catch (error) {
+    console.error(
+      "GET LOCAL MEDIA ERROR:",
+      error
+    );
+
+    const message =
+      error?.message ||
+      "";
+
+    if (
+      message
+        .toLowerCase()
+        .includes("permission")
+    ) {
+      throw new Error(
+        "Snapgram needs permission to use your microphone and camera."
+      );
+    }
+
+    throw error;
+  }
+}
+
+export function addLocalTracks(
+  peer,
+  stream
+) {
+  if (!peer) {
     throw new Error(
-      "Unable to create local media stream."
+      "Peer connection is required."
     );
   }
 
+  if (!stream) {
+    throw new Error(
+      "Local media stream is required."
+    );
+  }
+
+  if (
+    typeof peer.addTrack !==
+    "function"
+  ) {
+    throw new Error(
+      "WebRTC addTrack is unavailable."
+    );
+  }
+
+  const tracks =
+    typeof stream.getTracks ===
+    "function"
+      ? stream.getTracks()
+      : [];
+
+  for (const track of tracks) {
+    if (!track) {
+      continue;
+    }
+
+    try {
+      peer.addTrack(
+        track,
+        stream
+      );
+    } catch (error) {
+      console.warn(
+        "ADD LOCAL TRACK ERROR:",
+        error?.message || error
+      );
+    }
+  }
+
   console.log(
-    "LOCAL MEDIA STREAM CREATED"
+    "LOCAL TRACKS ADDED:",
+    tracks.length
   );
 
-  return stream;
+  return tracks;
 }
 
-/**
- * Create an SDP offer.
- */
 export async function createOffer(
   peer
 ) {
@@ -234,6 +294,10 @@ export async function createOffer(
     );
   }
 
+  console.log(
+    "CREATING WEBRTC OFFER..."
+  );
+
   const offer =
     await peer.createOffer();
 
@@ -247,12 +311,13 @@ export async function createOffer(
     offer
   );
 
+  console.log(
+    "LOCAL OFFER SET"
+  );
+
   return offer;
 }
 
-/**
- * Create an SDP answer.
- */
 export async function createAnswer(
   peer
 ) {
@@ -280,6 +345,10 @@ export async function createAnswer(
     );
   }
 
+  console.log(
+    "CREATING WEBRTC ANSWER..."
+  );
+
   const answer =
     await peer.createAnswer();
 
@@ -293,15 +362,13 @@ export async function createAnswer(
     answer
   );
 
+  console.log(
+    "LOCAL ANSWER SET"
+  );
+
   return answer;
 }
 
-/**
- * Set remote SDP description.
- *
- * react-native-webrtc accepts RTCSessionDescriptionInit,
- * so the plain { type, sdp } object can be passed directly.
- */
 export async function setRemoteDescription(
   peer,
   description
@@ -327,23 +394,25 @@ export async function setRemoteDescription(
     );
   }
 
+  console.log(
+    "SETTING REMOTE DESCRIPTION:",
+    description?.type
+  );
+
   await peer.setRemoteDescription(
     description
   );
+
+  console.log(
+    "REMOTE DESCRIPTION SET"
+  );
 }
 
-/**
- * Add a remote ICE candidate.
- */
 export async function addIceCandidate(
   peer,
   candidate
 ) {
-  if (!peer) {
-    return;
-  }
-
-  if (!candidate) {
+  if (!peer || !candidate) {
     return;
   }
 
@@ -361,9 +430,6 @@ export async function addIceCandidate(
   );
 }
 
-/**
- * Safely stop every track in a media stream.
- */
 export function stopLocalStream(
   stream
 ) {
@@ -379,11 +445,14 @@ export function stopLocalStream(
         : [];
 
     for (const track of tracks) {
+      if (!track) {
+        continue;
+      }
+
       try {
         if (
-          track &&
           typeof track.stop ===
-            "function"
+          "function"
         ) {
           track.stop();
         }
@@ -402,71 +471,138 @@ export function stopLocalStream(
   }
 }
 
-/**
- * Stop media stream.
- *
- * Kept as a separate exported helper because
- * existing screens may import this name.
- */
 export function stopMediaStream(
   stream
 ) {
   stopLocalStream(stream);
 }
 
-/**
- * Safely detach WebRTC event handlers.
- *
- * IMPORTANT:
- * Do not call arbitrary WebRTC methods during cleanup.
- * Some react-native-webrtc versions expose slightly
- * different native implementations.
- */
-function detachPeerHandlers(peer) {
+export function setMicrophoneEnabled(
+  stream,
+  enabled
+) {
+  if (!stream) {
+    return false;
+  }
+
+  const tracks =
+    typeof stream.getAudioTracks ===
+    "function"
+      ? stream.getAudioTracks()
+      : [];
+
+  if (!tracks.length) {
+    return false;
+  }
+
+  tracks.forEach((track) => {
+    track.enabled = Boolean(
+      enabled
+    );
+  });
+
+  return true;
+}
+
+export function setCameraEnabled(
+  stream,
+  enabled
+) {
+  if (!stream) {
+    return false;
+  }
+
+  const tracks =
+    typeof stream.getVideoTracks ===
+    "function"
+      ? stream.getVideoTracks()
+      : [];
+
+  if (!tracks.length) {
+    return false;
+  }
+
+  tracks.forEach((track) => {
+    track.enabled = Boolean(
+      enabled
+    );
+  });
+
+  return true;
+}
+
+export function switchCamera(
+  stream
+) {
+  if (!stream) {
+    return false;
+  }
+
+  const tracks =
+    typeof stream.getVideoTracks ===
+    "function"
+      ? stream.getVideoTracks()
+      : [];
+
+  const videoTrack =
+    tracks[0];
+
+  if (!videoTrack) {
+    return false;
+  }
+
+  try {
+    if (
+      typeof videoTrack._switchCamera ===
+      "function"
+    ) {
+      videoTrack._switchCamera();
+      return true;
+    }
+
+    console.warn(
+      "Camera switching is not supported by this WebRTC implementation."
+    );
+
+    return false;
+  } catch (error) {
+    console.warn(
+      "SWITCH CAMERA ERROR:",
+      error?.message || error
+    );
+
+    return false;
+  }
+}
+
+function detachPeerHandlers(
+  peer
+) {
   if (!peer) {
     return;
   }
 
-  try {
-    peer.ontrack = null;
-  } catch {}
+  const handlers = [
+    "ontrack",
+    "onicecandidate",
+    "onconnectionstatechange",
+    "oniceconnectionstatechange",
+    "onsignalingstatechange",
+    "onicegatheringstatechange",
+    "ondatachannel",
+    "onnegotiationneeded",
+    "onicecandidateerror",
+  ];
 
-  try {
-    peer.onicecandidate = null;
-  } catch {}
-
-  try {
-    peer.onconnectionstatechange =
-      null;
-  } catch {}
-
-  try {
-    peer.oniceconnectionstatechange =
-      null;
-  } catch {}
-
-  try {
-    peer.onsignalingstatechange =
-      null;
-  } catch {}
-
-  try {
-    peer.onicegatheringstatechange =
-      null;
-  } catch {}
-
-  try {
-    peer.ondatachannel = null;
-  } catch {}
-
-  try {
-    peer.onnegotiationneeded = null;
-  } catch {}
+  handlers.forEach(
+    (handler) => {
+      try {
+        peer[handler] = null;
+      } catch {}
+    }
+  );
 }
 
-/**
- * Safely close a peer connection.
- */
 export function closePeerConnection(
   peer
 ) {
@@ -475,13 +611,39 @@ export function closePeerConnection(
   }
 
   try {
-    detachPeerHandlers(peer);
+    detachPeerHandlers(
+      peer
+    );
   } catch (error) {
     console.warn(
       "PEER HANDLER CLEANUP ERROR:",
       error?.message || error
     );
   }
+
+  try {
+    if (
+      typeof peer.getSenders ===
+      "function"
+    ) {
+      const senders =
+        peer.getSenders();
+
+      senders.forEach(
+        (sender) => {
+          try {
+            if (
+              sender?.track &&
+              typeof sender.track.stop ===
+                "function"
+            ) {
+              sender.track.stop();
+            }
+          } catch {}
+        }
+      );
+    }
+  } catch {}
 
   try {
     if (
@@ -498,9 +660,6 @@ export function closePeerConnection(
   }
 }
 
-/**
- * Remove one group peer.
- */
 export function removeGroupPeer(
   userId
 ) {
@@ -522,9 +681,6 @@ export function removeGroupPeer(
   groupPeers.delete(key);
 }
 
-/**
- * Close all group peers.
- */
 export function closeGroupPeers() {
   for (const peer of groupPeers.values()) {
     closePeerConnection(peer);
@@ -533,9 +689,6 @@ export function closeGroupPeers() {
   groupPeers.clear();
 }
 
-/**
- * Optional helper for debugging.
- */
 export function getGroupPeer(
   userId
 ) {
@@ -550,9 +703,6 @@ export function getGroupPeer(
   );
 }
 
-/**
- * Optional helper for debugging.
- */
 export function getGroupPeerCount() {
   return groupPeers.size;
 }

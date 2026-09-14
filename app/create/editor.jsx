@@ -432,7 +432,6 @@ export default function CreatePostScreen() {
             : undefined
         }
       >
-        {/* HEADER */}
         <View style={styles.header}>
           <TouchableOpacity
             onPress={() => router.back()}
@@ -466,7 +465,6 @@ export default function CreatePostScreen() {
           </TouchableOpacity>
         </View>
 
-        {/* PROGRESS */}
         {posting && (
           <View style={styles.progressContainer}>
             <View
@@ -488,7 +486,7 @@ export default function CreatePostScreen() {
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
         >
-          {/* MEDIA */}
+
           <View style={styles.mediaContainer}>
             <Image
               source={{
@@ -528,7 +526,6 @@ export default function CreatePostScreen() {
             </View>
           </View>
 
-          {/* THUMBNAILS */}
           {media.length > 1 && (
             <ScrollView
               horizontal
@@ -571,7 +568,6 @@ export default function CreatePostScreen() {
             </ScrollView>
           )}
 
-          {/* EDITOR TOOLS */}
           <EditorToolbar
             activeTool={activeTool}
             onToolChange={setActiveTool}
@@ -605,13 +601,11 @@ export default function CreatePostScreen() {
             />
           )}
 
-          {/* CAPTION */}
           <CaptionInput
             value={caption}
             onChangeText={setCaption}
           />
 
-          {/* POST OPTIONS */}
           <View style={styles.optionsCard}>
             <TouchableOpacity
               style={styles.optionRow}
@@ -730,7 +724,6 @@ export default function CreatePostScreen() {
         </ScrollView>
       </KeyboardAvoidingView>
 
-      {/* LOCATION MODAL */}
       <Modal
         visible={locationModal}
         transparent
@@ -784,7 +777,6 @@ export default function CreatePostScreen() {
         </View>
       </Modal>
 
-      {/* TAG MODAL */}
       <Modal
         visible={tagModal}
         transparent
@@ -842,7 +834,6 @@ export default function CreatePostScreen() {
         </View>
       </Modal>
 
-      {/* AUDIENCE MODAL */}
       <Modal
         visible={audienceModal}
         transparent

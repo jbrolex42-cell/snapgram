@@ -92,10 +92,6 @@ export default function VoiceRecorder({
 
     stopRequestedRef.current = false;
 
-    /*
-     * If the recorder is already prepared,
-     * use the existing native session.
-     */
     if (preparedRef.current) {
       try {
         recorder.record();
@@ -142,17 +138,10 @@ export default function VoiceRecorder({
         return;
       }
 
-      /*
-       * User released the button while permission
-       * was being requested.
-       */
       if (stopRequestedRef.current) {
         return;
       }
 
-      /*
-       * Prepare only once.
-       */
       if (!preparedRef.current) {
         await recorder.prepareToRecordAsync();
 
@@ -163,26 +152,16 @@ export default function VoiceRecorder({
         );
       }
 
-      /*
-       * User released the button while preparation
-       * was happening.
-       */
       if (stopRequestedRef.current) {
         await safelyStopPreparedRecorder();
         return;
       }
 
-      /*
-       * Component disappeared while awaiting.
-       */
       if (!mountedRef.current) {
         await safelyStopPreparedRecorder();
         return;
       }
 
-      /*
-       * Start native recording.
-       */
       recorder.record();
 
       recordingRef.current = true;
@@ -219,10 +198,6 @@ export default function VoiceRecorder({
       }
     }
 
-    /*
-     * If the user released the microphone during
-     * startup, finish the recording immediately.
-     */
     if (
       stopRequestedRef.current &&
       recordingRef.current
@@ -258,10 +233,6 @@ export default function VoiceRecorder({
   async function stopRecording() {
     stopRequestedRef.current = true;
 
-    /*
-     * Don't call stop() while prepareToRecordAsync()
-     * is still running.
-     */
     if (startingRef.current) {
       return;
     }
@@ -270,9 +241,6 @@ export default function VoiceRecorder({
       return;
     }
 
-    /*
-     * Prevent duplicate stop calls.
-     */
     recordingRef.current = false;
 
     if (mountedRef.current) {
@@ -284,9 +252,6 @@ export default function VoiceRecorder({
 
       preparedRef.current = false;
 
-      /*
-       * Get the final URI after stop().
-       */
       const uri = recorder.uri;
 
       if (!uri) {
@@ -299,9 +264,6 @@ export default function VoiceRecorder({
         return;
       }
 
-      /*
-       * expo-audio reports duration in milliseconds.
-       */
       const durationMillis =
         Number(
           recorderState?.durationMillis
@@ -320,9 +282,6 @@ export default function VoiceRecorder({
         }
       );
 
-      /*
-       * Send recording back to ConversationScreen.
-       */
       if (
         typeof onRecorded === "function" &&
         mountedRef.current
@@ -370,10 +329,6 @@ export default function VoiceRecorder({
   function handlePressOut() {
     stopRequestedRef.current = true;
 
-    /*
-     * If preparation is still running,
-     * startRecording() will finish the stop.
-     */
     if (startingRef.current) {
       return;
     }

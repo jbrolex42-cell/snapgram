@@ -38,10 +38,6 @@ export default function LiveScreen() {
 
       setStarting(true);
 
-      /*
-       * Give the UI a small transition
-       * before opening the camera.
-       */
       setTimeout(() => {
         if (!starting) {
           setStarting(false);
@@ -66,7 +62,6 @@ export default function LiveScreen() {
       ]}
     >
       <View style={styles.container}>
-        {/* HEADER */}
 
         <View style={styles.header}>
           <TouchableOpacity
@@ -94,10 +89,7 @@ export default function LiveScreen() {
           />
         </View>
 
-        {/* CONTENT */}
-
         <View style={styles.content}>
-          {/* LIVE ICON */}
 
           <View style={styles.liveIconOuter}>
             <View
@@ -120,8 +112,6 @@ export default function LiveScreen() {
             connect with your followers in
             real time.
           </Text>
-
-          {/* INFO */}
 
           <View style={styles.infoCard}>
             <InfoRow
@@ -146,8 +136,6 @@ export default function LiveScreen() {
               text="Your camera and microphone will be used during the broadcast."
             />
           </View>
-
-          {/* START */}
 
           <TouchableOpacity
             style={[
@@ -186,8 +174,6 @@ export default function LiveScreen() {
                 : "Start live video"}
             </Text>
           </TouchableOpacity>
-
-          {/* PRIVACY */}
 
           <View style={styles.footer}>
             <Ionicons
@@ -248,10 +234,6 @@ const styles = StyleSheet.create({
     backgroundColor: "#000000",
   },
 
-  /*
-   * HEADER
-   */
-
   header: {
     height: 52,
     paddingHorizontal: 12,
@@ -276,20 +258,12 @@ const styles = StyleSheet.create({
     fontWeight: "700",
   },
 
-  /*
-   * CONTENT
-   */
-
   content: {
     flex: 1,
     alignItems: "center",
     paddingHorizontal: 22,
     paddingTop: 43,
   },
-
-  /*
-   * ICON
-   */
 
   liveIconOuter: {
     width: 104,
@@ -312,10 +286,6 @@ const styles = StyleSheet.create({
     backgroundColor: "#1A1A1A",
   },
 
-  /*
-   * TITLE
-   */
-
   title: {
     color: "#FFFFFF",
     fontSize: 28,
@@ -333,10 +303,6 @@ const styles = StyleSheet.create({
     lineHeight: 20,
     marginBottom: 28,
   },
-
-  /*
-   * INFO
-   */
 
   infoCard: {
     width: "100%",
@@ -392,10 +358,6 @@ const styles = StyleSheet.create({
     marginLeft: 70,
   },
 
-  /*
-   * BUTTON
-   */
-
   startButton: {
     width: "100%",
     maxWidth: 390,
@@ -417,10 +379,6 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: "700",
   },
-
-  /*
-   * FOOTER
-   */
 
   footer: {
     flexDirection: "row",

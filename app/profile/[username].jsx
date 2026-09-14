@@ -1,5 +1,6 @@
 import React, {
   useCallback,
+  useMemo,
   useState,
 } from "react";
 
@@ -7,16 +8,19 @@ import {
   ActivityIndicator,
   Alert,
   Image,
+  Pressable,
   RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
-  TouchableOpacity,
   View,
 } from "react-native";
 
 import { SafeAreaView } from "react-native-safe-area-context";
-import { Ionicons } from "@expo/vector-icons";
+
+import {
+  Ionicons,
+} from "@expo/vector-icons";
 
 import {
   router,
@@ -33,401 +37,562 @@ import {
 
 import {
   followUser,
-  unfollowUser,
   getFollowStatus,
+  unfollowUser,
 } from "../../services/followService";
 
 import ProfileGrid from "../../components/profile/ProfileGrid";
 import VerifiedBadge from "../../components/common/VerifiedBadge";
 
+function getId(value) {
+  if (!value) return null;
+
+  if (typeof value === "string") {
+    return value;
+  }
+
+  return (
+    value._id ||
+    value.id ||
+    value.userId ||
+    null
+  );
+}
+
+
+function getUsername(user, fallback = "") {
+  const value =
+    user?.username ||
+    user?.profile?.username ||
+    fallback;
+
+  return String(value || "")
+    .trim()
+    .replace(/^@/, "")
+    .toLowerCase();
+}
+
+
+function getFullName(user) {
+  const candidates = [
+    user?.fullName,
+    user?.name,
+    user?.displayName,
+    user?.profile?.fullName,
+    user?.profile?.name,
+  ];
+
+  const username = getUsername(user);
+
+  for (const candidate of candidates) {
+    const value = String(candidate || "").trim();
+
+    if (!value) continue;
+
+    if (
+      username &&
+      value.toLowerCase() === username.toLowerCase()
+    ) {
+      continue;
+    }
+
+    return value;
+  }
+
+  return "User";
+}
+
+
+function getAvatar(user) {
+  return (
+    user?.avatar ||
+    user?.profile?.avatar ||
+    user?.profileImage ||
+    user?.profilePicture ||
+    user?.photoURL ||
+    null
+  );
+}
+
+
+function getBio(user) {
+  return (
+    user?.bio ||
+    user?.profile?.bio ||
+    ""
+  );
+}
+
+
+function getWebsite(user) {
+  return (
+    user?.website ||
+    user?.profile?.website ||
+    ""
+  );
+}
+
+
+function getFollowersCount(user) {
+  return Number(
+    user?.followersCount ??
+    user?.followerCount ??
+    user?.followers?.length ??
+    0
+  );
+}
+
+
+function getFollowingCount(user) {
+  return Number(
+    user?.followingCount ??
+    user?.followingsCount ??
+    user?.following?.length ??
+    0
+  );
+}
+
+
+function getPostCount(user, posts = []) {
+  return Number(
+    user?.postsCount ??
+    user?.postCount ??
+    posts.length ??
+    0
+  );
+}
+
+
+function isVerifiedUser(user) {
+  return Boolean(
+    user?.isVerified ||
+    user?.verified ||
+    user?.verification?.isVerified ||
+    user?.verification?.verified
+  );
+}
+
+function isReelPost(post) {
+  if (!post) {
+    return false;
+  }
+
+  if (post.isReel === true) {
+    return true;
+  }
+
+  const type = String(
+    post.type ||
+    post.mediaType ||
+    post.contentType ||
+    ""
+  ).toLowerCase();
+
+  if (
+    type === "reel" ||
+    type === "reels"
+  ) {
+    return true;
+  }
+
+  const firstMedia = Array.isArray(post.media)
+    ? post.media[0]
+    : post.media;
+
+  const mediaType = String(
+    firstMedia?.type ||
+    firstMedia?.mediaType ||
+    firstMedia?.contentType ||
+    ""
+  ).toLowerCase();
+
+  return (
+    mediaType === "reel" ||
+    mediaType === "video/reel"
+  );
+}
+
+
+function isTaggedPost(post, username) {
+  if (!post || !username) {
+    return false;
+  }
+
+  const normalizedUsername = username.toLowerCase();
+
+  const taggedUsers =
+    post.taggedUsers ||
+    post.tags ||
+    post.mentions ||
+    [];
+
+  if (!Array.isArray(taggedUsers)) {
+    return false;
+  }
+
+  return taggedUsers.some((item) => {
+    const taggedUsername = String(
+      item?.username ||
+      item?.user?.username ||
+      item?.name ||
+      item ||
+      ""
+    )
+      .replace(/^@/, "")
+      .toLowerCase();
+
+    return taggedUsername === normalizedUsername;
+  });
+}
+
 export default function UserProfileScreen() {
   const params = useLocalSearchParams();
 
-  const username = Array.isArray(params.username)
+  const routeUsername = Array.isArray(params.username)
     ? params.username[0]
     : params.username;
 
-  const [user, setUser] = useState(null);
+  const username = String(
+    routeUsername || ""
+  )
+    .trim()
+    .replace(/^@/, "")
+    .toLowerCase();
+
+  const [profile, setProfile] = useState(null);
+
   const [posts, setPosts] = useState([]);
 
+  const [activeTab, setActiveTab] = useState("posts");
+
   const [loading, setLoading] = useState(true);
+
   const [refreshing, setRefreshing] = useState(false);
 
-  const [following, setFollowing] = useState(false);
-  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
 
-  /**
-   * Load profile, posts and the REAL follow status.
-   *
-   * The follow status endpoint is the source of truth.
-   */
+  const [followLoading, setFollowLoading] = useState(false);
+
+  const [isFollowing, setIsFollowing] = useState(false);
+
+  const [isRequested, setIsRequested] = useState(false);
+
   const loadProfile = useCallback(
-    async ({ refresh = false } = {}) => {
+    async (showLoader = true) => {
       if (!username) {
+        setError("Invalid username.");
         setLoading(false);
         return;
       }
 
       try {
-        if (refresh) {
-          setRefreshing(true);
-        } else {
+        if (showLoader) {
           setLoading(true);
         }
 
-        const normalizedUsername =
-          String(username);
+        setError("");
 
-        const [
-          profile,
-          userPosts,
-        ] = await Promise.all([
-          getUserProfile(normalizedUsername),
-          getUserPosts(normalizedUsername),
-        ]);
+        const [profileResponse, postsResponse] =
+          await Promise.all([
+            getUserProfile(username),
+            getUserPosts(username),
+          ]);
 
-        if (!profile) {
-          setUser(null);
-          setPosts([]);
-          setFollowing(false);
-          return;
-        }
+        const loadedProfile =
+          profileResponse?.user ||
+          profileResponse?.profile ||
+          profileResponse?.data ||
+          profileResponse;
 
-        setUser(profile);
+        const loadedPosts =
+          postsResponse?.posts ||
+          postsResponse?.data ||
+          (Array.isArray(postsResponse)
+            ? postsResponse
+            : []);
+
+        setProfile(loadedProfile || null);
 
         setPosts(
-          Array.isArray(userPosts)
-            ? userPosts
+          Array.isArray(loadedPosts)
+            ? loadedPosts
             : []
         );
 
-        /*
-         * Own profile does not need follow status.
-         */
-        if (profile.isOwnProfile) {
-          setFollowing(false);
-          return;
-        }
+        const targetUserId = getId(loadedProfile);
 
-        const targetUserId =
-          profile?._id || profile?.id;
+        if (targetUserId) {
+          try {
+            const statusResponse =
+              await getFollowStatus(targetUserId);
 
-        if (!targetUserId) {
-          console.warn(
-            "FOLLOW STATUS: Missing target user ID."
-          );
+            const following =
+              statusResponse?.isFollowing ??
+              statusResponse?.following ??
+              statusResponse?.data?.isFollowing ??
+              false;
 
-          setFollowing(
-            Boolean(profile?.isFollowing)
-          );
+            const requested =
+              statusResponse?.isRequested ??
+              statusResponse?.requested ??
+              statusResponse?.data?.isRequested ??
+              false;
 
-          return;
-        }
-
-        /*
-         * Always ask the backend for the actual
-         * follow relationship.
-         */
-        try {
-          const followStatus =
-            await getFollowStatus(
-              String(targetUserId)
+            setIsFollowing(Boolean(following));
+            setIsRequested(Boolean(requested));
+          } catch (followError) {
+            console.log(
+              "FOLLOW STATUS ERROR:",
+              followError
             );
-
-          const serverFollowing =
-            followStatus?.following ??
-            followStatus?.isFollowing ??
-            false;
-
-          setFollowing(
-            Boolean(serverFollowing)
-          );
-
-          /*
-           * Keep the follower count synchronized
-           * with the backend.
-           */
-          if (
-            followStatus?.followersCount !==
-            undefined
-          ) {
-            setUser((current) => {
-              if (!current) {
-                return current;
-              }
-
-              return {
-                ...current,
-                followersCount: Number(
-                  followStatus.followersCount
-                ),
-                isFollowing:
-                  Boolean(serverFollowing),
-              };
-            });
           }
-        } catch (statusError) {
-          /*
-           * If the dedicated status request fails,
-           * fall back to profile data rather than
-           * breaking the entire profile.
-           */
-          console.error(
-            "FOLLOW STATUS ERROR:",
-            statusError?.response?.data ||
-              statusError
-          );
-
-          setFollowing(
-            Boolean(profile?.isFollowing)
-          );
         }
-      } catch (error) {
+      } catch (loadError) {
         console.error(
-          refresh
-            ? "PROFILE REFRESH ERROR:"
-            : "PROFILE LOADING ERROR:",
-          error?.response?.data || error
+          "PROFILE LOAD ERROR:",
+          loadError
         );
 
-        if (!refresh) {
-          setUser(null);
-          setPosts([]);
-          setFollowing(false);
-        }
+        setError(
+          loadError?.response?.data?.message ||
+          "Unable to load this profile."
+        );
       } finally {
-        if (refresh) {
-          setRefreshing(false);
-        } else {
-          setLoading(false);
-        }
+        setLoading(false);
       }
     },
     [username]
   );
 
-  /**
-   * Reload whenever the profile receives focus.
-   */
   useFocusEffect(
     useCallback(() => {
-      loadProfile();
-
-      return undefined;
+      loadProfile(false);
     }, [loadProfile])
   );
 
-  /**
-   * Pull-to-refresh.
-   */
-  const refreshProfile = useCallback(() => {
-    return loadProfile({
-      refresh: true,
-    });
-  }, [loadProfile]);
+  const handleRefresh = useCallback(
+    async () => {
+      try {
+        setRefreshing(true);
+        await loadProfile(false);
+      } finally {
+        setRefreshing(false);
+      }
+    },
+    [loadProfile]
+  );
 
-  /**
-   * Follow / unfollow.
-   *
-   * The local UI updates immediately after the
-   * server confirms the operation.
-   */
-  const handleFollow = useCallback(async () => {
-    const targetUserId =
-      user?._id || user?.id;
+  const user = profile || {};
 
-    if (!targetUserId || busy) {
-      return;
+  const displayUsername =
+    getUsername(user, username);
+
+  const fullName =
+    getFullName(user);
+
+  const avatar =
+    getAvatar(user);
+
+  const bio =
+    getBio(user);
+
+  const website =
+    getWebsite(user);
+
+  const verified =
+    isVerifiedUser(user);
+
+  const followersCount =
+    getFollowersCount(user);
+
+  const followingCount =
+    getFollowingCount(user);
+
+  const postCount =
+    getPostCount(user, posts);
+
+  const visiblePosts = useMemo(() => {
+    if (activeTab === "posts") {
+      return posts.filter(
+        (post) => !isReelPost(post)
+      );
     }
 
-    const previousFollowing = following;
+    if (activeTab === "reels") {
+      return posts.filter(
+        (post) => isReelPost(post)
+      );
+    }
 
-    try {
-      setBusy(true);
+    if (activeTab === "tagged") {
+      return posts.filter(
+        (post) =>
+          isTaggedPost(
+            post,
+            displayUsername
+          )
+      );
+    }
 
-      /*
-       * UNFOLLOW
-       */
-      if (previousFollowing) {
-        const result =
-          await unfollowUser(
-            String(targetUserId)
-          );
+    return posts;
+  }, [
+    activeTab,
+    posts,
+    displayUsername,
+  ]);
 
-        const serverFollowing =
-          result?.following === true;
+  const handleFollow = useCallback(
+    async () => {
+      const targetUserId =
+        getId(profile);
 
-        setFollowing(serverFollowing);
-
-        setUser((current) => {
-          if (!current) {
-            return current;
-          }
-
-          const currentCount = Number(
-            current.followersCount || 0
-          );
-
-          const serverCount =
-            result?.followersCount;
-
-          return {
-            ...current,
-
-            followersCount:
-              serverCount !== undefined
-                ? Math.max(
-                    0,
-                    Number(serverCount)
-                  )
-                : Math.max(
-                    0,
-                    currentCount - 1
-                  ),
-
-            isFollowing:
-              serverFollowing,
-          };
-        });
-
+      if (!targetUserId) {
+        Alert.alert(
+          "Unable to follow",
+          "This profile does not have a valid user ID."
+        );
         return;
       }
 
-      /*
-       * FOLLOW
-       */
-      const result =
-        await followUser(
-          String(targetUserId)
-        );
+      if (followLoading) {
+        return;
+      }
 
-      const serverFollowing =
-        result?.following !== false;
+      try {
+        setFollowLoading(true);
 
-      setFollowing(serverFollowing);
+        if (isFollowing) {
+          await unfollowUser(
+            targetUserId
+          );
 
-      setUser((current) => {
-        if (!current) {
-          return current;
+          setIsFollowing(false);
+          setIsRequested(false);
+        } else {
+          const response =
+            await followUser(
+              targetUserId
+            );
+
+          const requested =
+            response?.isRequested ??
+            response?.requested ??
+            response?.status === "requested" ??
+            false;
+
+          const following =
+            response?.isFollowing ??
+            response?.following ??
+            response?.status === "following" ??
+            !requested;
+
+          setIsFollowing(
+            Boolean(following)
+          );
+
+          setIsRequested(
+            Boolean(requested)
+          );
         }
-
-        const currentCount = Number(
-          current.followersCount || 0
+      } catch (followError) {
+        console.error(
+          "FOLLOW ERROR:",
+          followError
         );
 
-        const serverCount =
-          result?.followersCount;
+        Alert.alert(
+          "Something went wrong",
+          followError?.response?.data?.message ||
+          "Unable to update follow status."
+        );
+      } finally {
+        setFollowLoading(false);
+      }
+    },
+    [
+      profile,
+      followLoading,
+      isFollowing,
+    ]
+  );
 
-        /*
-         * If the backend tells us the user was
-         * already following, do NOT increment.
-         */
-        const nextFollowersCount =
-          serverCount !== undefined
-            ? Math.max(
-                0,
-                Number(serverCount)
-              )
-            : result?.alreadyFollowing
-              ? currentCount
-              : currentCount + 1;
+  const handleMessage = useCallback(() => {
+    const targetUserId =
+      getId(profile);
 
-        return {
-          ...current,
-
-          followersCount:
-            nextFollowersCount,
-
-          isFollowing:
-            serverFollowing,
-        };
-      });
-    } catch (error) {
-      console.error(
-        "FOLLOW ERROR:",
-        error?.response?.data || error
-      );
-
-      /*
-       * Restore the state that existed before
-       * the operation failed.
-       */
-      setFollowing(previousFollowing);
-
+    if (!targetUserId) {
       Alert.alert(
-        "Something went wrong",
-        error?.response?.data?.message ||
-          error?.message ||
-          "We couldn't update your follow status. Please try again."
+        "Unable to message",
+        "This profile does not have a valid user ID."
       );
-    } finally {
-      setBusy(false);
+      return;
     }
+
+    router.push({
+      pathname: "/messages/new",
+      params: {
+        userId: String(targetUserId),
+        username: displayUsername,
+      },
+    });
   }, [
-    busy,
-    following,
-    user,
+    profile,
+    displayUsername,
   ]);
 
-  /**
-   * Open followers list.
-   */
-  const openFollowers = useCallback(() => {
-    const userId =
-      user?._id || user?.id;
+  const handleMenu = useCallback(() => {
+    Alert.alert(
+      displayUsername
+        ? `@${displayUsername}`
+        : "Profile",
+      undefined,
+      [
+        {
+          text: "Share profile",
+          onPress: () => {
+            Alert.alert(
+              "Share profile",
+              `Share @${displayUsername}`
+            );
+          },
+        },
+        {
+          text: "Report",
+          style: "destructive",
+          onPress: () => {
+            Alert.alert(
+              "Report",
+              "Reporting will be connected to the backend here."
+            );
+          },
+        },
+        {
+          text: "Cancel",
+          style: "cancel",
+        },
+      ]
+    );
+  }, [
+    displayUsername,
+  ]);
 
-    if (!userId) {
-      return;
-    }
-
-    router.push({
-      pathname: "/profile/followers",
-      params: {
-        userId: String(userId),
-        username: String(
-          user.username || ""
-        ),
-      },
-    });
-  }, [user]);
-
-  /**
-   * Open following list.
-   */
-  const openFollowing = useCallback(() => {
-    const userId =
-      user?._id || user?.id;
-
-    if (!userId) {
-      return;
-    }
-
-    router.push({
-      pathname: "/profile/following",
-      params: {
-        userId: String(userId),
-        username: String(
-          user.username || ""
-        ),
-      },
-    });
-  }, [user]);
-
-  /**
-   * Open post.
-   */
   const openPost = useCallback(
     (post) => {
       const postId =
-        post?._id ||
-        post?.id ||
-        post?.postId;
+        getId(post);
 
       if (!postId) {
-        console.warn(
-          "Cannot open profile post: missing post ID.",
-          post
-        );
+        return;
+      }
+
+      if (isReelPost(post)) {
+        router.push({
+          pathname: "/reels/[id]",
+          params: {
+            id: String(postId),
+          },
+        });
+
         return;
       }
 
@@ -441,870 +606,836 @@ export default function UserProfileScreen() {
     []
   );
 
-  /**
-   * Open messages.
-   */
-  const openMessage = useCallback(() => {
-    if (!user?.username) {
-      return;
-    }
-
-    router.push({
-      pathname: "/messages",
-      params: {
-        username: String(
-          user.username
-        ),
-      },
-    });
-  }, [user]);
-
-  /**
-   * Share profile.
-   */
-  const shareProfile = useCallback(() => {
-    Alert.alert(
-      "Share profile",
-      `Share @${user?.username || username}`
-    );
-  }, [user, username]);
-
-  /**
-   * Block user.
-   */
-  const handleBlock = useCallback(() => {
-    if (!user?.username) {
+  const openWebsite = useCallback(() => {
+    if (!website) {
       return;
     }
 
     Alert.alert(
-      "Block user?",
-      `You won't be able to see or interact with @${user.username}.`,
-      [
-        {
-          text: "Cancel",
-          style: "cancel",
-        },
-        {
-          text: "Block",
-          style: "destructive",
-          onPress: () => {
-            Alert.alert(
-              "Block",
-              "Block action is ready to connect to your backend."
-            );
-          },
-        },
-      ]
-    );
-  }, [user]);
-
-  /**
-   * Report user.
-   */
-  const handleReport = useCallback(() => {
-    Alert.alert(
-      "Report",
-      "Choose a reason for reporting this profile.",
-      [
-        {
-          text: "Cancel",
-          style: "cancel",
-        },
-        {
-          text: "Spam",
-          onPress: () => {
-            Alert.alert(
-              "Report submitted",
-              "Thank you for helping keep Snapgram safe."
-            );
-          },
-        },
-        {
-          text: "Inappropriate",
-          onPress: () => {
-            Alert.alert(
-              "Report submitted",
-              "Thank you for helping keep Snapgram safe."
-            );
-          },
-        },
-      ]
-    );
-  }, []);
-
-  /**
-   * Open edit profile.
-   */
-  const openEditProfile = useCallback(() => {
-    router.push(
-      "/settings/profile/edit-profile"
-    );
-  }, []);
-
-  /**
-   * Profile menu.
-   */
-  const openProfileMenu = useCallback(() => {
-    if (!user) {
-      return;
-    }
-
-    const ownProfile = Boolean(
-      user.isOwnProfile
-    );
-
-    const menuItems = [];
-
-    if (!ownProfile) {
-      menuItems.push({
-        text: following
-          ? "Unfollow"
-          : "Follow",
-        onPress: handleFollow,
-      });
-
-      menuItems.push({
-        text: "Share profile",
-        onPress: shareProfile,
-      });
-
-      menuItems.push({
-        text: "Block",
-        style: "destructive",
-        onPress: handleBlock,
-      });
-
-      menuItems.push({
-        text: "Report",
-        style: "destructive",
-        onPress: handleReport,
-      });
-    } else {
-      menuItems.push({
-        text: "Share profile",
-        onPress: shareProfile,
-      });
-
-      menuItems.push({
-        text: "Edit profile",
-        onPress: openEditProfile,
-      });
-    }
-
-    Alert.alert(
-      `@${user.username}`,
-      undefined,
-      [
-        ...menuItems,
-        {
-          text: "Cancel",
-          style: "cancel",
-        },
-      ]
+      "Website",
+      website
     );
   }, [
-    following,
-    handleBlock,
-    handleFollow,
-    handleReport,
-    openEditProfile,
-    shareProfile,
-    user,
+    website,
   ]);
 
-  /**
-   * Loading state.
-   */
-  if (loading) {
+  if (loading && !profile) {
     return (
       <SafeAreaView
-        style={styles.container}
-        edges={["top", "bottom"]}
+        style={styles.safeArea}
       >
         <View style={styles.center}>
           <ActivityIndicator
             size="large"
             color={Colors.primary}
           />
+
+          <Text style={styles.loadingText}>
+            Loading profile...
+          </Text>
         </View>
       </SafeAreaView>
     );
   }
 
-  /**
-   * User not found.
-   */
-  if (!user) {
+  if (error && !profile) {
     return (
       <SafeAreaView
-        style={styles.container}
-        edges={["top", "bottom"]}
+        style={styles.safeArea}
       >
-        <View style={styles.center}>
+        <View style={styles.errorContainer}>
           <Ionicons
-            name="person-outline"
-            size={52}
+            name="alert-circle-outline"
+            size={48}
             color={Colors.secondaryText}
           />
 
           <Text style={styles.errorTitle}>
-            User not found
+            Profile unavailable
           </Text>
 
-          <Text style={styles.errorMessage}>
-            We couldn't find @
-            {username || "this user"}.
+          <Text style={styles.errorText}>
+            {error}
           </Text>
 
-          <TouchableOpacity
-            style={styles.backAction}
-            onPress={() => router.back()}
-            activeOpacity={0.8}
+          <Pressable
+            style={styles.retryButton}
+            onPress={() => loadProfile(true)}
           >
-            <Text style={styles.backText}>
-              Go back
+            <Text style={styles.retryText}>
+              Try again
             </Text>
-          </TouchableOpacity>
+          </Pressable>
         </View>
       </SafeAreaView>
     );
   }
 
-  const fullName =
-    user.name ||
-    user.fullName ||
-    user.displayName ||
-    user.username ||
-    "User";
-
-  const isVerified = Boolean(
-    user.isVerified ??
-      user.verified ??
-      user.verification?.isVerified
-  );
-
-  const avatar =
-    user.avatar ||
-    user.avatarUrl ||
-    user.profilePicture ||
-    user.profileImage ||
-    user.photoURL ||
-    user.photoUrl ||
-    user.image ||
-    null;
-
-  const avatarLetter =
-    String(fullName)
-      .charAt(0)
-      .toUpperCase() || "U";
-
-  const postCount = Number(
-    user.postsCount ??
-      user.postCount ??
-      posts.length
-  );
-
-  const followersCount = Number(
-    user.followersCount || 0
-  );
-
-  const followingCount = Number(
-    user.followingCount || 0
-  );
-
-  const isOwnProfile = Boolean(
-    user.isOwnProfile
-  );
-
   return (
     <SafeAreaView
-      style={styles.container}
-      edges={["top"]}
+      style={styles.safeArea}
+      edges={[
+        "top",
+        "left",
+        "right",
+      ]}
     >
-      <View style={styles.screen}>
-        <ScrollView
-          showsVerticalScrollIndicator={false}
-          refreshControl={
-            <RefreshControl
-              refreshing={refreshing}
-              onRefresh={refreshProfile}
-            />
-          }
+      {/* ------------------------------------------------------------------ */}
+      {/* HEADER                                                             */}
+      {/* ------------------------------------------------------------------ */}
+
+      <View style={styles.header}>
+        <Pressable
+          style={styles.headerButton}
+          onPress={() => router.back()}
+          hitSlop={10}
         >
-          {/* HEADER */}
+          <Ionicons
+            name="arrow-back"
+            size={25}
+            color={Colors.text}
+          />
+        </Pressable>
 
-          <View style={styles.header}>
-            <TouchableOpacity
-              style={styles.headerButton}
-              onPress={() => router.back()}
-              activeOpacity={0.7}
-              accessibilityRole="button"
-              accessibilityLabel="Go back"
-            >
-              <Ionicons
-                name="arrow-back"
-                size={25}
-                color={Colors.black}
+        <Text
+          style={styles.headerUsername}
+          numberOfLines={1}
+        >
+          @{displayUsername}
+        </Text>
+
+        <Pressable
+          style={styles.headerButton}
+          onPress={handleMenu}
+          hitSlop={10}
+        >
+          <Ionicons
+            name="ellipsis-horizontal"
+            size={24}
+            color={Colors.text}
+          />
+        </Pressable>
+      </View>
+
+
+      {/* ------------------------------------------------------------------ */}
+      {/* CONTENT                                                            */}
+      {/* ------------------------------------------------------------------ */}
+
+      <ScrollView
+        style={styles.scroll}
+        contentContainerStyle={
+          styles.scrollContent
+        }
+        showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={handleRefresh}
+            tintColor={Colors.primary}
+          />
+        }
+      >
+        {/* -------------------------------------------------------------- */}
+        {/* PROFILE HEADER                                                 */}
+        {/* -------------------------------------------------------------- */}
+
+        <View style={styles.profileSection}>
+          {/* Avatar */}
+
+          <View style={styles.avatarWrapper}>
+            {avatar ? (
+              <Image
+                source={{
+                  uri: avatar,
+                }}
+                style={styles.avatar}
               />
-            </TouchableOpacity>
+            ) : (
+              <View
+                style={styles.avatarPlaceholder}
+              >
+                <Ionicons
+                  name="person"
+                  size={46}
+                  color={
+                    Colors.secondaryText
+                  }
+                />
+              </View>
+            )}
+          </View>
 
+
+          {/* Stats */}
+
+          <View style={styles.stats}>
+            <View style={styles.stat}>
+              <Text style={styles.statNumber}>
+                {postCount}
+              </Text>
+
+              <Text style={styles.statLabel}>
+                Posts
+              </Text>
+            </View>
+
+            <Pressable
+              style={styles.stat}
+              onPress={() =>
+                router.push({
+                  pathname:
+                    "/profile/followers",
+                  params: {
+                    userId: String(
+                      getId(profile) || ""
+                    ),
+                  },
+                })
+              }
+            >
+              <Text style={styles.statNumber}>
+                {followersCount}
+              </Text>
+
+              <Text style={styles.statLabel}>
+                Followers
+              </Text>
+            </Pressable>
+
+            <Pressable
+              style={styles.stat}
+              onPress={() =>
+                router.push({
+                  pathname:
+                    "/profile/following",
+                  params: {
+                    userId: String(
+                      getId(profile) || ""
+                    ),
+                  },
+                })
+              }
+            >
+              <Text style={styles.statNumber}>
+                {followingCount}
+              </Text>
+
+              <Text style={styles.statLabel}>
+                Following
+              </Text>
+            </Pressable>
+          </View>
+        </View>
+
+
+        {/* -------------------------------------------------------------- */}
+        {/* IDENTITY                                                        */}
+        {/* -------------------------------------------------------------- */}
+
+        <View style={styles.identity}>
+          {/* Full name + verified badge */}
+
+          <View style={styles.nameRow}>
             <Text
-              style={styles.headerUsername}
+              style={styles.name}
               numberOfLines={1}
             >
-              {user.username}
+              {fullName}
             </Text>
 
-            <TouchableOpacity
-              style={styles.headerButton}
-              onPress={openProfileMenu}
-              activeOpacity={0.7}
-              accessibilityRole="button"
-              accessibilityLabel="Profile menu"
+            {verified && (
+              <VerifiedBadge
+                size={17}
+                style={styles.verifiedBadge}
+              />
+            )}
+          </View>
+
+
+          {/* Username */}
+
+          <Text
+            style={styles.username}
+            numberOfLines={1}
+          >
+            @{displayUsername}
+          </Text>
+
+
+          {/* Bio */}
+
+          {!!bio && (
+            <Text style={styles.bio}>
+              {bio}
+            </Text>
+          )}
+
+
+          {/* Website */}
+
+          {!!website && (
+            <Pressable
+              onPress={openWebsite}
+              style={styles.websiteRow}
             >
               <Ionicons
-                name="ellipsis-horizontal"
-                size={25}
-                color={Colors.black}
+                name="link-outline"
+                size={15}
+                color={Colors.primary}
               />
-            </TouchableOpacity>
-          </View>
 
-          {/* PROFILE TOP */}
-
-          <View style={styles.profileTop}>
-            <View style={styles.avatarWrapper}>
-              <View style={styles.avatar}>
-                {avatar ? (
-                  <Image
-                    source={{
-                      uri: avatar,
-                    }}
-                    style={styles.avatarImage}
-                  />
-                ) : (
-                  <Text style={styles.avatarText}>
-                    {avatarLetter}
-                  </Text>
-                )}
-              </View>
-            </View>
-
-            <View style={styles.stats}>
-              <View style={styles.stat}>
-                <Text style={styles.statNumber}>
-                  {postCount}
-                </Text>
-
-                <Text style={styles.statLabel}>
-                  posts
-                </Text>
-              </View>
-
-              <TouchableOpacity
-                style={styles.stat}
-                onPress={openFollowers}
-                activeOpacity={0.65}
-                accessibilityRole="button"
-                accessibilityLabel="View followers"
-              >
-                <Text style={styles.statNumber}>
-                  {followersCount}
-                </Text>
-
-                <Text style={styles.statLabel}>
-                  followers
-                </Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={styles.stat}
-                onPress={openFollowing}
-                activeOpacity={0.65}
-                accessibilityRole="button"
-                accessibilityLabel="View following"
-              >
-                <Text style={styles.statNumber}>
-                  {followingCount}
-                </Text>
-
-                <Text style={styles.statLabel}>
-                  following
-                </Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-
-          {/* NAME / BIO */}
-
-          <View style={styles.identity}>
-            <View style={styles.nameRow}>
               <Text
-                style={styles.name}
+                style={styles.website}
                 numberOfLines={1}
               >
-                {fullName}
+                {website}
               </Text>
+            </Pressable>
+          )}
+        </View>
 
-              {isVerified && (
-                <VerifiedBadge
-                  size={16}
-                  style={styles.verifiedBadge}
-                />
-              )}
-            </View>
 
-            {!!user.bio && (
-              <Text style={styles.bio}>
-                {user.bio}
-              </Text>
-            )}
+        {/* -------------------------------------------------------------- */}
+        {/* ACTIONS                                                         */}
+        {/* -------------------------------------------------------------- */}
 
-            {!!user.website && (
-              <TouchableOpacity activeOpacity={0.7}>
-                <Text
-                  style={styles.website}
-                  numberOfLines={1}
-                >
-                  {user.website}
-                </Text>
-              </TouchableOpacity>
-            )}
-          </View>
-
-          {/* ACTION BUTTONS */}
-
-          {!isOwnProfile && (
-            <View style={styles.actions}>
-              <TouchableOpacity
-                style={[
-                  styles.primaryAction,
-                  following &&
-                    styles.followingAction,
-                ]}
-                onPress={handleFollow}
-                disabled={busy}
-                activeOpacity={0.8}
-                accessibilityRole="button"
-                accessibilityLabel={
-                  following
-                    ? "Unfollow user"
-                    : "Follow user"
+        <View style={styles.actions}>
+          <Pressable
+            style={[
+              styles.primaryAction,
+              isFollowing &&
+                styles.followingButton,
+              isRequested &&
+                styles.requestedButton,
+            ]}
+            onPress={handleFollow}
+            disabled={followLoading}
+          >
+            {followLoading ? (
+              <ActivityIndicator
+                size="small"
+                color={
+                  isFollowing
+                    ? Colors.text
+                    : "#FFFFFF"
                 }
-              >
-                {busy ? (
-                  <ActivityIndicator
-                    size="small"
-                    color={
-                      following
-                        ? Colors.black
-                        : Colors.white
-                    }
-                  />
-                ) : (
-                  <Text
-                    style={[
-                      styles.primaryActionText,
-                      following &&
-                        styles.followingActionText,
-                    ]}
-                  >
-                    {following
-                      ? "Following"
-                      : "Follow"}
-                  </Text>
-                )}
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={styles.secondaryAction}
-                onPress={openMessage}
-                activeOpacity={0.8}
-                accessibilityRole="button"
-                accessibilityLabel="Message user"
-              >
-                <Text
-                  style={styles.secondaryActionText}
-                >
-                  Message
-                </Text>
-              </TouchableOpacity>
-            </View>
-          )}
-
-          {isOwnProfile && (
-            <View style={styles.actions}>
-              <TouchableOpacity
-                style={styles.secondaryActionFull}
-                onPress={openEditProfile}
-                activeOpacity={0.8}
-                accessibilityRole="button"
-                accessibilityLabel="Edit profile"
-              >
-                <Text
-                  style={styles.secondaryActionText}
-                >
-                  Edit profile
-                </Text>
-              </TouchableOpacity>
-            </View>
-          )}
-
-          {/* PROFILE TABS */}
-
-          <View style={styles.tabs}>
-            <TouchableOpacity
-              style={styles.tab}
-              activeOpacity={0.8}
-              accessibilityRole="button"
-              accessibilityLabel="Posts"
-            >
-              <Ionicons
-                name="grid-outline"
-                size={24}
-                color={Colors.black}
               />
-            </TouchableOpacity>
+            ) : (
+              <Text
+                style={[
+                  styles.primaryActionText,
+                  isFollowing &&
+                    styles.followingText,
+                  isRequested &&
+                    styles.requestedText,
+                ]}
+              >
+                {isFollowing
+                  ? "Following"
+                  : isRequested
+                    ? "Requested"
+                    : "Follow"}
+              </Text>
+            )}
+          </Pressable>
 
-            <TouchableOpacity
-              style={styles.tab}
-              activeOpacity={0.8}
-              accessibilityRole="button"
-              accessibilityLabel="Reels"
-            >
-              <Ionicons
-                name="play-outline"
-                size={25}
-                color={Colors.secondaryText}
-              />
-            </TouchableOpacity>
+          <Pressable
+            style={styles.messageButton}
+            onPress={handleMessage}
+          >
+            <Text style={styles.messageText}>
+              Message
+            </Text>
+          </Pressable>
 
-            <TouchableOpacity
-              style={styles.tab}
-              activeOpacity={0.8}
-              accessibilityRole="button"
-              accessibilityLabel="Tagged"
-            >
-              <Ionicons
-                name="person-outline"
-                size={24}
-                color={Colors.secondaryText}
-              />
-            </TouchableOpacity>
-          </View>
+          <Pressable
+            style={styles.actionIconButton}
+            onPress={handleMenu}
+          >
+            <Ionicons
+              name="person-add-outline"
+              size={20}
+              color={Colors.text}
+            />
+          </Pressable>
+        </View>
 
-          {/* POSTS */}
 
-          {posts.length > 0 ? (
+        {/* -------------------------------------------------------------- */}
+        {/* TABS                                                            */}
+        {/* -------------------------------------------------------------- */}
+
+        <View style={styles.tabs}>
+          <Pressable
+            style={[
+              styles.tab,
+              activeTab === "posts" &&
+                styles.activeTab,
+            ]}
+            onPress={() =>
+              setActiveTab("posts")
+            }
+          >
+            <Ionicons
+              name={
+                activeTab === "posts"
+                  ? "grid"
+                  : "grid-outline"
+              }
+              size={24}
+              color={
+                activeTab === "posts"
+                  ? Colors.text
+                  : Colors.secondaryText
+              }
+            />
+          </Pressable>
+
+          <Pressable
+            style={[
+              styles.tab,
+              activeTab === "reels" &&
+                styles.activeTab,
+            ]}
+            onPress={() =>
+              setActiveTab("reels")
+            }
+          >
+            <Ionicons
+              name={
+                activeTab === "reels"
+                  ? "play-circle"
+                  : "play-circle-outline"
+              }
+              size={25}
+              color={
+                activeTab === "reels"
+                  ? Colors.text
+                  : Colors.secondaryText
+              }
+            />
+          </Pressable>
+
+          <Pressable
+            style={[
+              styles.tab,
+              activeTab === "tagged" &&
+                styles.activeTab,
+            ]}
+            onPress={() =>
+              setActiveTab("tagged")
+            }
+          >
+            <Ionicons
+              name={
+                activeTab === "tagged"
+                  ? "person"
+                  : "person-outline"
+              }
+              size={24}
+              color={
+                activeTab === "tagged"
+                  ? Colors.text
+                  : Colors.secondaryText
+              }
+            />
+          </Pressable>
+        </View>
+
+
+        {/* -------------------------------------------------------------- */}
+        {/* POSTS                                                           */}
+        {/* -------------------------------------------------------------- */}
+
+        <View style={styles.gridContainer}>
+          {visiblePosts.length > 0 ? (
             <ProfileGrid
-              posts={posts}
+              posts={visiblePosts}
               onPostPress={openPost}
             />
           ) : (
-            <View style={styles.empty}>
-              <View
-                style={styles.emptyIconCircle}
-              >
+            <View style={styles.emptyState}>
+              <View style={styles.emptyIcon}>
                 <Ionicons
-                  name="camera-outline"
-                  size={42}
-                  color={Colors.black}
+                  name={
+                    activeTab === "reels"
+                      ? "play-outline"
+                      : activeTab === "tagged"
+                        ? "person-outline"
+                        : "camera-outline"
+                  }
+                  size={34}
+                  color={
+                    Colors.secondaryText
+                  }
                 />
               </View>
 
               <Text style={styles.emptyTitle}>
-                No Posts Yet
+                {activeTab === "reels"
+                  ? "No reels yet"
+                  : activeTab === "tagged"
+                    ? "No tagged posts"
+                    : "No posts yet"}
               </Text>
 
               <Text style={styles.emptyText}>
-                When{" "}
-                {isOwnProfile
-                  ? "you"
-                  : `@${user.username}`}{" "}
-                shares photos and videos,
-                they'll appear here.
+                {activeTab === "reels"
+                  ? "Reels shared by this account will appear here."
+                  : activeTab === "tagged"
+                    ? "Posts where this account is tagged will appear here."
+                    : "Posts shared by this account will appear here."}
               </Text>
             </View>
           )}
-        </ScrollView>
-      </View>
+        </View>
+
+        {/* Bottom spacing */}
+
+        <View style={styles.bottomSpace} />
+      </ScrollView>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
+  safeArea: {
     flex: 1,
-    backgroundColor: Colors.white,
+    backgroundColor:
+      Colors.background || "#FFFFFF",
   },
 
-  screen: {
+  scroll: {
     flex: 1,
-    backgroundColor: Colors.white,
+  },
+
+  scrollContent: {
+    paddingBottom: 20,
   },
 
   center: {
     flex: 1,
-    justifyContent: "center",
     alignItems: "center",
+    justifyContent: "center",
     paddingHorizontal: 30,
+  },
+
+  loadingText: {
+    marginTop: 12,
+    fontSize: 14,
+    color:
+      Colors.secondaryText || "#737373",
+  },
+
+  errorContainer: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 30,
+  },
+
+  errorTitle: {
+    marginTop: 16,
+    fontSize: 20,
+    fontWeight: "700",
+    color: Colors.text,
+  },
+
+  errorText: {
+    marginTop: 8,
+    fontSize: 14,
+    lineHeight: 20,
+    textAlign: "center",
+    color:
+      Colors.secondaryText || "#737373",
+  },
+
+  retryButton: {
+    marginTop: 20,
+    paddingHorizontal: 22,
+    paddingVertical: 11,
+    borderRadius: 8,
+    backgroundColor:
+      Colors.primary || "#0095F6",
+  },
+
+  retryText: {
+    color: "#FFFFFF",
+    fontSize: 14,
+    fontWeight: "700",
   },
 
   header: {
     height: 52,
-    paddingHorizontal: 8,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    backgroundColor: Colors.white,
+    paddingHorizontal: 12,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor:
+      Colors.border || "#DBDBDB",
   },
 
   headerButton: {
-    width: 42,
-    height: 42,
-    justifyContent: "center",
+    width: 40,
+    height: 40,
     alignItems: "center",
+    justifyContent: "center",
   },
 
   headerUsername: {
     flex: 1,
+    marginHorizontal: 10,
     textAlign: "center",
     fontSize: 17,
     fontWeight: "700",
-    color: Colors.black,
+    color: Colors.text,
   },
 
-  profileTop: {
-    paddingHorizontal: 16,
-    paddingTop: 12,
+  profileSection: {
     flexDirection: "row",
     alignItems: "center",
+    paddingHorizontal: 16,
+    paddingTop: 18,
   },
 
   avatarWrapper: {
-    width: 92,
-    height: 92,
-    justifyContent: "center",
-    alignItems: "center",
+    width: 88,
+    height: 88,
+    borderRadius: 44,
+    overflow: "hidden",
+    backgroundColor:
+      Colors.surface || "#F2F2F2",
   },
 
   avatar: {
-    width: 86,
-    height: 86,
-    borderRadius: 43,
-    backgroundColor: Colors.surface,
-    justifyContent: "center",
-    alignItems: "center",
-    overflow: "hidden",
-  },
-
-  avatarImage: {
     width: "100%",
     height: "100%",
+    resizeMode: "cover",
   },
 
-  avatarText: {
-    fontSize: 30,
-    fontWeight: "800",
-    color: Colors.black,
+  avatarPlaceholder: {
+    width: "100%",
+    height: "100%",
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor:
+      Colors.surface || "#F2F2F2",
   },
 
   stats: {
     flex: 1,
-    marginLeft: 14,
     flexDirection: "row",
     justifyContent: "space-around",
+    marginLeft: 18,
   },
 
   stat: {
-    minWidth: 70,
     alignItems: "center",
     justifyContent: "center",
+    minWidth: 65,
   },
 
   statNumber: {
     fontSize: 17,
     fontWeight: "700",
-    color: Colors.black,
+    color: Colors.text,
   },
 
   statLabel: {
     marginTop: 3,
     fontSize: 13,
-    color: Colors.black,
+    color:
+      Colors.secondaryText || "#737373",
   },
 
   identity: {
     paddingHorizontal: 16,
-    marginTop: 12,
+    paddingTop: 14,
   },
 
   nameRow: {
     flexDirection: "row",
     alignItems: "center",
+    maxWidth: "100%",
   },
 
   name: {
     flexShrink: 1,
-    fontSize: 14,
+    fontSize: 16,
     fontWeight: "700",
-    color: Colors.black,
+    color: Colors.text,
   },
 
   verifiedBadge: {
-    marginLeft: 4,
+    marginLeft: 5,
+  },
+
+  username: {
+    marginTop: 2,
+    fontSize: 14,
+    fontWeight: "400",
+    color:
+      Colors.secondaryText || "#737373",
   },
 
   bio: {
-    marginTop: 5,
+    marginTop: 8,
     fontSize: 14,
-    lineHeight: 19,
-    color: Colors.black,
+    lineHeight: 20,
+    color: Colors.text,
+  },
+
+  websiteRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginTop: 7,
+    maxWidth: "100%",
   },
 
   website: {
-    marginTop: 4,
+    flex: 1,
+    marginLeft: 5,
     fontSize: 14,
     fontWeight: "600",
-    color: Colors.primary,
+    color:
+      Colors.primary || "#0095F6",
   },
 
   actions: {
     flexDirection: "row",
+    alignItems: "center",
     paddingHorizontal: 16,
-    marginTop: 14,
+    marginTop: 16,
     gap: 8,
   },
 
   primaryAction: {
     flex: 1,
-    height: 36,
-    borderRadius: 8,
-    backgroundColor: Colors.primary,
+    minHeight: 38,
     alignItems: "center",
     justifyContent: "center",
-  },
-
-  followingAction: {
-    backgroundColor: Colors.surface,
-    borderWidth: 1,
-    borderColor: Colors.border,
+    borderRadius: 8,
+    backgroundColor:
+      Colors.primary || "#0095F6",
   },
 
   primaryActionText: {
     fontSize: 14,
     fontWeight: "700",
-    color: Colors.white,
+    color: "#FFFFFF",
   },
 
-  followingActionText: {
-    color: Colors.black,
+  followingButton: {
+    backgroundColor:
+      Colors.surface || "#EFEFEF",
   },
 
-  secondaryAction: {
+  followingText: {
+    color: Colors.text,
+  },
+
+  requestedButton: {
+    backgroundColor:
+      Colors.surface || "#EFEFEF",
+  },
+
+  requestedText: {
+    color: Colors.text,
+  },
+
+  messageButton: {
     flex: 1,
-    height: 36,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: Colors.border,
+    minHeight: 38,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: Colors.white,
-  },
-
-  secondaryActionFull: {
-    flex: 1,
-    height: 36,
     borderRadius: 8,
-    borderWidth: 1,
-    borderColor: Colors.border,
-    alignItems: "center",
-    justifyContent: "center",
+    backgroundColor:
+      Colors.surface || "#EFEFEF",
   },
 
-  secondaryActionText: {
+  messageText: {
     fontSize: 14,
     fontWeight: "700",
-    color: Colors.black,
+    color: Colors.text,
+  },
+
+  actionIconButton: {
+    width: 40,
+    height: 38,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: 8,
+    backgroundColor:
+      Colors.surface || "#EFEFEF",
   },
 
   tabs: {
-    height: 48,
-    marginTop: 16,
-    borderTopWidth: 0.5,
-    borderBottomWidth: 0.5,
-    borderColor: Colors.border,
     flexDirection: "row",
+    height: 48,
+    marginTop: 18,
+    borderTopWidth:
+      StyleSheet.hairlineWidth,
+    borderBottomWidth:
+      StyleSheet.hairlineWidth,
+    borderTopColor:
+      Colors.border || "#DBDBDB",
+    borderBottomColor:
+      Colors.border || "#DBDBDB",
   },
 
   tab: {
     flex: 1,
     alignItems: "center",
     justifyContent: "center",
+    borderBottomWidth: 1,
+    borderBottomColor: "transparent",
   },
 
-  empty: {
-    minHeight: 330,
-    alignItems: "center",
-    justifyContent: "center",
-    paddingHorizontal: 40,
+  activeTab: {
+    borderBottomColor: Colors.text,
   },
 
-  emptyIconCircle: {
-    width: 76,
-    height: 76,
-    borderRadius: 38,
-    borderWidth: 2,
-    borderColor: Colors.black,
+  gridContainer: {
+    minHeight: 220,
+  },
+
+  emptyState: {
+    minHeight: 280,
     alignItems: "center",
     justifyContent: "center",
+    paddingHorizontal: 35,
+  },
+
+  emptyIcon: {
+    width: 68,
+    height: 68,
+    borderRadius: 34,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
+    borderColor:
+      Colors.border || "#DBDBDB",
   },
 
   emptyTitle: {
     marginTop: 14,
-    fontSize: 20,
+    fontSize: 18,
     fontWeight: "700",
-    color: Colors.black,
+    color: Colors.text,
   },
 
   emptyText: {
-    marginTop: 7,
-    fontSize: 14,
+    marginTop: 6,
+    fontSize: 13,
     lineHeight: 19,
     textAlign: "center",
-    color: Colors.secondaryText,
+    color:
+      Colors.secondaryText || "#737373",
   },
 
-  errorTitle: {
-    marginTop: 12,
-    fontSize: 19,
-    fontWeight: "700",
-    color: Colors.black,
-  },
-
-  errorMessage: {
-    marginTop: 7,
-    fontSize: 14,
-    lineHeight: 20,
-    textAlign: "center",
-    color: Colors.secondaryText,
-  },
-
-  backAction: {
-    marginTop: 18,
-    minWidth: 110,
-    height: 38,
-    paddingHorizontal: 20,
-    borderRadius: 8,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: Colors.primary,
-  },
-
-  backText: {
-    fontSize: 14,
-    fontWeight: "700",
-    color: Colors.white,
+  bottomSpace: {
+    height: 30,
   },
 });

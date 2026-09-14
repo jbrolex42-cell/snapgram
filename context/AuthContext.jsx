@@ -21,9 +21,9 @@ import {
   disconnectSocket,
 } from "../services/socket";
 
-const AuthContext = createContext(null);
-
 const TOKEN_KEY = "snapgram_token";
+
+const AuthContext = createContext(null);
 
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
@@ -46,9 +46,52 @@ export function AuthProvider({ children }) {
       return;
     }
 
-    console.log("AUTH SOCKET INITIALIZATION:", userId);
+    let cancelled = false;
 
-    connectSocket(userId);
+    async function initializeSocket() {
+      try {
+        console.log(
+          "[AUTH] SOCKET INITIALIZATION:",
+          userId
+        );
+
+        const connectedSocket =
+          await connectSocket(userId);
+
+        if (cancelled) {
+          return;
+        }
+
+        if (!connectedSocket) {
+          console.warn(
+            "[AUTH] Socket connection was not created."
+          );
+
+          return;
+        }
+
+        console.log(
+          "[AUTH] SOCKET READY:",
+          connectedSocket.id
+        );
+      } catch (socketError) {
+        if (cancelled) {
+          return;
+        }
+
+        console.error(
+          "[AUTH] SOCKET INITIALIZATION ERROR:",
+          socketError?.message ||
+            socketError
+        );
+      }
+    }
+
+    initializeSocket();
+
+    return () => {
+      cancelled = true;
+    };
   }, [user, loading]);
 
   async function restoreSession() {
@@ -56,25 +99,29 @@ export function AuthProvider({ children }) {
       setLoading(true);
       setError(null);
 
-      /*
-       * Do not call /auth/me when there is no token.
-       * This prevents the unnecessary 401 shown in Metro.
-       */
-      const token = await AsyncStorage.getItem(TOKEN_KEY);
+      const token =
+        await AsyncStorage.getItem(
+          TOKEN_KEY
+        );
 
       console.log(
-        "RESTORING AUTH SESSION — TOKEN EXISTS:",
-        !!token
+        "[AUTH] RESTORING SESSION — TOKEN:",
+        Boolean(token)
       );
 
       if (!token) {
-        console.log("NO SAVED AUTH TOKEN.");
-        setUser(null);
+        console.log(
+          "[AUTH] NO SAVED AUTH TOKEN."
+        );
+
         disconnectSocket();
+        setUser(null);
+
         return;
       }
 
-      const currentUser = await getCurrentUser();
+      const currentUser =
+        await getCurrentUser();
 
       if (!currentUser) {
         throw new Error(
@@ -85,28 +132,33 @@ export function AuthProvider({ children }) {
       setUser(currentUser);
 
       console.log(
-        "SESSION RESTORED:",
+        "[AUTH] SESSION RESTORED:",
         currentUser?.username ||
           currentUser?.email ||
           currentUser?._id ||
           currentUser?.id
       );
-    } catch (error) {
-      const status = error?.response?.status;
+    } catch (restoreError) {
+      const status =
+        restoreError?.response?.status;
 
-      if (status === 401 || status === 403) {
-        console.log("SAVED AUTH TOKEN IS INVALID.");
+      if (
+        status === 401 ||
+        status === 403
+      ) {
+        console.log(
+          "[AUTH] SAVED AUTH TOKEN IS INVALID."
+        );
 
-        /*
-         * Remove an invalid/expired token.
-         */
-        await AsyncStorage.removeItem(TOKEN_KEY);
+        await AsyncStorage.removeItem(
+          TOKEN_KEY
+        );
       } else {
         console.error(
-          "RESTORE SESSION ERROR:",
-          error?.response?.data ||
-            error?.message ||
-            error
+          "[AUTH] RESTORE SESSION ERROR:",
+          restoreError?.response?.data ||
+            restoreError?.message ||
+            restoreError
         );
       }
 
@@ -117,7 +169,10 @@ export function AuthProvider({ children }) {
     }
   }
 
-  async function login(identifier, password) {
+  async function login(
+    identifier,
+    password
+  ) {
     try {
       setError(null);
 
@@ -131,55 +186,42 @@ export function AuthProvider({ children }) {
       }
 
       if (!password) {
-        throw new Error("Enter your password.");
+        throw new Error(
+          "Enter your password."
+        );
       }
 
-      let loginData = {
+      const loginData = {
         password,
       };
 
-      /*
-       * Email
-       */
-      if (cleanIdentifier.includes("@")) {
+      if (
+        cleanIdentifier.includes("@")
+      ) {
         loginData.email =
           cleanIdentifier.toLowerCase();
-      }
-
-      /*
-       * Phone
-       */
-      else if (
-        /^[+0-9()\-\s]+$/.test(cleanIdentifier)
+      } else if (
+        /^[+0-9()\-\s]+$/.test(
+          cleanIdentifier
+        )
       ) {
-        loginData.phone = cleanIdentifier;
-      }
-
-      /*
-       * Username
-       */
-      else {
+        loginData.phone =
+          cleanIdentifier;
+      } else {
         loginData.username =
           cleanIdentifier.toLowerCase();
       }
 
       console.log(
-        "AUTH LOGIN REQUEST:",
+        "[AUTH] LOGIN REQUEST:",
         Object.keys(loginData).filter(
           (key) => key !== "password"
         )
       );
 
-      const result = await loginUser(loginData);
+      const result =
+        await loginUser(loginData);
 
-      /*
-       * Backend MUST return:
-       *
-       * {
-       *   token: "...",
-       *   user: {...}
-       * }
-       */
       if (!result?.token) {
         throw new Error(
           "Login succeeded but no authentication token was returned."
@@ -192,12 +234,6 @@ export function AuthProvider({ children }) {
         );
       }
 
-      /*
-       * Explicitly guarantee the token is saved.
-       *
-       * This protects us even if authService's loginUser
-       * does not save it itself.
-       */
       await AsyncStorage.setItem(
         TOKEN_KEY,
         result.token
@@ -206,7 +242,7 @@ export function AuthProvider({ children }) {
       setUser(result.user);
 
       console.log(
-        "AUTH LOGIN SUCCESS:",
+        "[AUTH] LOGIN SUCCESS:",
         result.user?.username ||
           result.user?.email ||
           result.user?._id ||
@@ -214,15 +250,15 @@ export function AuthProvider({ children }) {
       );
 
       console.log(
-        "AUTH TOKEN SAVED:",
-        true
+        "[AUTH] TOKEN SAVED: true"
       );
 
       return result;
-    } catch (error) {
+    } catch (loginError) {
       const message =
-        error?.response?.data?.message ||
-        error?.message ||
+        loginError?.response?.data
+          ?.message ||
+        loginError?.message ||
         "Unable to login.";
 
       setError(message);
@@ -231,7 +267,9 @@ export function AuthProvider({ children }) {
     }
   }
 
-  async function loginWithSocial(result) {
+  async function loginWithSocial(
+    result
+  ) {
     try {
       setError(null);
 
@@ -252,9 +290,6 @@ export function AuthProvider({ children }) {
         result.token
       );
 
-      /*
-       * Guarantee same token key used by api.js.
-       */
       await AsyncStorage.setItem(
         TOKEN_KEY,
         result.token
@@ -263,7 +298,7 @@ export function AuthProvider({ children }) {
       setUser(result.user);
 
       console.log(
-        "SOCIAL LOGIN SUCCESS:",
+        "[AUTH] SOCIAL LOGIN SUCCESS:",
         result.user?.username ||
           result.user?.email ||
           result.user?._id ||
@@ -271,10 +306,11 @@ export function AuthProvider({ children }) {
       );
 
       return result;
-    } catch (error) {
+    } catch (socialError) {
       const message =
-        error?.response?.data?.message ||
-        error?.message ||
+        socialError?.response?.data
+          ?.message ||
+        socialError?.message ||
         "Unable to complete social login.";
 
       setError(message);
@@ -287,34 +323,36 @@ export function AuthProvider({ children }) {
     try {
       setError(null);
 
-      const result = await registerUser({
-        fullName:
-          data?.fullName?.trim() ||
-          data?.name?.trim() ||
-          "",
+      const result =
+        await registerUser({
+          fullName:
+            data?.fullName?.trim() ||
+            data?.name?.trim() ||
+            "",
 
-        username:
-          data?.username
-            ?.trim()
-            .toLowerCase() || "",
+          username:
+            data?.username
+              ?.trim()
+              .toLowerCase() || "",
 
-        email:
-          data?.email
-            ?.trim()
-            .toLowerCase() || "",
+          email:
+            data?.email
+              ?.trim()
+              .toLowerCase() || "",
 
-        phone:
-          data?.phone?.trim() || "",
+          phone:
+            data?.phone?.trim() || "",
 
-        password:
-          data?.password || "",
-      });
+          password:
+            data?.password || "",
+        });
 
       return result;
-    } catch (error) {
+    } catch (registerError) {
       const message =
-        error?.response?.data?.message ||
-        error?.message ||
+        registerError?.response?.data
+          ?.message ||
+        registerError?.message ||
         "Unable to create account.";
 
       setError(message);
@@ -323,7 +361,9 @@ export function AuthProvider({ children }) {
     }
   }
 
-  async function switchAccount(accountId) {
+  async function switchAccount(
+    accountId
+  ) {
     try {
       setError(null);
 
@@ -336,7 +376,9 @@ export function AuthProvider({ children }) {
       disconnectSocket();
 
       const switchedUser =
-        await switchSavedAccount(accountId);
+        await switchSavedAccount(
+          accountId
+        );
 
       if (!switchedUser) {
         throw new Error(
@@ -347,7 +389,7 @@ export function AuthProvider({ children }) {
       setUser(switchedUser);
 
       console.log(
-        "ACCOUNT SWITCHED:",
+        "[AUTH] ACCOUNT SWITCHED:",
         switchedUser?.username ||
           switchedUser?.email ||
           switchedUser?._id ||
@@ -355,10 +397,11 @@ export function AuthProvider({ children }) {
       );
 
       return switchedUser;
-    } catch (error) {
+    } catch (switchError) {
       const message =
-        error?.response?.data?.message ||
-        error?.message ||
+        switchError?.response?.data
+          ?.message ||
+        switchError?.message ||
         "Unable to switch account.";
 
       setError(message);
@@ -373,31 +416,28 @@ export function AuthProvider({ children }) {
 
       disconnectSocket();
 
-      /*
-       * Remove local session immediately.
-       */
-      await AsyncStorage.removeItem(TOKEN_KEY);
+      await AsyncStorage.removeItem(
+        TOKEN_KEY
+      );
 
-      const result = await logoutUser();
+      const result =
+        await logoutUser();
 
       setUser(null);
 
       console.log(
-        "SNAPGRAM LOGOUT SUCCESS"
+        "[AUTH] SNAPGRAM LOGOUT SUCCESS"
       );
 
       return result;
-    } catch (error) {
+    } catch (logoutError) {
       console.error(
-        "LOGOUT ERROR:",
-        error?.response?.data ||
-          error?.message ||
-          error
+        "[AUTH] LOGOUT ERROR:",
+        logoutError?.response?.data ||
+          logoutError?.message ||
+          logoutError
       );
 
-      /*
-       * Always clear local authentication.
-       */
       await AsyncStorage.removeItem(
         TOKEN_KEY
       );
@@ -405,23 +445,27 @@ export function AuthProvider({ children }) {
       disconnectSocket();
       setUser(null);
 
-      throw error;
+      throw logoutError;
     }
   }
 
+  const contextValue = {
+    user,
+    loading,
+    error,
+
+    login,
+    loginWithSocial,
+    register,
+    switchAccount,
+    logout,
+
+    restoreSession,
+  };
+
   return (
     <AuthContext.Provider
-      value={{
-        user,
-        loading,
-        error,
-        login,
-        loginWithSocial,
-        register,
-        switchAccount,
-        logout,
-        restoreSession,
-      }}
+      value={contextValue}
     >
       {children}
     </AuthContext.Provider>
@@ -429,7 +473,8 @@ export function AuthProvider({ children }) {
 }
 
 export function useAuth() {
-  const context = useContext(AuthContext);
+  const context =
+    useContext(AuthContext);
 
   if (!context) {
     throw new Error(

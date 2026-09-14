@@ -107,21 +107,19 @@ export default function ArchivedScreen() {
           />
         }
       >
-        {/* Header */}
+
         <InfoCard
           icon="archive-outline"
           title="Archived"
           text="Posts and stories you archive are hidden from your profile while keeping their likes, comments and other information."
         />
 
-        {/* Error */}
         {error ? (
           <Notice>
             {error}
           </Notice>
         ) : null}
 
-        {/* Count */}
         {!error ? (
           <Notice>
             {items.length
@@ -132,7 +130,6 @@ export default function ArchivedScreen() {
           </Notice>
         ) : null}
 
-        {/* Archived content */}
         {items.length > 0 ? (
           <View>
             {items.map((item, index) => (
@@ -165,4 +162,3 @@ export default function ArchivedScreen() {
     </Page>
   );
 }
-

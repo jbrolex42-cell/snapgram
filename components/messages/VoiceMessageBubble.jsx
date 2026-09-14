@@ -2,16 +2,18 @@ import React, {
   useCallback,
   useEffect,
   useMemo,
+  useState,
 } from "react";
 
 import {
+  ActivityIndicator,
   StyleSheet,
   Text,
   TouchableOpacity,
   View,
 } from "react-native";
 
-import { Ionicons } from "@expo/vector-icons";
+import { MaterialCommunityIcons } from "@expo/vector-icons";
 
 import {
   useAudioPlayer,
@@ -23,46 +25,136 @@ export default function VoiceMessageBubble({
   duration = 0,
   isMine = false,
 }) {
-  const player = useAudioPlayer(url || null);
+  const [playbackError, setPlaybackError] = useState(false);
+
+  const player = useAudioPlayer(
+    typeof url === "string" && url.trim()
+      ? url.trim()
+      : undefined
+  );
 
   const status = useAudioPlayerStatus(player);
 
   const playing = Boolean(status?.playing);
+  const loading = Boolean(status?.isBuffering);
 
-  const currentTime =
-    Number(status?.currentTime) || 0;
+  const currentTime = Math.max(
+    0,
+    Number(status?.currentTime) || 0
+  );
 
-  const playerDuration =
-    Number(status?.duration) || 0;
+  const remoteDuration = Math.max(
+    0,
+    Number(status?.duration) || 0
+  );
+
+  const fallbackDuration = Math.max(
+    0,
+    Number(duration) || 0
+  );
 
   const actualDuration =
-    playerDuration ||
-    Number(duration) ||
-    0;
+    remoteDuration || fallbackDuration;
 
-  /*
-  |--------------------------------------------------------------------------
-  | WAVEFORM
-  |--------------------------------------------------------------------------
-  */
+  useEffect(() => {
+    setPlaybackError(false);
+  }, [url]);
+
+  useEffect(() => {
+    if (!url) {
+      return;
+    }
+
+    console.log("VOICE PLAYER:", {
+      url,
+      playing,
+      loading,
+      currentTime,
+      remoteDuration,
+      fallbackDuration,
+      didJustFinish: status?.didJustFinish,
+    });
+  }, [
+    url,
+    playing,
+    loading,
+    currentTime,
+    remoteDuration,
+    fallbackDuration,
+    status?.didJustFinish,
+  ]);
+
+  useEffect(() => {
+    if (!status?.didJustFinish) {
+      return;
+    }
+
+    try {
+      player?.seekTo?.(0);
+    } catch (error) {
+      console.warn(
+        "VOICE RESET ERROR:",
+        error
+      );
+    }
+  }, [
+    status?.didJustFinish,
+    player,
+  ]);
 
   const waveformHeights = useMemo(
     () => [
-      8, 14, 20, 11, 17,
-      24, 13, 20, 9, 16,
-      22, 12, 18, 25, 14,
-      21, 10, 17, 23, 13,
-      19, 9, 15, 22, 12,
-      18, 14, 10,
+      8,
+      14,
+      20,
+      11,
+      17,
+      24,
+      13,
+      20,
+      9,
+      16,
+      22,
+      12,
+      18,
+      25,
+      14,
+      21,
+      10,
+      17,
+      23,
+      13,
+      19,
+      9,
+      15,
+      22,
+      12,
+      18,
+      14,
+      10,
     ],
     []
   );
 
-  /*
-  |--------------------------------------------------------------------------
-  | TIME
-  |--------------------------------------------------------------------------
-  */
+  const progress = useMemo(() => {
+    if (
+      !actualDuration ||
+      actualDuration <= 0
+    ) {
+      return 0;
+    }
+
+    return Math.min(
+      1,
+      Math.max(
+        0,
+        currentTime / actualDuration
+      )
+    );
+  }, [
+    currentTime,
+    actualDuration,
+  ]);
 
   const formatTime = useCallback(
     (seconds) => {
@@ -87,102 +179,48 @@ export default function VoiceMessageBubble({
     []
   );
 
-  /*
-  |--------------------------------------------------------------------------
-  | PROGRESS
-  |--------------------------------------------------------------------------
-  */
-
-  const progress = useMemo(() => {
-    if (
-      !actualDuration ||
-      actualDuration <= 0
-    ) {
-      return 0;
-    }
-
-    return Math.min(
-      1,
-      Math.max(
-        0,
-        currentTime / actualDuration
-      )
-    );
-  }, [
-    actualDuration,
-    currentTime,
-  ]);
-
-  /*
-  |--------------------------------------------------------------------------
-  | PLAYBACK FINISHED
-  |--------------------------------------------------------------------------
-  */
-
-  useEffect(() => {
-    if (!status?.didJustFinish) {
+  const togglePlayback = useCallback(() => {
+    if (!player || !url) {
       return;
     }
 
     try {
-      player?.seekTo?.(0);
-    } catch (error) {
-      console.warn(
-        "VOICE RESET ERROR:",
-        error
-      );
-    }
-  }, [
-    status?.didJustFinish,
-    player,
-  ]);
+      setPlaybackError(false);
 
-  /*
-  |--------------------------------------------------------------------------
-  | PLAY / PAUSE
-  |--------------------------------------------------------------------------
-  */
-
-  const togglePlayback =
-    useCallback(() => {
-      if (!player || !url) {
+      if (playing) {
+        player.pause();
         return;
       }
 
-      try {
-        if (playing) {
-          player.pause();
-          return;
-        }
-
-        if (
-          actualDuration > 0 &&
-          currentTime >=
-            actualDuration - 0.1
-        ) {
-          player.seekTo(0);
-        }
-
-        player.play();
-      } catch (error) {
-        console.error(
-          "VOICE PLAYBACK ERROR:",
-          error
-        );
+      if (
+        actualDuration > 0 &&
+        currentTime >=
+          actualDuration - 0.15
+      ) {
+        player.seekTo(0);
       }
-    }, [
-      player,
-      url,
-      playing,
-      actualDuration,
-      currentTime,
-    ]);
 
-  /*
-  |--------------------------------------------------------------------------
-  | NO URL
-  |--------------------------------------------------------------------------
-  */
+      console.log(
+        "VOICE PLAY:",
+        url
+      );
+
+      player.play();
+    } catch (error) {
+      console.error(
+        "VOICE PLAYBACK ERROR:",
+        error
+      );
+
+      setPlaybackError(true);
+    }
+  }, [
+    player,
+    url,
+    playing,
+    currentTime,
+    actualDuration,
+  ]);
 
   if (!url) {
     return (
@@ -194,9 +232,9 @@ export default function VoiceMessageBubble({
             : styles.otherContainer,
         ]}
       >
-        <Ionicons
+        <MaterialCommunityIcons
           name="alert-circle-outline"
-          size={18}
+          size={19}
           color={
             isMine
               ? "rgba(255,255,255,0.8)"
@@ -218,6 +256,76 @@ export default function VoiceMessageBubble({
     );
   }
 
+  if (playbackError) {
+    return (
+      <View
+        style={[
+          styles.container,
+          isMine
+            ? styles.mineContainer
+            : styles.otherContainer,
+        ]}
+      >
+        <TouchableOpacity
+          style={[
+            styles.playButton,
+            isMine
+              ? styles.minePlayButton
+              : styles.otherPlayButton,
+          ]}
+          onPress={() => {
+            setPlaybackError(false);
+
+            try {
+              player?.play?.();
+            } catch (error) {
+              console.error(
+                "VOICE RETRY ERROR:",
+                error
+              );
+              setPlaybackError(true);
+            }
+          }}
+          activeOpacity={0.7}
+        >
+          <MaterialCommunityIcons
+            name="reload"
+            size={19}
+            color={
+              isMine
+                ? "#0095F6"
+                : "#111111"
+            }
+          />
+        </TouchableOpacity>
+
+        <View style={styles.content}>
+          <Text
+            style={[
+              styles.errorText,
+              isMine
+                ? styles.mineText
+                : styles.otherText,
+            ]}
+          >
+            Unable to play voice message
+          </Text>
+
+          <Text
+            style={[
+              styles.duration,
+              isMine
+                ? styles.mineText
+                : styles.otherText,
+            ]}
+          >
+            Tap to retry
+          </Text>
+        </View>
+      </View>
+    );
+  }
+
   return (
     <View
       style={[
@@ -227,8 +335,6 @@ export default function VoiceMessageBubble({
           : styles.otherContainer,
       ]}
     >
-      {/* PLAY BUTTON */}
-
       <TouchableOpacity
         style={[
           styles.playButton,
@@ -237,7 +343,8 @@ export default function VoiceMessageBubble({
             : styles.otherPlayButton,
         ]}
         onPress={togglePlayback}
-        activeOpacity={0.7}
+        activeOpacity={0.75}
+        disabled={loading}
         accessibilityRole="button"
         accessibilityLabel={
           playing
@@ -245,22 +352,31 @@ export default function VoiceMessageBubble({
             : "Play voice message"
         }
       >
-        <Ionicons
-          name={
-            playing
-              ? "pause"
-              : "play"
-          }
-          size={18}
-          color={
-            isMine
-              ? "#0095F6"
-              : "#111111"
-          }
-        />
+        {loading ? (
+          <ActivityIndicator
+            size="small"
+            color={
+              isMine
+                ? "#0095F6"
+                : "#111111"
+            }
+          />
+        ) : (
+          <MaterialCommunityIcons
+            name={
+              playing
+                ? "pause"
+                : "play"
+            }
+            size={19}
+            color={
+              isMine
+                ? "#0095F6"
+                : "#111111"
+            }
+          />
+        )}
       </TouchableOpacity>
-
-      {/* WAVEFORM */}
 
       <View style={styles.content}>
         <View style={styles.waveform}>
@@ -274,7 +390,7 @@ export default function VoiceMessageBubble({
 
               return (
                 <View
-                  key={`bar-${index}`}
+                  key={`voice-bar-${index}`}
                   style={[
                     styles.bar,
                     {
@@ -294,8 +410,6 @@ export default function VoiceMessageBubble({
           )}
         </View>
 
-        {/* TIME */}
-
         <Text
           style={[
             styles.duration,
@@ -304,11 +418,9 @@ export default function VoiceMessageBubble({
               : styles.otherText,
           ]}
         >
-          {formatTime(
-            playing
-              ? currentTime
-              : actualDuration
-          )}
+          {playing
+            ? formatTime(currentTime)
+            : formatTime(actualDuration)}
         </Text>
       </View>
     </View>
@@ -316,12 +428,6 @@ export default function VoiceMessageBubble({
 }
 
 const styles = StyleSheet.create({
-  /*
-  |--------------------------------------------------------------------------
-  | CONTAINER
-  |--------------------------------------------------------------------------
-  */
-
   container: {
     width: 230,
     minHeight: 52,
@@ -340,15 +446,9 @@ const styles = StyleSheet.create({
     backgroundColor: "transparent",
   },
 
-  /*
-  |--------------------------------------------------------------------------
-  | PLAY BUTTON
-  |--------------------------------------------------------------------------
-  */
-
   playButton: {
-    width: 39,
-    height: 39,
+    width: 40,
+    height: 40,
 
     borderRadius: 20,
 
@@ -369,22 +469,10 @@ const styles = StyleSheet.create({
     borderColor: "#D9D9DE",
   },
 
-  /*
-  |--------------------------------------------------------------------------
-  | CONTENT
-  |--------------------------------------------------------------------------
-  */
-
   content: {
     flex: 1,
     justifyContent: "center",
   },
-
-  /*
-  |--------------------------------------------------------------------------
-  | WAVEFORM
-  |--------------------------------------------------------------------------
-  */
 
   waveform: {
     height: 28,
@@ -401,12 +489,6 @@ const styles = StyleSheet.create({
     borderRadius: 3,
   },
 
-  /*
-  |--------------------------------------------------------------------------
-  | MY MESSAGE
-  |--------------------------------------------------------------------------
-  */
-
   mineBar: {
     backgroundColor:
       "rgba(255,255,255,0.45)",
@@ -416,12 +498,6 @@ const styles = StyleSheet.create({
     backgroundColor: "#FFFFFF",
   },
 
-  /*
-  |--------------------------------------------------------------------------
-  | OTHER MESSAGE
-  |--------------------------------------------------------------------------
-  */
-
   otherBar: {
     backgroundColor: "#B8B8BD",
   },
@@ -430,18 +506,17 @@ const styles = StyleSheet.create({
     backgroundColor: "#0095F6",
   },
 
-  /*
-  |--------------------------------------------------------------------------
-  | DURATION
-  |--------------------------------------------------------------------------
-  */
-
   duration: {
     marginTop: 2,
 
     fontSize: 10,
     lineHeight: 13,
 
+    fontWeight: "600",
+  },
+
+  errorText: {
+    fontSize: 12,
     fontWeight: "600",
   },
 
@@ -453,14 +528,9 @@ const styles = StyleSheet.create({
     color: "#777777",
   },
 
-  /*
-  |--------------------------------------------------------------------------
-  | UNAVAILABLE
-  |--------------------------------------------------------------------------
-  */
-
   unavailableText: {
     marginLeft: 7,
+
     fontSize: 12,
   },
 });

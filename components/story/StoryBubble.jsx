@@ -61,8 +61,6 @@ export default function StoryBubble({
             </View>
           )}
 
-          {/* PLUS */}
-
           <View
             style={styles.plus}
           >

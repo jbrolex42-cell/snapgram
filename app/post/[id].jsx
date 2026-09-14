@@ -97,10 +97,6 @@ export default function PostDetail() {
           )
         );
 
-        /*
-         * If the backend already returns a like-count
-         * visibility field, respect it.
-         */
         setHideLikesCount(
           Boolean(
             data.hideLikesCount ??
@@ -126,12 +122,6 @@ export default function PostDetail() {
   useEffect(() => {
     loadPost();
   }, [loadPost]);
-
-  /*
-   * --------------------------------------------------
-   * DERIVED POST DATA
-   * --------------------------------------------------
-   */
 
   const user = useMemo(() => {
     return (
@@ -239,12 +229,6 @@ export default function PostDetail() {
 
     return String(currentUserId) === String(authorId);
   }, [authorId, post]);
-
-  /*
-   * --------------------------------------------------
-   * LIKE
-   * --------------------------------------------------
-   */
 
   const handleLike = useCallback(async () => {
     if (!post || actionLoading) {
@@ -369,14 +353,6 @@ export default function PostDetail() {
     postId,
   ]);
 
-  /*
-   * --------------------------------------------------
-   * SAVE / UNSAVE
-   * --------------------------------------------------
-   *
-   * Your backend uses POST /save as a toggle.
-   */
-
   const handleBookmark = useCallback(
     async () => {
       if (!post || actionLoading) {
@@ -462,12 +438,6 @@ export default function PostDetail() {
     ]
   );
 
-  /*
-   * --------------------------------------------------
-   * COMMENTS
-   * --------------------------------------------------
-   */
-
   const openComments =
     useCallback(() => {
       if (!postId) {
@@ -483,12 +453,6 @@ export default function PostDetail() {
       });
     }, [postId]);
 
-  /*
-   * --------------------------------------------------
-   * PROFILE
-   * --------------------------------------------------
-   */
-
   const openProfile =
     useCallback(() => {
       if (!authorId) {
@@ -502,12 +466,6 @@ export default function PostDetail() {
         },
       });
     }, [authorId]);
-
-  /*
-   * --------------------------------------------------
-   * DELETE POST
-   * --------------------------------------------------
-   */
 
   const handleDeletePost =
     useCallback(() => {
@@ -563,16 +521,6 @@ export default function PostDetail() {
       );
     }, [postId]);
 
-  /*
-   * --------------------------------------------------
-   * HIDE POST
-   * --------------------------------------------------
-   *
-   * This immediately removes the post from this
-   * screen. A persistent server-side hide requires
-   * a per-user hidden-post endpoint/model.
-   */
-
   const handleHidePost =
     useCallback(() => {
       setMenuVisible(false);
@@ -595,12 +543,6 @@ export default function PostDetail() {
       );
     }, []);
 
-  /*
-   * --------------------------------------------------
-   * HIDE LIKE COUNT
-   * --------------------------------------------------
-   */
-
   const handleToggleLikeCount =
     useCallback(() => {
       setMenuVisible(false);
@@ -609,12 +551,6 @@ export default function PostDetail() {
         (current) => !current
       );
     }, []);
-
-  /*
-   * --------------------------------------------------
-   * COPY LINK
-   * --------------------------------------------------
-   */
 
   const handleCopyLink =
     useCallback(async () => {
@@ -638,12 +574,6 @@ export default function PostDetail() {
         );
       }
     }, [postId]);
-
-  /*
-   * --------------------------------------------------
-   * SHARE
-   * --------------------------------------------------
-   */
 
   const handleShare =
     useCallback(async () => {
@@ -679,16 +609,6 @@ export default function PostDetail() {
       username,
     ]);
 
-  /*
-   * --------------------------------------------------
-   * REPORT
-   * --------------------------------------------------
-   *
-   * The menu is ready for the report flow.
-   * The actual endpoint should use your existing
-   * reports backend rather than inventing a route.
-   */
-
   const handleReport =
     useCallback(() => {
       setMenuVisible(false);
@@ -721,12 +641,6 @@ export default function PostDetail() {
       );
     }, []);
 
-  /*
-   * --------------------------------------------------
-   * NOT INTERESTED
-   * --------------------------------------------------
-   */
-
   const handleNotInterested =
     useCallback(() => {
       setMenuVisible(false);
@@ -744,12 +658,6 @@ export default function PostDetail() {
         ]
       );
     }, []);
-
-  /*
-   * --------------------------------------------------
-   * MUTE
-   * --------------------------------------------------
-   */
 
   const handleMute =
     useCallback(() => {
@@ -776,12 +684,6 @@ export default function PostDetail() {
       );
     }, [fullName]);
 
-  /*
-   * --------------------------------------------------
-   * UNFOLLOW
-   * --------------------------------------------------
-   */
-
   const handleUnfollow =
     useCallback(() => {
       setMenuVisible(false);
@@ -807,12 +709,6 @@ export default function PostDetail() {
         ]
       );
     }, [fullName]);
-
-  /*
-   * --------------------------------------------------
-   * LOADING
-   * --------------------------------------------------
-   */
 
   if (loading) {
     return (
@@ -861,12 +757,6 @@ export default function PostDetail() {
       </SafeAreaView>
     );
   }
-
-  /*
-   * --------------------------------------------------
-   * ERROR
-   * --------------------------------------------------
-   */
 
   if (error || !post) {
     return (
@@ -935,12 +825,6 @@ export default function PostDetail() {
     );
   }
 
-  /*
-   * --------------------------------------------------
-   * HIDDEN
-   * --------------------------------------------------
-   */
-
   if (hidden) {
     return (
       <SafeAreaView
@@ -1007,12 +891,6 @@ export default function PostDetail() {
     );
   }
 
-  /*
-   * --------------------------------------------------
-   * RENDER
-   * --------------------------------------------------
-   */
-
   return (
     <SafeAreaView
       style={styles.container}
@@ -1067,7 +945,6 @@ export default function PostDetail() {
           styles.content
         }
       >
-        {/* AUTHOR */}
 
         <TouchableOpacity
           style={styles.user}
@@ -1131,8 +1008,6 @@ export default function PostDetail() {
           </View>
         </TouchableOpacity>
 
-        {/* MEDIA */}
-
         {image ? (
           <Image
             source={{
@@ -1162,8 +1037,6 @@ export default function PostDetail() {
             </Text>
           </View>
         )}
-
-        {/* ACTIONS */}
 
         <View style={styles.actions}>
           <View
@@ -1253,8 +1126,6 @@ export default function PostDetail() {
           </TouchableOpacity>
         </View>
 
-        {/* LIKES */}
-
         {!hideLikesCount ? (
           <Text style={styles.likes}>
             {likesCount.toLocaleString()}{" "}
@@ -1270,8 +1141,6 @@ export default function PostDetail() {
           </Text>
         )}
 
-        {/* CAPTION */}
-
         {caption ? (
           <Text
             style={styles.caption}
@@ -1284,8 +1153,6 @@ export default function PostDetail() {
             {caption}
           </Text>
         ) : null}
-
-        {/* COMMENTS */}
 
         <TouchableOpacity
           onPress={openComments}
@@ -1302,10 +1169,6 @@ export default function PostDetail() {
           </Text>
         </TouchableOpacity>
       </ScrollView>
-
-      {/* ==================================================
-          INSTAGRAM-STYLE POST OPTIONS MENU
-          ================================================== */}
 
       <Modal
         visible={menuVisible}
@@ -1339,8 +1202,6 @@ export default function PostDetail() {
                 : "Options"}
             </Text>
 
-            {/* SAVE */}
-
             <TouchableOpacity
               style={styles.menuItem}
               onPress={() => {
@@ -1368,8 +1229,6 @@ export default function PostDetail() {
               </Text>
             </TouchableOpacity>
 
-            {/* SHARE */}
-
             <TouchableOpacity
               style={styles.menuItem}
               onPress={handleShare}
@@ -1387,8 +1246,6 @@ export default function PostDetail() {
               </Text>
             </TouchableOpacity>
 
-            {/* COPY LINK */}
-
             <TouchableOpacity
               style={styles.menuItem}
               onPress={handleCopyLink}
@@ -1405,8 +1262,6 @@ export default function PostDetail() {
                 Copy link
               </Text>
             </TouchableOpacity>
-
-            {/* LIKE COUNT */}
 
             <TouchableOpacity
               style={styles.menuItem}
@@ -1432,8 +1287,6 @@ export default function PostDetail() {
                   : "Hide like count"}
               </Text>
             </TouchableOpacity>
-
-            {/* OWN POST */}
 
             {isOwnPost ? (
               <>
@@ -1544,8 +1397,6 @@ export default function PostDetail() {
                   style={styles.menuDivider}
                 />
 
-                {/* HIDE */}
-
                 <TouchableOpacity
                   style={styles.menuItem}
                   onPress={
@@ -1564,8 +1415,6 @@ export default function PostDetail() {
                     Hide
                   </Text>
                 </TouchableOpacity>
-
-                {/* NOT INTERESTED */}
 
                 <TouchableOpacity
                   style={styles.menuItem}
@@ -1586,8 +1435,6 @@ export default function PostDetail() {
                   </Text>
                 </TouchableOpacity>
 
-                {/* MUTE */}
-
                 <TouchableOpacity
                   style={styles.menuItem}
                   onPress={
@@ -1607,8 +1454,6 @@ export default function PostDetail() {
                   </Text>
                 </TouchableOpacity>
 
-                {/* UNFOLLOW */}
-
                 <TouchableOpacity
                   style={styles.menuItem}
                   onPress={
@@ -1627,8 +1472,6 @@ export default function PostDetail() {
                     Unfollow
                   </Text>
                 </TouchableOpacity>
-
-                {/* REPORT */}
 
                 <TouchableOpacity
                   style={[
@@ -1656,8 +1499,6 @@ export default function PostDetail() {
                 </TouchableOpacity>
               </>
             )}
-
-            {/* CANCEL */}
 
             <View
               style={styles.menuDivider}
@@ -1864,12 +1705,6 @@ const styles = StyleSheet.create({
     color: Colors.white,
     fontWeight: "700",
   },
-
-  /*
-   * --------------------------------------------------
-   * OPTIONS SHEET
-   * --------------------------------------------------
-   */
 
   modalOverlay: {
     flex: 1,

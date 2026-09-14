@@ -26,7 +26,6 @@ export default function StoryBar({
           styles.content
         }
       >
-        {/* YOUR STORY */}
 
         <StoryBubble
           isOwn
@@ -34,8 +33,6 @@ export default function StoryBar({
             onCreateStory
           }
         />
-
-        {/* OTHER STORIES */}
 
         {stories.map(
           (story) => (

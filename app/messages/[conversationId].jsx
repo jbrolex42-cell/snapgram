@@ -14,10 +14,10 @@ import {
   KeyboardAvoidingView,
   Modal,
   Platform,
+  Pressable,
   StyleSheet,
   Text,
   TextInput,
-  TouchableOpacity,
   View,
 } from "react-native";
 
@@ -27,6 +27,8 @@ import {
 } from "expo-router";
 
 import * as Clipboard from "expo-clipboard";
+
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { Ionicons } from "@expo/vector-icons";
 
@@ -54,6 +56,7 @@ import {
 
 import {
   startCall,
+  updateCall,
 } from "../../services/callService";
 
 import {
@@ -66,392 +69,554 @@ import {
   waitForSocket,
 } from "../../services/socket";
 
+function getId(value) {
+  if (!value) return null;
+
+  if (typeof value === "string") {
+    return value;
+  }
+
+  return (
+    value?._id ||
+    value?.id ||
+    null
+  );
+}
+
+function normalizeParam(value) {
+  if (Array.isArray(value)) {
+    return value[0] || null;
+  }
+
+  return value || null;
+}
+
+function getMessageId(message) {
+  return (
+    message?._id ||
+    message?.id ||
+    null
+  );
+}
+
+function sameId(a, b) {
+  if (!a || !b) return false;
+
+  return (
+    String(a) === String(b)
+  );
+}
+
 export default function ConversationScreen() {
-  const params = useLocalSearchParams();
+  const params =
+    useLocalSearchParams();
 
   const {
     user,
     loading: authLoading,
   } = useAuth();
 
-  /*
-   * ==================================================
-   * ROUTE PARAMS
-   * ==================================================
-   */
+  const routeConversationId =
+    normalizeParam(
+      params?.conversationId
+    );
 
-  const routeConversationId = Array.isArray(
-    params?.conversationId
-  )
-    ? params.conversationId[0]
-    : params?.conversationId;
+  const routeUserId =
+    normalizeParam(
+      params?.userId
+    );
 
-  const routeUserId = Array.isArray(
-    params?.userId
-  )
-    ? params.userId[0]
-    : params?.userId;
-
-  /*
-   * ==================================================
-   * STATE
-   * ==================================================
-   */
+  const currentUserId =
+    getId(user);
 
   const [
-    activeConversationId,
-    setActiveConversationId,
+    conversationId,
+    setConversationId,
   ] = useState(
     routeConversationId
       ? String(routeConversationId)
       : null
   );
 
-  const [messages, setMessages] = useState([]);
+  const [
+    conversation,
+    setConversation,
+  ] = useState(null);
 
-  const [conversation, setConversation] =
-    useState(null);
+  const [
+    messages,
+    setMessages,
+  ] = useState([]);
 
-  const [text, setText] = useState("");
+  const [
+    text,
+    setText,
+  ] = useState("");
 
-  const [loading, setLoading] = useState(true);
+  const [
+    loading,
+    setLoading,
+  ] = useState(true);
 
-  const [searching, setSearching] =
-    useState(false);
+  const [
+    searching,
+    setSearching,
+  ] = useState(false);
 
-  const [searchResults, setSearchResults] =
-    useState([]);
+  const [
+    searchResults,
+    setSearchResults,
+  ] = useState([]);
 
-  const [typingUser, setTypingUser] =
-    useState(null);
+  const [
+    typingUser,
+    setTypingUser,
+  ] = useState(null);
 
-  const [replyingTo, setReplyingTo] =
-    useState(null);
+  const [
+    replyingTo,
+    setReplyingTo,
+  ] = useState(null);
 
   const [
     selectedMessage,
     setSelectedMessage,
   ] = useState(null);
 
-  const [startingCall, setStartingCall] =
-    useState(false);
+  const [
+    startingCall,
+    setStartingCall,
+  ] = useState(null);
 
-  const typingTimeoutRef = useRef(null);
+  const [
+    sending,
+    setSending,
+  ] = useState(false);
 
-  /*
-   * ==================================================
-   * CURRENT USER
-   * ==================================================
-   */
+  const insets =
+    useSafeAreaInsets();
 
-  const currentUserId =
-    user?._id ||
-    user?.id ||
-    null;
+  const listRef =
+    useRef(null);
 
-  /*
-   * ==================================================
-   * OTHER PARTICIPANT
-   * ==================================================
-   */
+  const typingTimerRef =
+    useRef(null);
 
-  const otherUser = useMemo(() => {
-    const participants = Array.isArray(
-      conversation?.participants
-    )
-      ? conversation.participants
-      : [];
+  const mountedRef =
+    useRef(true);
 
-    if (participants.length > 0) {
+  const loadingRef =
+    useRef(false);
+
+  const callStartingRef =
+    useRef(false);
+
+  const otherUser =
+    useMemo(() => {
+      const participants =
+        Array.isArray(
+          conversation?.participants
+        )
+          ? conversation.participants
+          : [];
+
       const participant =
         participants.find(
-          (item) =>
-            String(
-              item?._id ||
-                item?.id
-            ) !==
-            String(currentUserId)
+          (item) => {
+            const id =
+              getId(item);
+
+            return (
+              id &&
+              !sameId(
+                id,
+                currentUserId
+              )
+            );
+          }
         );
 
       if (participant) {
         return participant;
       }
-    }
 
-    if (routeUserId) {
-      return {
-        _id: String(routeUserId),
-        username: "User",
-        name: "User",
-        avatar: null,
-      };
-    }
-
-    for (const message of messages) {
-      const senderId =
-        message?.sender?._id ||
-        message?.sender?.id ||
-        message?.sender;
-
-      if (
-        senderId &&
-        String(senderId) !==
-          String(currentUserId)
-      ) {
-        return message?.sender;
+      if (routeUserId) {
+        return {
+          _id: String(routeUserId),
+          id: String(routeUserId),
+          username: "User",
+          name: "User",
+          avatar: null,
+        };
       }
 
-      const receiverId =
-        message?.receiver?._id ||
-        message?.receiver?.id ||
-        message?.receiver;
-
-      if (
-        receiverId &&
-        String(receiverId) !==
-          String(currentUserId)
+      for (
+        let i = 0;
+        i < messages.length;
+        i += 1
       ) {
-        return message?.receiver;
-      }
-    }
+        const message =
+          messages[i];
 
-    return null;
-  }, [
-    conversation,
-    currentUserId,
-    messages,
-    routeUserId,
-  ]);
+        const sender =
+          message?.sender;
+
+        const receiver =
+          message?.receiver;
+
+        const senderId =
+          getId(sender);
+
+        if (
+          senderId &&
+          !sameId(
+            senderId,
+            currentUserId
+          )
+        ) {
+          return sender;
+        }
+
+        const receiverId =
+          getId(receiver);
+
+        if (
+          receiverId &&
+          !sameId(
+            receiverId,
+            currentUserId
+          )
+        ) {
+          return receiver;
+        }
+      }
+
+      return null;
+    }, [
+      conversation,
+      currentUserId,
+      messages,
+      routeUserId,
+    ]);
 
   const receiverId =
-    otherUser?._id ||
-    otherUser?.id ||
+    getId(otherUser) ||
     routeUserId ||
     null;
 
-  /*
-   * ==================================================
-   * LOAD / CREATE CONVERSATION
-   * ==================================================
-   */
+  const otherUsername =
+    otherUser?.username ||
+    otherUser?.name ||
+    "User";
 
-  const loadConversation = useCallback(
-    async () => {
-      if (authLoading || !user) {
-        if (!authLoading) {
-          setLoading(false);
+  const otherAvatar =
+    otherUser?.avatar ||
+    otherUser?.profilePicture ||
+    otherUser?.photoURL ||
+    null;
+
+  const appendMessage =
+    useCallback(
+      (message) => {
+        if (!message) {
+          return;
         }
 
-        return;
-      }
+        const id =
+          getMessageId(
+            message
+          );
 
-      try {
-        setLoading(true);
+        setMessages(
+          (current) => {
+            if (
+              id &&
+              current.some(
+                (item) =>
+                  sameId(
+                    getMessageId(
+                      item
+                    ),
+                    id
+                  )
+              )
+            ) {
+              return current;
+            }
 
-        let conversationId =
-          activeConversationId;
-
-        /*
-         * Opened with userId instead of
-         * an existing conversation.
-         */
-
-        if (
-          !conversationId &&
-          routeUserId
-        ) {
-          const createdConversation =
-            await getOrCreateConversation(
-              String(routeUserId)
-            );
-
-          if (
-            !createdConversation?._id
-          ) {
-            throw new Error(
-              "Unable to create conversation."
-            );
+            return [
+              ...current,
+              message,
+            ];
           }
+        );
+      },
+      []
+    );
 
-          conversationId = String(
-            createdConversation._id
-          );
-
-          setActiveConversationId(
-            conversationId
-          );
-
-          setConversation(
-            createdConversation
-          );
+  const loadConversation =
+    useCallback(
+      async () => {
+        if (authLoading) {
+          return;
         }
 
-        if (!conversationId) {
-          setMessages([]);
+        if (!user) {
           setLoading(false);
           return;
         }
 
-        const result =
-          await getMessages(
-            conversationId
-          );
-
-        if (result?.conversation) {
-          setConversation(
-            result.conversation
-          );
+        if (loadingRef.current) {
+          return;
         }
 
-        const safeMessages =
-          Array.isArray(
-            result?.messages
-          )
-            ? result.messages
-            : Array.isArray(result)
-              ? result
-              : [];
-
-        setMessages(
-          safeMessages
-        );
+        loadingRef.current = true;
 
         try {
-          await markMessagesRead(
-            conversationId
-          );
-        } catch (readError) {
-          console.warn(
-            "MARK MESSAGES READ ERROR:",
-            readError?.response
-              ?.data ||
-              readError
-          );
-        }
-      } catch (error) {
-        console.error(
-          "LOAD CHAT ERROR:",
-          error?.response?.data ||
-            error
-        );
+          setLoading(true);
 
-        Alert.alert(
-          "Unable to load chat",
-          error?.response?.data
-            ?.message ||
-            "We couldn't load this conversation."
+          let id =
+            conversationId;
+
+          if (
+            !id &&
+            routeUserId
+          ) {
+            const created =
+              await getOrCreateConversation(
+                String(
+                  routeUserId
+                )
+              );
+
+            const createdId =
+              getId(created);
+
+            if (!createdId) {
+              throw new Error(
+                "Unable to create conversation."
+              );
+            }
+
+            id = String(
+              createdId
+            );
+
+            if (
+              mountedRef.current
+            ) {
+              setConversationId(
+                id
+              );
+
+              setConversation(
+                created
+              );
+            }
+          }
+
+          if (!id) {
+            if (
+              mountedRef.current
+            ) {
+              setMessages([]);
+            }
+
+            return;
+          }
+
+          const result =
+            await getMessages(
+              id
+            );
+
+          if (
+            !mountedRef.current
+          ) {
+            return;
+          }
+
+          if (
+            result?.conversation
+          ) {
+            setConversation(
+              result.conversation
+            );
+          }
+
+          const loaded =
+            Array.isArray(
+              result?.messages
+            )
+              ? result.messages
+              : Array.isArray(
+                    result
+                  )
+                ? result
+                : [];
+
+          setMessages(
+            loaded
+          );
+
+          try {
+            await markMessagesRead(
+              id
+            );
+          } catch (
+            readError
+          ) {
+            console.warn(
+              "[CHAT] mark read failed:",
+              readError?.response
+                ?.data ||
+                readError
+            );
+          }
+        } catch (error) {
+          console.error(
+            "[CHAT] load error:",
+            error?.response
+              ?.data ||
+              error
+          );
+
+          if (
+            mountedRef.current
+          ) {
+            Alert.alert(
+              "Unable to load chat",
+              error?.response
+                ?.data?.message ||
+                error?.message ||
+                "We couldn't load this conversation."
+            );
+          }
+        } finally {
+          loadingRef.current =
+            false;
+
+          if (
+            mountedRef.current
+          ) {
+            setLoading(false);
+          }
+        }
+      },
+      [
+        authLoading,
+        conversationId,
+        routeUserId,
+        user,
+      ]
+    );
+
+  useEffect(() => {
+    mountedRef.current =
+      true;
+
+    return () => {
+      mountedRef.current =
+        false;
+
+      if (
+        typingTimerRef.current
+      ) {
+        clearTimeout(
+          typingTimerRef.current
         );
-      } finally {
-        setLoading(false);
       }
-    },
-    [
-      activeConversationId,
-      authLoading,
-      routeUserId,
-      user,
-    ]
-  );
+    };
+  }, []);
 
   useEffect(() => {
     loadConversation();
-  }, [loadConversation]);
-
-  /*
-   * ==================================================
-   * MESSAGE SOCKET
-   * ==================================================
-   */
+  }, [
+    loadConversation,
+  ]);
 
   useEffect(() => {
-    const socket = getSocket();
+    if (
+      !user ||
+      !conversationId
+    ) {
+      return undefined;
+    }
+
+    const socket =
+      getSocket();
 
     if (
-      !socket ||
-      !user ||
-      !activeConversationId
+      !socket
     ) {
       return undefined;
     }
 
     joinConversation(
-      activeConversationId
+      conversationId
     );
 
-    const handleNewMessage = (
-      message
-    ) => {
-      const messageConversationId =
-        message?.conversation?._id ||
-        message?.conversation?.id ||
-        message?.conversation;
-
-      if (
-        String(
-          messageConversationId
-        ) !==
-        String(
-          activeConversationId
-        )
-      ) {
-        return;
-      }
-
-      setMessages((current) => {
+    const handleNewMessage =
+      (message) => {
         if (!message) {
-          return current;
+          return;
         }
 
-        if (message?._id) {
-          const exists =
-            current.some(
-              (item) =>
-                String(
-                  item?._id
-                ) ===
-                String(
-                  message._id
-                )
-            );
+        const incomingConversation =
+          message?.conversation;
 
-          if (exists) {
-            return current;
-          }
+        const incomingConversationId =
+          getId(
+            incomingConversation
+          ) ||
+          incomingConversation;
+
+        if (
+          !sameId(
+            incomingConversationId,
+            conversationId
+          )
+        ) {
+          return;
         }
 
-        return [
-          ...current,
-          message,
-        ];
-      });
-    };
+        appendMessage(
+          message
+        );
 
-    const handleTyping = (
-      data
-    ) => {
-      if (
-        data?.userId &&
-        currentUserId &&
-        String(
-          data.userId
-        ) ===
-          String(
+        markMessagesRead(
+          conversationId
+        ).catch(() => {});
+      };
+
+    const handleTyping =
+      (data) => {
+        if (
+          data?.userId &&
+          currentUserId &&
+          sameId(
+            data.userId,
             currentUserId
           )
-      ) {
-        return;
-      }
+        ) {
+          return;
+        }
 
-      setTypingUser(
-        data?.username ||
-          otherUser?.username ||
-          "Someone"
-      );
-    };
+        const username =
+          data?.username ||
+          otherUsername ||
+          "Someone";
+
+        setTypingUser(
+          username
+        );
+      };
 
     const handleStopTyping =
       () => {
-        setTypingUser(null);
+        setTypingUser(
+          null
+        );
       };
 
     socket.on(
@@ -471,7 +636,7 @@ export default function ConversationScreen() {
 
     return () => {
       leaveConversation(
-        activeConversationId
+        conversationId
       );
 
       socket.off(
@@ -490,93 +655,67 @@ export default function ConversationScreen() {
       );
     };
   }, [
-    activeConversationId,
+    appendMessage,
+    conversationId,
     currentUserId,
-    otherUser?.username,
+    otherUsername,
     user,
   ]);
-
-  /*
-   * ==================================================
-   * CLEANUP
-   * ==================================================
-   */
-
-  useEffect(() => {
-    return () => {
-      if (
-        typingTimeoutRef.current
-      ) {
-        clearTimeout(
-          typingTimeoutRef.current
-        );
-      }
-    };
-  }, []);
-
-  /*
-   * ==================================================
-   * TYPING
-   * ==================================================
-   */
 
   const handleTypingChange =
     useCallback(
       (value) => {
         setText(value);
 
-        const socket = getSocket();
+        if (
+          typingTimerRef.current
+        ) {
+          clearTimeout(
+            typingTimerRef.current
+          );
+        }
+
+        const socket =
+          getSocket();
 
         if (
-          !socket ||
-          !activeConversationId ||
+          !socket?.connected ||
+          !conversationId ||
           !currentUserId
         ) {
           return;
         }
 
         if (
-          typingTimeoutRef.current
+          value.trim()
         ) {
-          clearTimeout(
-            typingTimeoutRef.current
-          );
-        }
-
-        if (value.trim()) {
           sendTyping(
-            activeConversationId,
+            conversationId,
             currentUserId,
             user?.username ||
               "Snapgram User"
           );
 
-          typingTimeoutRef.current =
+          typingTimerRef.current =
             setTimeout(() => {
               stopTyping(
-                activeConversationId,
+                conversationId,
                 currentUserId
               );
             }, 1200);
         } else {
           stopTyping(
-            activeConversationId,
+            conversationId,
             currentUserId
           );
         }
       },
       [
-        activeConversationId,
+        conversationId,
         currentUserId,
-        user,
+        user?.username,
       ]
     );
-
-  /*
-   * ==================================================
-   * SEND TEXT
-   * ==================================================
-   */
 
   const handleSend =
     useCallback(
@@ -586,147 +725,122 @@ export default function ConversationScreen() {
 
         if (
           !value ||
-          !activeConversationId ||
+          !conversationId ||
+          !receiverId ||
+          sending
+        ) {
+          return;
+        }
+
+        setSending(true);
+
+        try {
+          setText("");
+
+          stopTyping(
+            conversationId,
+            currentUserId
+          );
+
+          const message =
+            await sendMessage({
+              conversationId,
+              receiverId:
+                String(
+                  receiverId
+                ),
+              text: value,
+              replyTo:
+                getMessageId(
+                  replyingTo
+                ) || null,
+            });
+
+          if (message) {
+            appendMessage(
+              message
+            );
+
+            sendSocketMessage(
+              message
+            );
+          }
+
+          setReplyingTo(
+            null
+          );
+        } catch (error) {
+          console.error(
+            "[CHAT] send error:",
+            error?.response
+              ?.data ||
+              error
+          );
+
+          setText(
+            value
+          );
+
+          Alert.alert(
+            "Message failed",
+            error?.response
+              ?.data?.message ||
+              error?.message ||
+              "Unable to send message."
+          );
+        } finally {
+          if (
+            mountedRef.current
+          ) {
+            setSending(false);
+          }
+        }
+      },
+      [
+        appendMessage,
+        conversationId,
+        currentUserId,
+        receiverId,
+        replyingTo,
+        sending,
+        text,
+      ]
+    );
+
+  const handleMediaSelected =
+    useCallback(
+      async (media) => {
+        if (
+          !media?.uri ||
+          !conversationId ||
           !receiverId
         ) {
           return;
         }
 
         try {
-          setText("");
-
-          stopTyping(
-            activeConversationId,
-            currentUserId
-          );
-
-          const message =
-            await sendMessage({
-              conversationId:
-                activeConversationId,
-              receiverId,
-              text: value,
-              replyTo:
-                replyingTo?._id ||
-                null,
-            });
-
-          if (message) {
-            setMessages(
-              (current) => {
-                if (
-                  message?._id &&
-                  current.some(
-                    (item) =>
-                      String(
-                        item?._id
-                      ) ===
-                      String(
-                        message._id
-                      )
-                  )
-                ) {
-                  return current;
-                }
-
-                return [
-                  ...current,
-                  message,
-                ];
-              }
-            );
-
-            sendSocketMessage(
-              message
-            );
-          }
-
-          setReplyingTo(null);
-        } catch (error) {
-          console.error(
-            "SEND MESSAGE ERROR:",
-            error?.response?.data ||
-              error
-          );
-
-          setText(value);
-
-          Alert.alert(
-            "Error",
-            error?.response?.data
-              ?.message ||
-              "Unable to send message."
-          );
-        }
-      },
-      [
-        activeConversationId,
-        currentUserId,
-        receiverId,
-        replyingTo,
-        text,
-      ]
-    );
-
-  /*
-   * ==================================================
-   * SEND MEDIA
-   * ==================================================
-   */
-
-  const handleMediaSelected =
-    useCallback(
-      async (media) => {
-        try {
-          if (
-            !activeConversationId ||
-            !receiverId ||
-            !media?.uri
-          ) {
-            return;
-          }
-
           const message =
             await sendMediaMessage({
-              conversationId:
-                activeConversationId,
-              receiverId,
+              conversationId,
+              receiverId:
+                String(
+                  receiverId
+                ),
               type:
                 media.type ||
                 "image",
               uri: media.uri,
               mimeType:
                 media.mimeType,
-              fileName:
-                media.fileName,
               replyTo:
-                replyingTo?._id ||
-                null,
+                getMessageId(
+                  replyingTo
+                ) || null,
             });
 
           if (message) {
-            setMessages(
-              (current) => {
-                if (
-                  message?._id &&
-                  current.some(
-                    (item) =>
-                      String(
-                        item?._id
-                      ) ===
-                      String(
-                        message._id
-                      )
-                  )
-                ) {
-                  return current;
-                }
-
-                return [
-                  ...current,
-                  message,
-                ];
-              }
+            appendMessage(
+              message
             );
 
             sendSocketMessage(
@@ -734,84 +848,66 @@ export default function ConversationScreen() {
             );
           }
 
-          setReplyingTo(null);
+          setReplyingTo(
+            null
+          );
         } catch (error) {
           console.error(
-            "MEDIA MESSAGE ERROR:",
-            error?.response?.data ||
+            "[CHAT] media error:",
+            error?.response
+              ?.data ||
               error
           );
 
           Alert.alert(
-            "Error",
-            error?.response?.data
-              ?.message ||
+            "Media failed",
+            error?.response
+              ?.data?.message ||
+              error?.message ||
               "Unable to send media."
           );
         }
       },
       [
-        activeConversationId,
+        appendMessage,
+        conversationId,
         receiverId,
         replyingTo,
       ]
     );
 
-  /*
-   * ==================================================
-   * SEND VOICE MESSAGE
-   * ==================================================
-   */
-
   const handleVoiceRecorded =
     useCallback(
       async (recording) => {
-        try {
-          if (
-            !activeConversationId ||
-            !receiverId ||
-            !recording?.uri
-          ) {
-            return;
-          }
+        if (
+          !recording?.uri ||
+          !conversationId ||
+          !receiverId
+        ) {
+          return;
+        }
 
+        try {
           const message =
             await sendVoiceMessage({
-              conversationId:
-                activeConversationId,
-              receiverId,
+              conversationId,
+              receiverId:
+                String(
+                  receiverId
+                ),
               uri: recording.uri,
               duration:
                 recording.duration ||
                 0,
               replyTo:
-                replyingTo?._id ||
-                null,
+                getMessageId(
+                  replyingTo
+                ) || null,
             });
 
           if (message) {
-            setMessages(
-              (current) => {
-                if (
-                  message?._id &&
-                  current.some(
-                    (item) =>
-                      String(
-                        item?._id
-                      ) ===
-                      String(
-                        message._id
-                      )
-                  )
-                ) {
-                  return current;
-                }
-
-                return [
-                  ...current,
-                  message,
-                ];
-              }
+            appendMessage(
+              message
             );
 
             sendSocketMessage(
@@ -819,34 +915,33 @@ export default function ConversationScreen() {
             );
           }
 
-          setReplyingTo(null);
+          setReplyingTo(
+            null
+          );
         } catch (error) {
           console.error(
-            "VOICE SEND ERROR:",
-            error?.response?.data ||
+            "[CHAT] voice error:",
+            error?.response
+              ?.data ||
               error
           );
 
           Alert.alert(
-            "Error",
-            error?.response?.data
-              ?.message ||
+            "Voice message failed",
+            error?.response
+              ?.data?.message ||
+              error?.message ||
               "Unable to send voice message."
           );
         }
       },
       [
-        activeConversationId,
+        appendMessage,
+        conversationId,
         receiverId,
         replyingTo,
       ]
     );
-
-  /*
-   * ==================================================
-   * MESSAGE OPTIONS
-   * ==================================================
-   */
 
   const handleMessageOptions =
     useCallback(
@@ -861,12 +956,6 @@ export default function ConversationScreen() {
       },
       []
     );
-
-  /*
-   * ==================================================
-   * REPLY
-   * ==================================================
-   */
 
   const handleReply =
     useCallback(
@@ -886,16 +975,12 @@ export default function ConversationScreen() {
       []
     );
 
-  /*
-   * ==================================================
-   * COPY
-   * ==================================================
-   */
-
   const handleCopy =
     useCallback(
       async (message) => {
-        if (!message?.text) {
+        if (
+          !message?.text
+        ) {
           return;
         }
 
@@ -907,9 +992,11 @@ export default function ConversationScreen() {
           setSelectedMessage(
             null
           );
-        } catch (error) {
+        } catch (
+          error
+        ) {
           console.error(
-            "COPY ERROR:",
+            "[CHAT] copy error:",
             error
           );
         }
@@ -917,26 +1004,27 @@ export default function ConversationScreen() {
       []
     );
 
-  /*
-   * ==================================================
-   * REACTION
-   * ==================================================
-   */
-
   const handleReaction =
     useCallback(
       async (
         message,
         emoji
       ) => {
-        if (!message?._id) {
+        const messageId =
+          getMessageId(
+            message
+          );
+
+        if (
+          !messageId
+        ) {
           return;
         }
 
         try {
           const result =
             await reactToMessage(
-              message._id,
+              messageId,
               emoji
             );
 
@@ -944,11 +1032,11 @@ export default function ConversationScreen() {
             (current) =>
               current.map(
                 (item) =>
-                  String(
-                    item?._id
-                  ) ===
-                  String(
-                    message._id
+                  sameId(
+                    getMessageId(
+                      item
+                    ),
+                    messageId
                   )
                     ? {
                         ...item,
@@ -963,17 +1051,13 @@ export default function ConversationScreen() {
           setSelectedMessage(
             null
           );
-        } catch (error) {
-          console.error(
-            "REACTION ERROR:",
-            error?.response?.data ||
-              error
-          );
-
+        } catch (
+          error
+        ) {
           Alert.alert(
             "Reaction failed",
-            error?.response?.data
-              ?.message ||
+            error?.response
+              ?.data?.message ||
               "Unable to add reaction."
           );
         }
@@ -981,39 +1065,42 @@ export default function ConversationScreen() {
       []
     );
 
-  /*
-   * ==================================================
-   * UNSEND
-   * ==================================================
-   */
-
   const handleUnsend =
     useCallback(
       async (message) => {
-        if (!message?._id) {
+        const messageId =
+          getMessageId(
+            message
+          );
+
+        if (
+          !messageId
+        ) {
           return;
         }
 
         try {
           await unsendMessage(
-            message._id
+            messageId
           );
 
           setMessages(
             (current) =>
               current.map(
                 (item) =>
-                  String(
-                    item?._id
-                  ) ===
-                  String(
-                    message._id
+                  sameId(
+                    getMessageId(
+                      item
+                    ),
+                    messageId
                   )
                     ? {
                         ...item,
-                        deleted: true,
+                        deleted:
+                          true,
                         text: "",
-                        mediaUrl: null,
+                        mediaUrl:
+                          null,
                         mediaPublicId:
                           null,
                       }
@@ -1024,17 +1111,13 @@ export default function ConversationScreen() {
           setSelectedMessage(
             null
           );
-        } catch (error) {
-          console.error(
-            "UNSEND ERROR:",
-            error?.response?.data ||
-              error
-          );
-
+        } catch (
+          error
+        ) {
           Alert.alert(
             "Unsend failed",
-            error?.response?.data
-              ?.message ||
+            error?.response
+              ?.data?.message ||
               "Unable to unsend this message."
           );
         }
@@ -1042,33 +1125,34 @@ export default function ConversationScreen() {
       []
     );
 
-  /*
-   * ==================================================
-   * DELETE
-   * ==================================================
-   */
-
   const handleDelete =
     useCallback(
       async (message) => {
-        if (!message?._id) {
+        const messageId =
+          getMessageId(
+            message
+          );
+
+        if (
+          !messageId
+        ) {
           return;
         }
 
         try {
           await deleteMessage(
-            message._id
+            messageId
           );
 
           setMessages(
             (current) =>
               current.filter(
                 (item) =>
-                  String(
-                    item?._id
-                  ) !==
-                  String(
-                    message._id
+                  !sameId(
+                    getMessageId(
+                      item
+                    ),
+                    messageId
                   )
               )
           );
@@ -1076,29 +1160,19 @@ export default function ConversationScreen() {
           setSelectedMessage(
             null
           );
-        } catch (error) {
-          console.error(
-            "DELETE ERROR:",
-            error?.response?.data ||
-              error
-          );
-
+        } catch (
+          error
+        ) {
           Alert.alert(
             "Delete failed",
-            error?.response?.data
-              ?.message ||
-              "Unable to delete this message."
+            error?.response
+              ?.data?.message ||
+              "Unable to delete message."
           );
         }
       },
       []
     );
-
-  /*
-   * ==================================================
-   * SEARCH
-   * ==================================================
-   */
 
   const handleSearch =
     useCallback(
@@ -1108,62 +1182,130 @@ export default function ConversationScreen() {
             query || ""
           ).trim();
 
-        if (!cleanQuery) {
-          setSearchResults([]);
-          return;
-        }
-
-        if (!activeConversationId) {
+        if (
+          !cleanQuery ||
+          !conversationId
+        ) {
+          setSearchResults(
+            []
+          );
           return;
         }
 
         try {
-          const results =
+          const result =
             await searchMessages(
-              activeConversationId,
+              conversationId,
               cleanQuery
             );
 
+          const safe =
+            Array.isArray(
+              result
+            )
+              ? result
+              : Array.isArray(
+                    result?.messages
+                  )
+                ? result.messages
+                : [];
+
           setSearchResults(
-            Array.isArray(results)
-              ? results
-              : results?.messages ||
-                  results?.data ||
-                  []
+            safe
           );
-        } catch (error) {
+        } catch (
+          error
+        ) {
           console.error(
-            "SEARCH ERROR:",
-            error?.response?.data ||
+            "[CHAT] search error:",
+            error?.response
+              ?.data ||
               error
           );
         }
       },
-      [activeConversationId]
+      [
+        conversationId,
+      ]
     );
 
-  /*
-   * ==================================================
-   * START OUTGOING VOICE / VIDEO CALL
-   * ==================================================
-   *
-   * Flow:
-   *
-   * 1. Validate caller.
-   * 2. Validate receiver.
-   * 3. Create Call in MongoDB.
-   * 4. Make sure Socket.IO is connected.
-   * 5. Emit call:initiate.
-   * 6. Navigate caller to CallScreen.
-   *
-   * WebRTC negotiation happens later in
-   * CallScreen after the receiver accepts.
-   */
+  const handleSearchResultPress =
+    useCallback(
+      (message) => {
+        const messageId =
+          getMessageId(
+            message
+          );
+
+        if (
+          !messageId
+        ) {
+          return;
+        }
+
+        const index =
+          messages.findIndex(
+            (item) =>
+              sameId(
+                getMessageId(
+                  item
+                ),
+                messageId
+              )
+          );
+
+        setSearching(
+          false
+        );
+
+        setSearchResults(
+          []
+        );
+
+        if (
+          index < 0
+        ) {
+          Alert.alert(
+            "Message unavailable",
+            "This message is not currently loaded."
+          );
+
+          return;
+        }
+
+        requestAnimationFrame(
+          () => {
+            try {
+              listRef.current?.scrollToIndex(
+                {
+                  index,
+                  animated: true,
+                  viewPosition: 0.5,
+                }
+              );
+            } catch (
+              error
+            ) {
+              console.warn(
+                "[CHAT] search scroll error:",
+                error
+              );
+            }
+          }
+        );
+      },
+      [
+        messages,
+      ]
+    );
 
   const startOutgoingCall =
     useCallback(
       async (type) => {
-        if (startingCall) {
+        if (
+          callStartingRef.current ||
+          startingCall
+        ) {
           return;
         }
 
@@ -1171,246 +1313,137 @@ export default function ConversationScreen() {
           type !== "voice" &&
           type !== "video"
         ) {
-          console.error(
-            "INVALID CALL TYPE:",
-            type
-          );
-
           return;
         }
 
         const callerId =
-          user?._id ||
-          user?.id ||
-          currentUserId ||
-          null;
+          currentUserId;
 
-        const targetUserId =
-          otherUser?._id ||
-          otherUser?.id ||
-          receiverId ||
-          routeUserId ||
-          null;
-
-        /*
-         * ------------------------------------------
-         * VALIDATE CALLER
-         * ------------------------------------------
-         */
+        const targetId =
+          receiverId;
 
         if (!callerId) {
           Alert.alert(
             "Call failed",
-            "Your account could not be identified. Please log in again."
+            "Your account could not be identified."
           );
-
           return;
         }
 
-        /*
-         * ------------------------------------------
-         * VALIDATE RECEIVER
-         * ------------------------------------------
-         */
-
-        if (!targetUserId) {
+        if (!targetId) {
           Alert.alert(
             "Call failed",
-            "Unable to find the person you are trying to call."
+            "Unable to find this user."
           );
-
           return;
         }
 
-        /*
-         * ------------------------------------------
-         * PREVENT SELF CALL
-         * ------------------------------------------
-         */
-
         if (
-          String(callerId) ===
-          String(targetUserId)
+          sameId(
+            callerId,
+            targetId
+          )
         ) {
           Alert.alert(
             "Call failed",
             "You cannot call yourself."
           );
-
           return;
         }
 
+        callStartingRef.current =
+          true;
+
+        setStartingCall(
+          type
+        );
+
+        let createdCallId =
+          null;
+
         try {
-          setStartingCall(true);
-
           console.log(
-            "================================"
+            "[CALL] Starting",
+            {
+              type,
+              callerId,
+              receiverId:
+                targetId,
+            }
           );
 
-          console.log(
-            "STARTING OUTGOING CALL"
-          );
+          const socket =
+            await waitForSocket(
+              String(
+                callerId
+              ),
+              10000
+            );
 
-          console.log(
-            "CALLER:",
-            String(callerId)
-          );
-
-          console.log(
-            "RECEIVER:",
-            String(targetUserId)
-          );
-
-          console.log(
-            "TYPE:",
-            type
-          );
-
-          console.log(
-            "================================"
-          );
-
-          /*
-           * ------------------------------------------
-           * STEP 1
-           * CREATE CALL IN DATABASE
-           * ------------------------------------------
-           */
+          if (
+            !socket?.connected
+          ) {
+            throw new Error(
+              "Call server is not connected."
+            );
+          }
 
           const call =
             await startCall({
               receiverId:
                 String(
-                  targetUserId
+                  targetId
                 ),
               type,
             });
 
-          console.log(
-            "CALL CREATED:",
-            call
-          );
-
-          if (!call?._id) {
-            throw new Error(
-              "The server did not return a valid call ID."
-            );
-          }
-
-          const callId =
-            String(call._id);
-
-          /*
-           * ------------------------------------------
-           * STEP 2
-           * CONNECT SOCKET BEFORE INITIATE
-           * ------------------------------------------
-           */
-
-          let socket = getSocket();
-
-          try {
-            socket =
-              await waitForSocket(
-                String(callerId),
-                10000
-              );
-
-            console.log(
-              "CALL SOCKET READY:",
-              socket?.id
-            );
-          } catch (socketError) {
-            console.error(
-              "CALL SOCKET CONNECTION ERROR:",
-              socketError
-            );
-
-            /*
-             * The database call was created,
-             * but signaling isn't available.
-             *
-             * Clean up the call.
-             */
-
-            try {
-              const {
-                updateCall,
-              } = await import(
-                "../../services/callService"
-              );
-
-              await updateCall(
-                callId,
-                "ended"
-              );
-            } catch (cleanupError) {
-              console.warn(
-                "CALL CLEANUP ERROR:",
-                cleanupError
-              );
-            }
-
-            throw new Error(
-              "Unable to connect to the call server. Please check your internet connection and try again."
-            );
-          }
+          createdCallId =
+            getId(call);
 
           if (
-            !socket ||
-            !socket.connected
+            !createdCallId
           ) {
             throw new Error(
-              "Call server connection is unavailable."
+              "The server did not return a call ID."
             );
           }
 
-          /*
-           * ------------------------------------------
-           * STEP 3
-           * PREPARE CALLER INFORMATION
-           * ------------------------------------------
-           */
-
           const caller = {
-            _id:
-              String(
-                callerId
-              ),
+            _id: String(
+              callerId
+            ),
+
+            id: String(
+              callerId
+            ),
 
             username:
-              call?.caller
-                ?.username ||
               user?.username ||
+              user?.name ||
               "Snapgram User",
 
             name:
-              call?.caller?.name ||
               user?.name ||
+              user?.username ||
               "",
 
             avatar:
-              call?.caller
-                ?.avatar ||
               user?.avatar ||
+              user?.profilePicture ||
               null,
           };
-
-          /*
-           * ------------------------------------------
-           * STEP 4
-           * NOTIFY RECEIVER
-           * ------------------------------------------
-           */
 
           socket.emit(
             "call:initiate",
             {
-              callId,
+              callId:
+                String(
+                  createdCallId
+                ),
 
               receiverId:
                 String(
-                  targetUserId
+                  targetId
                 ),
 
               type,
@@ -1420,45 +1453,37 @@ export default function ConversationScreen() {
           );
 
           console.log(
-            "CALL INITIATE EMITTED:",
+            "[CALL] call:initiate sent",
             {
-              callId,
+              callId:
+                createdCallId,
               receiverId:
-                String(
-                  targetUserId
-                ),
+                targetId,
               type,
             }
           );
-
-          /*
-           * ------------------------------------------
-           * STEP 5
-           * NAVIGATE TO CALL SCREEN
-           * ------------------------------------------
-           */
 
           router.push({
             pathname:
               "/calls/[callId]",
 
             params: {
-              callId,
+              callId:
+                String(
+                  createdCallId
+                ),
 
               username:
-                otherUser?.username ||
-                otherUser?.name ||
-                "User",
+                otherUsername,
 
               avatar:
-                otherUser?.avatar ||
-                "",
+                otherAvatar || "",
 
               type,
 
               otherUserId:
                 String(
-                  targetUserId
+                  targetId
                 ),
 
               callerId:
@@ -1468,46 +1493,75 @@ export default function ConversationScreen() {
 
               isCaller:
                 "true",
+
+              callStatus:
+                "ringing",
             },
           });
-        } catch (error) {
+        } catch (
+          error
+        ) {
           console.error(
-            `${type.toUpperCase()} CALL ERROR:`,
+            "[CALL] start error:",
             error?.response
               ?.data ||
               error?.message ||
               error
           );
 
-          const message =
-            error?.response?.data
-              ?.message ||
-            error?.message ||
-            `Unable to start ${type} call.`;
+          if (
+            createdCallId
+          ) {
+            try {
+              await updateCall(
+                String(
+                  createdCallId
+                ),
+                "ended"
+              );
+            } catch (
+              cleanupError
+            ) {
+              console.warn(
+                "[CALL] cleanup failed:",
+                cleanupError
+              );
+            }
+          }
 
-          Alert.alert(
-            "Call failed",
-            message
-          );
+          if (
+            mountedRef.current
+          ) {
+            Alert.alert(
+              "Call failed",
+              error?.response
+                ?.data?.message ||
+                error?.message ||
+                `Unable to start ${type} call.`
+            );
+          }
         } finally {
-          setStartingCall(false);
+          callStartingRef.current =
+            false;
+
+          if (
+            mountedRef.current
+          ) {
+            setStartingCall(
+              null
+            );
+          }
         }
       },
       [
         currentUserId,
-        otherUser,
+        otherAvatar,
+        otherUsername,
         receiverId,
-        routeUserId,
         startingCall,
         user,
       ]
     );
-
-  /*
-   * ==================================================
-   * VOICE CALL
-   * ==================================================
-   */
 
   const handleVoiceCall =
     useCallback(() => {
@@ -1518,12 +1572,6 @@ export default function ConversationScreen() {
       startOutgoingCall,
     ]);
 
-  /*
-   * ==================================================
-   * VIDEO CALL
-   * ==================================================
-   */
-
   const handleVideoCall =
     useCallback(() => {
       startOutgoingCall(
@@ -1533,11 +1581,56 @@ export default function ConversationScreen() {
       startOutgoingCall,
     ]);
 
-  /*
-   * ==================================================
-   * RENDER MESSAGE
-   * ==================================================
-   */
+  const openSearch =
+    useCallback(() => {
+      setSearching(
+        true
+      );
+    }, []);
+
+  const closeSearch =
+    useCallback(() => {
+      setSearching(
+        false
+      );
+
+      setSearchResults(
+        []
+      );
+    }, []);
+
+  const scrollToBottom =
+    useCallback(
+      (animated = true) => {
+        requestAnimationFrame(
+          () => {
+            try {
+              listRef.current?.scrollToEnd(
+                {
+                  animated,
+                }
+              );
+            } catch {}
+          }
+        );
+      },
+      []
+    );
+
+  useEffect(() => {
+    if (
+      messages.length > 0 &&
+      !loading
+    ) {
+      scrollToBottom(
+        false
+      );
+    }
+  }, [
+    loading,
+    messages.length,
+    scrollToBottom,
+  ]);
 
   const renderMessage =
     useCallback(
@@ -1558,22 +1651,42 @@ export default function ConversationScreen() {
       ]
     );
 
-  const messageKeyExtractor =
+  const keyExtractor =
     useCallback(
       (item, index) =>
         String(
-          item?._id ||
-            item?.id ||
+          getMessageId(
+            item
+          ) ||
             `message-${index}`
         ),
       []
     );
 
-  /*
-   * ==================================================
-   * LOADING
-   * ==================================================
-   */
+  const handleScrollToIndexFailed =
+    useCallback(
+      (info) => {
+        setTimeout(
+          () => {
+            try {
+              listRef.current?.scrollToOffset(
+                {
+                  offset:
+                    Math.max(
+                      0,
+                      info.averageItemLength *
+                        info.index
+                    ),
+                  animated: true,
+                }
+              );
+            } catch {}
+          },
+          100
+        );
+      },
+      []
+    );
 
   if (
     authLoading ||
@@ -1586,18 +1699,12 @@ export default function ConversationScreen() {
         }
       >
         <ActivityIndicator
-          size="large"
+          size="small"
           color="#111111"
         />
       </View>
     );
   }
-
-  /*
-   * ==================================================
-   * MAIN UI
-   * ==================================================
-   */
 
   return (
     <KeyboardAvoidingView
@@ -1609,43 +1716,36 @@ export default function ConversationScreen() {
           ? "padding"
           : undefined
       }
-      keyboardVerticalOffset={
-        Platform.OS === "ios"
-          ? 0
-          : 0
-      }
     >
-      {/* ==================================================
-          HEADER
-      ================================================== */}
+      {/* HEADER */}
 
       <View
-        style={
-          styles.header
-        }
+        style={[
+          styles.header,
+          { paddingTop: insets.top },
+        ]}
       >
-        <TouchableOpacity
+        <Pressable
           onPress={() =>
             router.back()
           }
           style={
             styles.backButton
           }
-          activeOpacity={0.7}
-          hitSlop={8}
+          hitSlop={10}
         >
           <Ionicons
             name="chevron-back"
-            size={27}
+            size={28}
             color="#111111"
           />
-        </TouchableOpacity>
+        </Pressable>
 
-        {otherUser?.avatar ? (
+        {otherAvatar ? (
           <Image
             source={{
               uri:
-                otherUser.avatar,
+                otherAvatar,
             }}
             style={
               styles.headerAvatar
@@ -1654,19 +1754,15 @@ export default function ConversationScreen() {
         ) : (
           <View
             style={
-              styles.headerAvatarPlaceholder
+              styles.headerAvatarFallback
             }
           >
             <Text
               style={
-                styles.headerAvatarText
+                styles.headerAvatarLetter
               }
             >
-              {(
-                otherUser?.username ||
-                otherUser?.name ||
-                "U"
-              )
+              {otherUsername
                 .charAt(0)
                 .toUpperCase()}
             </Text>
@@ -1679,63 +1775,55 @@ export default function ConversationScreen() {
           }
         >
           <Text
-            style={
-              styles.username
-            }
             numberOfLines={1}
+            style={
+              styles.headerUsername
+            }
           >
-            {otherUser?.username ||
-              otherUser?.name ||
-              "Chat"}
+            {otherUsername}
           </Text>
 
-          {otherUser?._id ||
-          otherUser?.id ? (
+          {receiverId ? (
             <OnlineStatus
               userId={
-                otherUser._id ||
-                otherUser.id
+                receiverId
               }
             />
           ) : null}
         </View>
 
-        {/* SEARCH */}
-
-        <TouchableOpacity
-          onPress={() =>
-            setSearching(true)
+        <Pressable
+          onPress={
+            openSearch
           }
           style={
-            styles.headerButton
+            styles.headerIcon
           }
-          activeOpacity={0.7}
-          hitSlop={5}
-          disabled={startingCall}
+          hitSlop={8}
         >
           <Ionicons
             name="search-outline"
             size={23}
             color="#111111"
           />
-        </TouchableOpacity>
+        </Pressable>
 
-        {/* VOICE CALL */}
-
-        <TouchableOpacity
+        <Pressable
           onPress={
             handleVoiceCall
           }
-          style={
-            styles.headerButton
-          }
-          activeOpacity={0.7}
-          hitSlop={5}
           disabled={
-            startingCall
+            !!startingCall
           }
+          style={[
+            styles.headerIcon,
+            !!startingCall &&
+              styles.disabledIcon,
+          ]}
+          hitSlop={8}
         >
-          {startingCall ? (
+          {startingCall ===
+          "voice" ? (
             <ActivityIndicator
               size="small"
               color="#111111"
@@ -1747,24 +1835,24 @@ export default function ConversationScreen() {
               color="#111111"
             />
           )}
-        </TouchableOpacity>
+        </Pressable>
 
-        {/* VIDEO CALL */}
-
-        <TouchableOpacity
+        <Pressable
           onPress={
             handleVideoCall
           }
-          style={
-            styles.headerButton
-          }
-          activeOpacity={0.7}
-          hitSlop={5}
           disabled={
-            startingCall
+            !!startingCall
           }
+          style={[
+            styles.headerIcon,
+            !!startingCall &&
+              styles.disabledIcon,
+          ]}
+          hitSlop={8}
         >
-          {startingCall ? (
+          {startingCall ===
+          "video" ? (
             <ActivityIndicator
               size="small"
               color="#111111"
@@ -1776,28 +1864,26 @@ export default function ConversationScreen() {
               color="#111111"
             />
           )}
-        </TouchableOpacity>
+        </Pressable>
       </View>
 
-      {/* ==================================================
-          SEARCH
-      ================================================== */}
+      {/* SEARCH */}
 
       {searching ? (
         <MessageSearch
           onSearch={
             handleSearch
           }
-          onClose={() => {
-            setSearching(false);
-            setSearchResults([]);
-          }}
+          onClose={
+            closeSearch
+          }
         />
       ) : null}
 
+      {/* SEARCH RESULTS */}
+
       {searching &&
-      searchResults.length >
-        0 ? (
+      searchResults.length > 0 ? (
         <View
           style={
             styles.searchResults
@@ -1808,72 +1894,97 @@ export default function ConversationScreen() {
               message,
               index
             ) => (
-              <TouchableOpacity
+              <Pressable
                 key={String(
-                  message?._id ||
+                  getMessageId(
+                    message
+                  ) ||
                     `search-${index}`
                 )}
+                onPress={() =>
+                  handleSearchResultPress(
+                    message
+                  )
+                }
                 style={
                   styles.searchResult
                 }
-                onPress={() => {
-                  setSearching(
-                    false
-                  );
-
-                  setSearchResults(
-                    []
-                  );
-                }}
-                activeOpacity={0.7}
               >
-                <Text
+                <View
                   style={
-                    styles.searchUsername
+                    styles.searchResultIcon
                   }
                 >
-                  {message
-                    ?.sender
-                    ?.username ||
-                    "User"}
-                </Text>
+                  <Ionicons
+                    name="chatbubble-outline"
+                    size={17}
+                    color="#666666"
+                  />
+                </View>
 
-                <Text
-                  numberOfLines={2}
+                <View
                   style={
-                    styles.searchMessage
+                    styles.searchResultContent
                   }
                 >
-                  {message?.type ===
-                  "voice"
-                    ? "Voice message"
-                    : message?.text ||
-                      "Media message"}
-                </Text>
-              </TouchableOpacity>
+                  <Text
+                    style={
+                      styles.searchResultUsername
+                    }
+                  >
+                    {message?.sender
+                      ?.username ||
+                      "User"}
+                  </Text>
+
+                  <Text
+                    numberOfLines={
+                      2
+                    }
+                    style={
+                      styles.searchResultText
+                    }
+                  >
+                    {message?.type ===
+                    "voice"
+                      ? "Voice message"
+                      : message?.text ||
+                        "Media message"}
+                  </Text>
+                </View>
+
+                <Ionicons
+                  name="chevron-forward"
+                  size={17}
+                  color="#AAAAAA"
+                />
+              </Pressable>
             )
           )}
         </View>
       ) : null}
 
-      {/* ==================================================
-          MESSAGES
-      ================================================== */}
+      {/* MESSAGES */}
 
       <FlatList
+        ref={
+          listRef
+        }
         data={
           messages
         }
         keyExtractor={
-          messageKeyExtractor
+          keyExtractor
         }
         renderItem={
           renderMessage
         }
+        onScrollToIndexFailed={
+          handleScrollToIndexFailed
+        }
         contentContainerStyle={[
           styles.messages,
-          messages.length ===
-            0 &&
+          messages.length === 0 &&
             styles.emptyMessages,
         ]}
         showsVerticalScrollIndicator={
@@ -1887,9 +1998,7 @@ export default function ConversationScreen() {
         }
       />
 
-      {/* ==================================================
-          TYPING
-      ================================================== */}
+      {/* TYPING */}
 
       {typingUser ? (
         <View
@@ -1899,18 +2008,15 @@ export default function ConversationScreen() {
         >
           <Text
             style={
-              styles.typing
+              styles.typingText
             }
           >
-            {typingUser} is
-            typing...
+            {typingUser} is typing...
           </Text>
         </View>
       ) : null}
 
-      {/* ==================================================
-          REPLY PREVIEW
-      ================================================== */}
+      {/* REPLY */}
 
       {replyingTo ? (
         <View
@@ -1920,18 +2026,18 @@ export default function ConversationScreen() {
         >
           <View
             style={
-              styles.replyComposerLine
+              styles.replyAccent
             }
           />
 
           <View
             style={
-              styles.replyComposerContent
+              styles.replyContent
             }
           >
             <Text
               style={
-                styles.replyComposerTitle
+                styles.replyTitle
               }
             >
               Replying to message
@@ -1940,40 +2046,37 @@ export default function ConversationScreen() {
             <Text
               numberOfLines={1}
               style={
-                styles.replyComposerText
+                styles.replyText
               }
             >
-              {replyingTo.type ===
+              {replyingTo?.type ===
               "voice"
                 ? "Voice message"
-                : replyingTo.text ||
+                : replyingTo?.text ||
                   "Media message"}
             </Text>
           </View>
 
-          <TouchableOpacity
+          <Pressable
             onPress={() =>
               setReplyingTo(
                 null
               )
             }
             style={
-              styles.replyCloseButton
+              styles.replyClose
             }
-            activeOpacity={0.7}
           >
             <Ionicons
               name="close"
               size={20}
               color="#777777"
             />
-          </TouchableOpacity>
+          </Pressable>
         </View>
       ) : null}
 
-      {/* ==================================================
-          COMPOSER
-      ================================================== */}
+      {/* COMPOSER */}
 
       <View
         style={
@@ -1999,6 +2102,7 @@ export default function ConversationScreen() {
           multiline
           maxLength={5000}
           textAlignVertical="center"
+          returnKeyType="default"
         />
 
         {!text.trim() ? (
@@ -2008,27 +2112,35 @@ export default function ConversationScreen() {
             }
           />
         ) : (
-          <TouchableOpacity
-            style={
-              styles.sendButton
-            }
+          <Pressable
             onPress={
               handleSend
             }
-            activeOpacity={0.7}
+            disabled={
+              sending
+            }
+            style={
+              styles.sendButton
+            }
+            hitSlop={6}
           >
-            <Ionicons
-              name="send"
-              size={21}
-              color="#0095F6"
-            />
-          </TouchableOpacity>
+            {sending ? (
+              <ActivityIndicator
+                size="small"
+                color="#0095F6"
+              />
+            ) : (
+              <Ionicons
+                name="send"
+                size={21}
+                color="#0095F6"
+              />
+            )}
+          </Pressable>
         )}
       </View>
 
-      {/* ==================================================
-          MESSAGE ACTION MODAL
-      ================================================== */}
+      {/* MESSAGE OPTIONS */}
 
       <Modal
         visible={
@@ -2042,23 +2154,27 @@ export default function ConversationScreen() {
           )
         }
       >
-        <View
+        <Pressable
           style={
             styles.modalOverlay
           }
+          onPress={() =>
+            setSelectedMessage(
+              null
+            )
+          }
         >
-          <View
+          <Pressable
             style={
               styles.actionBox
             }
+            onPress={() => {}}
           >
             <View
               style={
                 styles.modalHandle
               }
             />
-
-            {/* REACTIONS */}
 
             {selectedMessage ? (
               <ReactionBar
@@ -2071,165 +2187,113 @@ export default function ConversationScreen() {
               />
             ) : null}
 
-            {/* REPLY */}
-
-            <TouchableOpacity
-              style={
-                styles.action
-              }
+            <ActionRow
+              icon="arrow-undo-outline"
+              label="Reply"
               onPress={() =>
                 handleReply(
                   selectedMessage
                 )
               }
-              activeOpacity={0.7}
-            >
-              <Ionicons
-                name="arrow-undo-outline"
-                size={21}
-                color="#111111"
-                style={
-                  styles.actionIcon
-                }
-              />
-
-              <Text
-                style={
-                  styles.actionText
-                }
-              >
-                Reply
-              </Text>
-            </TouchableOpacity>
-
-            {/* COPY */}
+            />
 
             {selectedMessage?.text ? (
-              <TouchableOpacity
-                style={
-                  styles.action
-                }
+              <ActionRow
+                icon="copy-outline"
+                label="Copy"
                 onPress={() =>
                   handleCopy(
                     selectedMessage
                   )
                 }
-                activeOpacity={0.7}
-              >
-                <Ionicons
-                  name="copy-outline"
-                  size={20}
-                  color="#111111"
-                  style={
-                    styles.actionIcon
-                  }
-                />
-
-                <Text
-                  style={
-                    styles.actionText
-                  }
-                >
-                  Copy
-                </Text>
-              </TouchableOpacity>
+              />
             ) : null}
 
-            {/* UNSEND */}
-
-            <TouchableOpacity
-              style={
-                styles.action
-              }
+            <ActionRow
+              icon="arrow-undo-outline"
+              label="Unsend"
+              danger
               onPress={() =>
                 handleUnsend(
                   selectedMessage
                 )
               }
-              activeOpacity={0.7}
-            >
-              <Ionicons
-                name="arrow-undo-outline"
-                size={21}
-                color="#ED4956"
-                style={
-                  styles.actionIcon
-                }
-              />
+            />
 
-              <Text
-                style={
-                  styles.deleteText
-                }
-              >
-                Unsend
-              </Text>
-            </TouchableOpacity>
-
-            {/* DELETE */}
-
-            <TouchableOpacity
-              style={
-                styles.action
-              }
+            <ActionRow
+              icon="trash-outline"
+              label="Delete"
+              danger
               onPress={() =>
                 handleDelete(
                   selectedMessage
                 )
               }
-              activeOpacity={0.7}
-            >
-              <Ionicons
-                name="trash-outline"
-                size={21}
-                color="#ED4956"
-                style={
-                  styles.actionIcon
-                }
-              />
+            />
 
-              <Text
-                style={
-                  styles.deleteText
-                }
-              >
-                Delete
-              </Text>
-            </TouchableOpacity>
-
-            {/* CANCEL */}
-
-            <TouchableOpacity
-              style={
-                styles.cancelAction
-              }
+            <Pressable
               onPress={() =>
                 setSelectedMessage(
                   null
                 )
               }
-              activeOpacity={0.7}
+              style={
+                styles.cancelAction
+              }
             >
               <Text
                 style={
-                  styles.actionCancelText
+                  styles.cancelText
                 }
               >
                 Cancel
               </Text>
-            </TouchableOpacity>
-          </View>
-        </View>
+            </Pressable>
+          </Pressable>
+        </Pressable>
       </Modal>
     </KeyboardAvoidingView>
   );
 }
 
-/*
- * =====================================================
- * MESSAGE BUBBLE
- * =====================================================
- */
+function ActionRow({
+  icon,
+  label,
+  danger = false,
+  onPress,
+}) {
+  return (
+    <Pressable
+      onPress={onPress}
+      style={
+        styles.action
+      }
+    >
+      <Ionicons
+        name={icon}
+        size={21}
+        color={
+          danger
+            ? "#ED4956"
+            : "#111111"
+        }
+        style={
+          styles.actionIcon
+        }
+      />
+
+      <Text
+        style={[
+          styles.actionText,
+          danger &&
+            styles.dangerText,
+        ]}
+      >
+        {label}
+      </Text>
+    </Pressable>
+  );
+}
 
 function MessageBubble({
   message,
@@ -2237,19 +2301,20 @@ function MessageBubble({
   onLongPress,
 }) {
   const senderId =
-    message?.sender?._id ||
-    message?.sender?.id ||
+    getId(
+      message?.sender
+    ) ||
     message?.sender;
 
   const isMine =
-    String(senderId) ===
-    String(currentUserId);
+    sameId(
+      senderId,
+      currentUserId
+    );
 
-  /*
-   * Deleted message
-   */
-
-  if (message?.deleted) {
+  if (
+    message?.deleted
+  ) {
     return (
       <View
         style={[
@@ -2268,9 +2333,6 @@ function MessageBubble({
             name="ban-outline"
             size={15}
             color="#999999"
-            style={
-              styles.deletedIcon
-            }
           />
 
           <Text
@@ -2290,14 +2352,15 @@ function MessageBubble({
     "voice";
 
   return (
-    <TouchableOpacity
-      activeOpacity={0.9}
+    <Pressable
       onLongPress={() =>
         onLongPress?.(
           message
         )
       }
-      delayLongPress={350}
+      delayLongPress={
+        350
+      }
       style={[
         styles.messageRow,
         isMine
@@ -2308,17 +2371,13 @@ function MessageBubble({
       <View
         style={[
           styles.bubble,
-
           isVoice &&
             styles.voiceBubble,
-
           isMine
             ? styles.myBubble
             : styles.theirBubble,
         ]}
       >
-        {/* REPLY REFERENCE */}
-
         {message?.replyTo ? (
           <View
             style={[
@@ -2336,13 +2395,12 @@ function MessageBubble({
                   ? "#FFFFFF"
                   : "#777777"
               }
-              style={
-                styles.replyReferenceIcon
-              }
             />
 
             <Text
-              numberOfLines={2}
+              numberOfLines={
+                2
+              }
               style={[
                 styles.replyReferenceText,
                 isMine
@@ -2350,19 +2408,15 @@ function MessageBubble({
                   : styles.theirReplyText,
               ]}
             >
-              {message.replyTo
-                ?.type ===
+              {message.replyTo?.type ===
               "voice"
                 ? "Voice message"
-                : message
-                    .replyTo
+                : message.replyTo
                     ?.text ||
                   "Media message"}
             </Text>
           </View>
         ) : null}
-
-        {/* VOICE MESSAGE */}
 
         {isVoice ? (
           <VoiceMessageBubble
@@ -2380,8 +2434,6 @@ function MessageBubble({
           />
         ) : (
           <>
-            {/* TEXT */}
-
             {message?.text ? (
               <Text
                 style={[
@@ -2391,11 +2443,11 @@ function MessageBubble({
                     : styles.theirMessageText,
                 ]}
               >
-                {message.text}
+                {
+                  message.text
+                }
               </Text>
             ) : null}
-
-            {/* MEDIA */}
 
             {message?.mediaUrl &&
             message?.type !==
@@ -2412,8 +2464,6 @@ function MessageBubble({
           </>
         )}
 
-        {/* REACTIONS */}
-
         {Array.isArray(
           message?.reactions
         ) &&
@@ -2425,14 +2475,17 @@ function MessageBubble({
             }
           >
             {message.reactions
-              .slice(0, 5)
+              .slice(
+                0,
+                5
+              )
               .map(
                 (
                   reaction,
                   index
                 ) => (
                   <Text
-                    key={`${message?._id || "message"}-reaction-${index}`}
+                    key={`${getMessageId(message) || "message"}-reaction-${index}`}
                     style={
                       styles.reaction
                     }
@@ -2445,21 +2498,17 @@ function MessageBubble({
           </View>
         ) : null}
       </View>
-    </TouchableOpacity>
+    </Pressable>
   );
 }
-
-/*
- * =====================================================
- * MEDIA MESSAGE
- * =====================================================
- */
 
 function MessageMedia({
   message,
   isMine,
 }) {
-  if (!message?.mediaUrl) {
+  if (
+    !message?.mediaUrl
+  ) {
     return null;
   }
 
@@ -2528,12 +2577,6 @@ function MessageMedia({
   );
 }
 
-/*
- * =====================================================
- * STYLES
- * =====================================================
- */
-
 const styles =
   StyleSheet.create({
     container: {
@@ -2552,19 +2595,9 @@ const styles =
         "#FFFFFF",
     },
 
-    /*
-     * HEADER
-     */
-
     header: {
       minHeight: 62,
-      paddingHorizontal: 8,
-      paddingTop:
-        Platform.OS ===
-        "ios"
-          ? 4
-          : 0,
-      paddingBottom: 4,
+      paddingHorizontal: 4,
       flexDirection:
         "row",
       alignItems:
@@ -2578,7 +2611,7 @@ const styles =
     },
 
     backButton: {
-      width: 38,
+      width: 40,
       height: 44,
       alignItems:
         "center",
@@ -2589,26 +2622,26 @@ const styles =
     headerAvatar: {
       width: 38,
       height: 38,
-      borderRadius: 19,
       marginHorizontal: 7,
+      borderRadius: 19,
       backgroundColor:
         "#EFEFEF",
     },
 
-    headerAvatarPlaceholder: {
+    headerAvatarFallback: {
       width: 38,
       height: 38,
-      borderRadius: 19,
       marginHorizontal: 7,
-      backgroundColor:
-        "#EFEFEF",
+      borderRadius: 19,
       alignItems:
         "center",
       justifyContent:
         "center",
+      backgroundColor:
+        "#EFEFEF",
     },
 
-    headerAvatarText: {
+    headerAvatarLetter: {
       fontSize: 15,
       fontWeight:
         "700",
@@ -2622,7 +2655,7 @@ const styles =
         "center",
     },
 
-    username: {
+    headerUsername: {
       fontSize: 15,
       lineHeight: 19,
       fontWeight:
@@ -2630,22 +2663,22 @@ const styles =
       color: "#111111",
     },
 
-    headerButton: {
-      width: 39,
+    headerIcon: {
+      width: 42,
       height: 44,
       alignItems:
         "center",
       justifyContent:
         "center",
-      borderRadius: 20,
+      borderRadius: 21,
     },
 
-    /*
-     * SEARCH
-     */
+    disabledIcon: {
+      opacity: 0.45,
+    },
 
     searchResults: {
-      maxHeight: 230,
+      maxHeight: 260,
       backgroundColor:
         "#FFFFFF",
       borderBottomWidth:
@@ -2655,31 +2688,50 @@ const styles =
     },
 
     searchResult: {
-      paddingHorizontal: 16,
-      paddingVertical: 11,
+      minHeight: 58,
+      paddingHorizontal: 15,
+      paddingVertical: 9,
+      flexDirection:
+        "row",
+      alignItems:
+        "center",
       borderBottomWidth:
         StyleSheet.hairlineWidth,
       borderBottomColor:
         "#EEEEEE",
     },
 
-    searchUsername: {
+    searchResultIcon: {
+      width: 34,
+      height: 34,
+      marginRight: 10,
+      borderRadius: 17,
+      alignItems:
+        "center",
+      justifyContent:
+        "center",
+      backgroundColor:
+        "#F2F2F2",
+    },
+
+    searchResultContent: {
+      flex: 1,
+      minWidth: 0,
+    },
+
+    searchResultUsername: {
       fontSize: 13,
       fontWeight:
         "700",
       color: "#111111",
     },
 
-    searchMessage: {
-      marginTop: 3,
+    searchResultText: {
+      marginTop: 2,
       fontSize: 13,
       lineHeight: 18,
       color: "#666666",
     },
-
-    /*
-     * MESSAGES
-     */
 
     messages: {
       flexGrow: 1,
@@ -2710,9 +2762,9 @@ const styles =
 
     bubble: {
       maxWidth: "82%",
-      borderRadius: 20,
       paddingHorizontal: 14,
       paddingVertical: 9,
+      borderRadius: 20,
     },
 
     myBubble: {
@@ -2729,24 +2781,15 @@ const styles =
         5,
     },
 
-    /*
-     * VOICE
-     */
-
     voiceBubble: {
       minWidth: 230,
       paddingHorizontal: 9,
       paddingVertical: 8,
     },
 
-    /*
-     * TEXT
-     */
-
     messageText: {
       fontSize: 15,
       lineHeight: 20,
-      letterSpacing: -0.1,
     },
 
     myMessageText: {
@@ -2757,20 +2800,15 @@ const styles =
       color: "#111111",
     },
 
-    /*
-     * REPLY
-     */
-
     replyReference: {
       flexDirection:
         "row",
       alignItems:
         "center",
       minHeight: 26,
-      borderLeftWidth: 3,
       paddingLeft: 8,
       marginBottom: 7,
-      opacity: 0.88,
+      borderLeftWidth: 3,
     },
 
     myReplyReference: {
@@ -2783,12 +2821,9 @@ const styles =
         "#777777",
     },
 
-    replyReferenceIcon: {
-      marginRight: 5,
-    },
-
     replyReferenceText: {
       flex: 1,
+      marginLeft: 5,
       fontSize: 12,
       lineHeight: 16,
     },
@@ -2801,10 +2836,6 @@ const styles =
       color: "#666666",
     },
 
-    /*
-     * REACTIONS
-     */
-
     reactions: {
       alignSelf:
         "flex-start",
@@ -2813,26 +2844,21 @@ const styles =
       alignItems:
         "center",
       marginTop: 5,
-      paddingHorizontal: 4,
+      paddingHorizontal: 5,
       paddingVertical: 2,
       borderRadius: 10,
       backgroundColor:
         "rgba(255,255,255,0.92)",
-      gap: 2,
     },
 
     reaction: {
+      marginHorizontal: 1,
       fontSize: 14,
     },
-
-    /*
-     * MEDIA
-     */
 
     messageImage: {
       width: 220,
       height: 220,
-      marginTop: 2,
       borderRadius: 14,
       backgroundColor:
         "#EDEDED",
@@ -2847,47 +2873,36 @@ const styles =
         "center",
       justifyContent:
         "center",
-      gap: 7,
     },
 
     mediaPlaceholderText: {
+      marginLeft: 7,
       fontSize: 14,
       fontWeight:
         "600",
     },
-
-    /*
-     * DELETED
-     */
 
     deletedBubble: {
       maxWidth: "78%",
       minHeight: 38,
       paddingHorizontal: 14,
       paddingVertical: 9,
-      borderRadius: 18,
-      backgroundColor:
-        "#F3F3F3",
       flexDirection:
         "row",
       alignItems:
         "center",
-    },
-
-    deletedIcon: {
-      marginRight: 6,
+      borderRadius: 18,
+      backgroundColor:
+        "#F3F3F3",
     },
 
     deletedText: {
+      marginLeft: 6,
       fontSize: 14,
-      color: "#999999",
       fontStyle:
         "italic",
+      color: "#999999",
     },
-
-    /*
-     * TYPING
-     */
 
     typingContainer: {
       paddingHorizontal: 17,
@@ -2896,17 +2911,13 @@ const styles =
         "#FFFFFF",
     },
 
-    typing: {
+    typingText: {
       fontSize: 12,
       lineHeight: 17,
-      color: "#888888",
       fontStyle:
         "italic",
+      color: "#888888",
     },
-
-    /*
-     * REPLY COMPOSER
-     */
 
     replyComposer: {
       minHeight: 52,
@@ -2924,21 +2935,21 @@ const styles =
         "#DBDBDB",
     },
 
-    replyComposerLine: {
+    replyAccent: {
       width: 3,
       height: 34,
-      borderRadius: 2,
       marginRight: 9,
+      borderRadius: 2,
       backgroundColor:
         "#0095F6",
     },
 
-    replyComposerContent: {
+    replyContent: {
       flex: 1,
       minWidth: 0,
     },
 
-    replyComposerTitle: {
+    replyTitle: {
       fontSize: 11,
       lineHeight: 15,
       fontWeight:
@@ -2946,14 +2957,14 @@ const styles =
       color: "#0095F6",
     },
 
-    replyComposerText: {
+    replyText: {
       marginTop: 1,
       fontSize: 12,
       lineHeight: 17,
       color: "#666666",
     },
 
-    replyCloseButton: {
+    replyClose: {
       width: 34,
       height: 34,
       alignItems:
@@ -2961,10 +2972,6 @@ const styles =
       justifyContent:
         "center",
     },
-
-    /*
-     * COMPOSER
-     */
 
     composer: {
       minHeight: 61,
@@ -3006,10 +3013,6 @@ const styles =
       justifyContent:
         "center",
     },
-
-    /*
-     * ACTION MODAL
-     */
 
     modalOverlay: {
       flex: 1,
@@ -3069,11 +3072,10 @@ const styles =
       color: "#111111",
     },
 
-    deleteText: {
-      fontSize: 15,
+    dangerText: {
+      color: "#ED4956",
       fontWeight:
         "700",
-      color: "#ED4956",
     },
 
     cancelAction: {
@@ -3084,7 +3086,7 @@ const styles =
         "center",
     },
 
-    actionCancelText: {
+    cancelText: {
       fontSize: 15,
       fontWeight:
         "600",

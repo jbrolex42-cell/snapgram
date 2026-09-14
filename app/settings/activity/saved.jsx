@@ -129,21 +129,19 @@ export default function SavedScreen() {
           />
         }
       >
-        {/* Header */}
+
         <InfoCard
           icon="bookmark-outline"
           title="Saved"
           text="Keep track of posts, reels and other content you want to come back to later."
         />
 
-        {/* Error */}
         {error ? (
           <Notice>
             {error}
           </Notice>
         ) : null}
 
-        {/* Count */}
         {!error ? (
           <Notice>
             {items.length
@@ -154,7 +152,6 @@ export default function SavedScreen() {
           </Notice>
         ) : null}
 
-        {/* Saved content */}
         {items.length > 0 ? (
           <View>
             {items.map((item, index) => (
@@ -178,4 +175,3 @@ export default function SavedScreen() {
     </Page>
   );
 }
-

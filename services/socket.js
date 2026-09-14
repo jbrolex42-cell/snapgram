@@ -1,306 +1,445 @@
 import { io } from "socket.io-client";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 
-const SOCKET_URL =
+const API_URL =
   process.env.EXPO_PUBLIC_API_URL ||
-  "http://10.0.2.2:5000";
+  "http://10.0.2.2:5000/api";
+
+const SOCKET_URL = API_URL.replace(/\/api\/?$/, "");
+
+const TOKEN_KEYS = [
+  "snapgram_token",
+  "accessToken",
+  "authToken",
+];
+
 
 let socket = null;
 let currentUserId = null;
-let connectPromise = null;
 
-/**
- * Create or return the global Socket.IO connection.
- */
-export function connectSocket(userId) {
+let connectPromise = null;
+let connectingUserId = null;
+
+async function getAuthToken() {
+  for (const key of TOKEN_KEYS) {
+    try {
+      const value = await AsyncStorage.getItem(key);
+
+      if (value) {
+        return value;
+      }
+    } catch (error) {
+      console.warn(
+        `[SOCKET] Failed reading ${key}:`,
+        error?.message || error
+      );
+    }
+  }
+
+  return null;
+}
+
+export async function connectSocket(userId) {
   if (!userId) {
     console.warn(
-      "connectSocket: userId is required"
+      "[SOCKET] connectSocket: userId is required"
     );
+
     return null;
   }
 
   const normalizedUserId = String(userId);
 
+  if (
+    socket &&
+    currentUserId &&
+    String(currentUserId) !== normalizedUserId
+  ) {
+    console.log(
+      "[SOCKET] USER CHANGED — RECREATING SOCKET"
+    );
+
+    disconnectSocket();
+  }
+
   currentUserId = normalizedUserId;
 
-  /*
-   * Socket already exists and is connected.
-   */
   if (socket?.connected) {
     return socket;
   }
 
-  /*
-   * Socket exists but is currently connecting.
-   */
-  if (socket && !socket.connected) {
+  if (
+    socket &&
+    !socket.disconnected
+  ) {
     return socket;
   }
 
+  if (socket) {
+    try {
+      socket.removeAllListeners();
+      socket.disconnect();
+    } catch (error) {
+      console.warn(
+        "[SOCKET] stale socket cleanup:",
+        error?.message || error
+      );
+    }
+
+    socket = null;
+  }
+
+  const token = await getAuthToken();
+
+  if (!token) {
+    console.error(
+      "[SOCKET] No authentication token found."
+    );
+
+    return null;
+  }
+
+  connectingUserId = normalizedUserId;
+
   console.log(
-    "CONNECTING SNAPGRAM SOCKET:",
+    "===================================="
+  );
+
+  console.log(
+    "[SOCKET] CONNECTING"
+  );
+
+  console.log(
+    "[SOCKET] URL:",
     SOCKET_URL
   );
 
+  console.log(
+    "[SOCKET] USER:",
+    normalizedUserId
+  );
+
+  console.log(
+    "[SOCKET] TOKEN:",
+    "FOUND"
+  );
+
+  console.log(
+    "===================================="
+  );
+
   socket = io(SOCKET_URL, {
-    transports: ["websocket"],
+    transports: ["websocket", "polling"],
+
     autoConnect: true,
 
-    /*
-     * Socket.IO should reconnect automatically
-     * if the network temporarily disappears.
-     */
     reconnection: true,
+
     reconnectionAttempts: Infinity,
+
     reconnectionDelay: 1000,
+
     reconnectionDelayMax: 5000,
 
     timeout: 10000,
+
+    auth: {
+      token,
+    },
   });
 
   socket.on("connect", () => {
     console.log(
-      "SNAPGRAM SOCKET CONNECTED:",
-      socket.id
+      "===================================="
     );
 
-    /*
-     * Tell the backend which authenticated
-     * Snapgram user owns this socket.
-     */
-    socket.emit(
-      "user:online",
-      normalizedUserId
-    );
-  });
-
-  socket.on("connect_error", (error) => {
-    console.error(
-      "SNAPGRAM SOCKET CONNECT ERROR:",
-      error?.message || error
-    );
-  });
-
-  socket.on("disconnect", (reason) => {
     console.log(
-      "SNAPGRAM SOCKET DISCONNECTED:",
-      reason
+      "[SOCKET] CONNECTED"
     );
-  });
 
-  socket.io.on("reconnect_attempt", (attempt) => {
     console.log(
-      "SNAPGRAM SOCKET RECONNECT ATTEMPT:",
-      attempt
+      "[SOCKET] ID:",
+      socket?.id
     );
-  });
 
-  socket.io.on("reconnect", (attempt) => {
     console.log(
-      "SNAPGRAM SOCKET RECONNECTED:",
-      attempt
+      "[SOCKET] USER:",
+      currentUserId
     );
 
-    /*
-     * Re-register the user as online after
-     * Socket.IO establishes a new connection.
-     */
-    if (currentUserId && socket?.connected) {
+    console.log(
+      "===================================="
+    );
+
+    if (
+      currentUserId &&
+      socket?.connected
+    ) {
       socket.emit(
-        "user:online",
-        currentUserId
+        "user:join",
+        String(currentUserId)
       );
     }
   });
 
-  socket.io.on("reconnect_error", (error) => {
-    console.error(
-      "SNAPGRAM SOCKET RECONNECT ERROR:",
-      error?.message || error
-    );
-  });
+  socket.on(
+    "socket:connected",
+    (data) => {
+      console.log(
+        "[SOCKET] SERVER READY:",
+        data
+      );
+    }
+  );
 
-  return socket;
-}
+  socket.on(
+    "connect_error",
+    (error) => {
+      console.error(
+        "[SOCKET] CONNECT ERROR:",
+        error?.message || error
+      );
+    }
+  );
 
-/**
- * Return the global socket instance.
- */
-export function getSocket() {
-  return socket;
-}
+  socket.on(
+    "disconnect",
+    (reason) => {
+      console.log(
+        "[SOCKET] DISCONNECTED:",
+        reason
+      );
+    }
+  );
 
-/**
- * Wait until the global socket is actually connected.
- *
- * This is important for calls. A socket object existing
- * does NOT necessarily mean Socket.IO has connected yet.
- */
-export function waitForSocket(
-  userId,
-  timeout = 10000
-) {
-  if (!userId) {
-    return Promise.reject(
-      new Error(
-        "Cannot connect socket without a user ID."
-      )
-    );
-  }
+  socket.io.on(
+    "reconnect_attempt",
+    (attempt) => {
+      console.log(
+        "[SOCKET] RECONNECT ATTEMPT:",
+        attempt
+      );
+    }
+  );
 
-  const existingSocket =
-    connectSocket(userId);
-
-  if (!existingSocket) {
-    return Promise.reject(
-      new Error(
-        "Unable to create Socket.IO connection."
-      )
-    );
-  }
-
-  if (existingSocket.connected) {
-    return Promise.resolve(
-      existingSocket
-    );
-  }
-
-  /*
-   * Prevent several screens from creating
-   * independent connection promises.
-   */
-  if (connectPromise) {
-    return connectPromise;
-  }
-
-  connectPromise = new Promise(
-    (resolve, reject) => {
-      let finished = false;
-
-      const cleanup = () => {
-        clearTimeout(timer);
-
-        existingSocket.off(
-          "connect",
-          handleConnect
-        );
-
-        existingSocket.off(
-          "connect_error",
-          handleConnectError
-        );
-      };
-
-      const finishSuccess = () => {
-        if (finished) return;
-
-        finished = true;
-        cleanup();
-
-        connectPromise = null;
-
-        resolve(existingSocket);
-      };
-
-      const finishError = (error) => {
-        if (finished) return;
-
-        finished = true;
-        cleanup();
-
-        connectPromise = null;
-
-        reject(error);
-      };
-
-      const handleConnect = () => {
-        console.log(
-          "SOCKET READY FOR CALLS:",
-          existingSocket.id
-        );
-
-        finishSuccess();
-      };
-
-      const handleConnectError = (
-        error
-      ) => {
-        console.error(
-          "SOCKET WAIT CONNECT ERROR:",
-          error?.message || error
-        );
-
-        finishError(
-          error instanceof Error
-            ? error
-            : new Error(
-                "Socket connection failed."
-              )
-        );
-      };
-
-      const timer = setTimeout(() => {
-        finishError(
-          new Error(
-            "Socket connection timed out."
-          )
-        );
-      }, timeout);
-
-      existingSocket.once(
-        "connect",
-        handleConnect
+  socket.io.on(
+    "reconnect",
+    (attempt) => {
+      console.log(
+        "[SOCKET] RECONNECTED:",
+        attempt
       );
 
-      existingSocket.once(
-        "connect_error",
-        handleConnectError
-      );
-
-      /*
-       * In case it connected between the
-       * initial check and listener registration.
-       */
-      if (existingSocket.connected) {
-        finishSuccess();
+      if (
+        currentUserId &&
+        socket?.connected
+      ) {
+        socket.emit(
+          "user:join",
+          String(currentUserId)
+        );
       }
     }
   );
 
+  socket.io.on(
+    "reconnect_error",
+    (error) => {
+      console.error(
+        "[SOCKET] RECONNECT ERROR:",
+        error?.message || error
+      );
+    }
+  );
+
+  return socket;
+}
+
+export function getSocket() {
+  return socket;
+}
+
+export function getSocketUserId() {
+  return currentUserId;
+}
+
+export async function waitForSocket(
+  userId,
+  timeout = 10000
+) {
+  if (!userId) {
+    throw new Error(
+      "Cannot connect socket without a user ID."
+    );
+  }
+
+  const normalizedUserId =
+    String(userId);
+
+  if (
+    connectPromise &&
+    connectingUserId !== normalizedUserId
+  ) {
+    connectPromise = null;
+  }
+
+  const existingSocket =
+    await connectSocket(
+      normalizedUserId
+    );
+
+  if (!existingSocket) {
+    throw new Error(
+      "Unable to create Socket.IO connection."
+    );
+  }
+
+  if (existingSocket.connected) {
+    return existingSocket;
+  }
+
+  if (connectPromise) {
+    return connectPromise;
+  }
+
+  connectingUserId =
+    normalizedUserId;
+
+  connectPromise =
+    new Promise(
+      (resolve, reject) => {
+        let finished = false;
+
+        const timer =
+          setTimeout(() => {
+            finishError(
+              new Error(
+                "Socket connection timed out."
+              )
+            );
+          }, timeout);
+
+        function cleanup() {
+          clearTimeout(timer);
+
+          existingSocket.off(
+            "connect",
+            handleConnect
+          );
+
+          existingSocket.off(
+            "connect_error",
+            handleConnectError
+          );
+        }
+
+        function finishSuccess() {
+          if (finished) {
+            return;
+          }
+
+          finished = true;
+
+          cleanup();
+
+          connectPromise = null;
+
+          console.log(
+            "[SOCKET] READY:",
+            existingSocket.id
+          );
+
+          resolve(existingSocket);
+        }
+
+        function finishError(error) {
+          if (finished) {
+            return;
+          }
+
+          finished = true;
+
+          cleanup();
+
+          connectPromise = null;
+
+          reject(
+            error instanceof Error
+              ? error
+              : new Error(
+                  "Socket connection failed."
+                )
+          );
+        }
+
+        function handleConnect() {
+          finishSuccess();
+        }
+
+        function handleConnectError(
+          error
+        ) {
+          console.error(
+            "[SOCKET] WAIT CONNECT ERROR:",
+            error?.message || error
+          );
+
+          finishError(error);
+        }
+
+        existingSocket.once(
+          "connect",
+          handleConnect
+        );
+
+        existingSocket.once(
+          "connect_error",
+          handleConnectError
+        );
+
+        if (existingSocket.connected) {
+          finishSuccess();
+        }
+      }
+    );
+
   return connectPromise;
 }
 
-/**
- * Disconnect the global socket.
- *
- * Only call this when the authenticated user
- * logs out or the app session is destroyed.
- *
- * Do NOT call this from CallScreen cleanup.
- */
 export function disconnectSocket() {
   if (!socket) {
     currentUserId = null;
+    connectingUserId = null;
     connectPromise = null;
+
     return;
   }
 
   console.log(
-    "DISCONNECTING SNAPGRAM SOCKET"
+    "[SOCKET] DISCONNECTING"
   );
 
-  socket.removeAllListeners();
-
-  socket.disconnect();
+  try {
+    socket.removeAllListeners();
+    socket.disconnect();
+  } catch (error) {
+    console.warn(
+      "[SOCKET] disconnect warning:",
+      error?.message || error
+    );
+  }
 
   socket = null;
   currentUserId = null;
+  connectingUserId = null;
   connectPromise = null;
 }
 
-/**
- * Conversation helpers
- */
+export function isSocketConnected() {
+  return Boolean(
+    socket?.connected
+  );
+}
 
 export function joinConversation(
   conversationId
@@ -338,10 +477,6 @@ export function leaveConversation(
   return true;
 }
 
-/**
- * Message helpers
- */
-
 export function sendSocketMessage(
   message
 ) {
@@ -371,11 +506,16 @@ export function sendTyping(
   }
 
   socket.emit(
-    "message:typing",
+    "typing:start",
     {
-      conversationId,
-      userId,
-      username,
+      conversationId:
+        String(conversationId),
+
+      userId:
+        String(userId),
+
+      username:
+        username || "",
     }
   );
 
@@ -395,10 +535,13 @@ export function stopTyping(
   }
 
   socket.emit(
-    "message:stopTyping",
+    "typing:stop",
     {
-      conversationId,
-      userId,
+      conversationId:
+        String(conversationId),
+
+      userId:
+        String(userId),
     }
   );
 
@@ -413,8 +556,7 @@ export function markSocketMessageSeen(
   if (
     !socket?.connected ||
     !conversationId ||
-    !messageId ||
-    !userId
+    !messageId
   ) {
     return false;
   }
@@ -422,9 +564,303 @@ export function markSocketMessageSeen(
   socket.emit(
     "message:seen",
     {
-      conversationId,
-      messageId,
-      userId,
+      conversationId:
+        String(conversationId),
+
+      messageId:
+        String(messageId),
+
+      userId:
+        userId
+          ? String(userId)
+          : undefined,
+    }
+  );
+
+  return true;
+}
+
+export function initiateCall({
+  callId,
+  receiverId,
+  type = "voice",
+  caller = null,
+}) {
+  if (
+    !socket?.connected ||
+    !callId ||
+    !receiverId
+  ) {
+    return false;
+  }
+
+  socket.emit(
+    "call:initiate",
+    {
+      callId:
+        String(callId),
+
+      receiverId:
+        String(receiverId),
+
+      type,
+
+      caller,
+    }
+  );
+
+  return true;
+}
+
+export function acceptCall({
+  callId,
+  callerId,
+}) {
+  if (
+    !socket?.connected ||
+    !callId ||
+    !callerId
+  ) {
+    return false;
+  }
+
+  socket.emit(
+    "call:accept",
+    {
+      callId:
+        String(callId),
+
+      callerId:
+        String(callerId),
+    }
+  );
+
+  return true;
+}
+
+export function rejectCall({
+  callId,
+  callerId,
+}) {
+  if (
+    !socket?.connected ||
+    !callId ||
+    !callerId
+  ) {
+    return false;
+  }
+
+  socket.emit(
+    "call:reject",
+    {
+      callId:
+        String(callId),
+
+      callerId:
+        String(callerId),
+    }
+  );
+
+  return true;
+}
+
+export function sendCallReady({
+  callId,
+  targetUserId,
+}) {
+  if (
+    !socket?.connected ||
+    !callId ||
+    !targetUserId
+  ) {
+    return false;
+  }
+
+  socket.emit(
+    "call:ready",
+    {
+      callId:
+        String(callId),
+
+      targetUserId:
+        String(targetUserId),
+    }
+  );
+
+  console.log(
+    "[CALL] READY SENT:",
+    callId,
+    "→",
+    targetUserId
+  );
+
+  return true;
+}
+
+export function cancelCall({
+  callId,
+  otherUserId,
+}) {
+  if (
+    !socket?.connected ||
+    !callId
+  ) {
+    return false;
+  }
+
+  socket.emit(
+    "call:cancel",
+    {
+      callId:
+        String(callId),
+
+      otherUserId:
+        otherUserId
+          ? String(otherUserId)
+          : null,
+    }
+  );
+
+  return true;
+}
+
+export function endCall({
+  callId,
+  otherUserId,
+}) {
+  if (
+    !socket?.connected ||
+    !callId
+  ) {
+    return false;
+  }
+
+  socket.emit(
+    "call:end",
+    {
+      callId:
+        String(callId),
+
+      otherUserId:
+        otherUserId
+          ? String(otherUserId)
+          : null,
+    }
+  );
+
+  return true;
+}
+
+export function missedCall({
+  callId,
+  callerId,
+}) {
+  if (
+    !socket?.connected ||
+    !callId ||
+    !callerId
+  ) {
+    return false;
+  }
+
+  socket.emit(
+    "call:missed",
+    {
+      callId:
+        String(callId),
+
+      callerId:
+        String(callerId),
+    }
+  );
+
+  return true;
+}
+
+export function sendWebRTCOffer({
+  callId,
+  targetUserId,
+  offer,
+}) {
+  if (
+    !socket?.connected ||
+    !callId ||
+    !targetUserId ||
+    !offer
+  ) {
+    return false;
+  }
+
+  socket.emit(
+    "webrtc:offer",
+    {
+      callId:
+        String(callId),
+
+      targetUserId:
+        String(targetUserId),
+
+      offer,
+    }
+  );
+
+  return true;
+}
+
+export function sendWebRTCAnswer({
+  callId,
+  targetUserId,
+  answer,
+}) {
+  if (
+    !socket?.connected ||
+    !callId ||
+    !targetUserId ||
+    !answer
+  ) {
+    return false;
+  }
+
+  socket.emit(
+    "webrtc:answer",
+    {
+      callId:
+        String(callId),
+
+      targetUserId:
+        String(targetUserId),
+
+      answer,
+    }
+  );
+
+  return true;
+}
+
+export function sendICECandidate({
+  callId,
+  targetUserId,
+  candidate,
+}) {
+  if (
+    !socket?.connected ||
+    !callId ||
+    !targetUserId ||
+    !candidate
+  ) {
+    return false;
+  }
+
+  socket.emit(
+    "webrtc:ice-candidate",
+    {
+      callId:
+        String(callId),
+
+      targetUserId:
+        String(targetUserId),
+
+      candidate,
     }
   );
 

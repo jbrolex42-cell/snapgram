@@ -13,16 +13,6 @@ import {
 
 import { Ionicons } from "@expo/vector-icons";
 
-/*
-|--------------------------------------------------------------------------
-| Instagram-style reactions
-|--------------------------------------------------------------------------
-|
-| These remain emoji because the actual reaction is an emoji.
-| Ionicons are used for the UI controls around the reactions.
-|
-*/
-
 const REACTIONS = [
   "❤️",
   "😂",
@@ -38,12 +28,6 @@ const REACTIONS = [
   "✨",
 ];
 
-/*
-|--------------------------------------------------------------------------
-| ReactionBar
-|--------------------------------------------------------------------------
-*/
-
 export default function ReactionBar({
   onSelect,
   onReact,
@@ -55,22 +39,6 @@ export default function ReactionBar({
       selectedReaction || null
     );
 
-  /*
-  |--------------------------------------------------------------------------
-  | Callback compatibility
-  |--------------------------------------------------------------------------
-  |
-  | Your ConversationScreen currently uses:
-  |
-  | onSelect={(emoji) => ...}
-  |
-  | Older code may use:
-  |
-  | onReact={(emoji) => ...}
-  |
-  | We support both.
-  |
-  */
 
   const reactionHandler = useMemo(() => {
     if (
@@ -89,12 +57,6 @@ export default function ReactionBar({
 
     return null;
   }, [onSelect, onReact]);
-
-  /*
-  |--------------------------------------------------------------------------
-  | Select reaction
-  |--------------------------------------------------------------------------
-  */
 
   const handleReaction =
     useCallback(
@@ -115,12 +77,6 @@ export default function ReactionBar({
       [reactionHandler]
     );
 
-  /*
-  |--------------------------------------------------------------------------
-  | Render
-  |--------------------------------------------------------------------------
-  */
-
   return (
     <View
       style={styles.wrapper}
@@ -128,7 +84,6 @@ export default function ReactionBar({
       <View
         style={styles.container}
       >
-        {/* Reaction emojis */}
 
         <View
           style={styles.reactionsRow}
@@ -169,8 +124,6 @@ export default function ReactionBar({
           )}
         </View>
 
-        {/* More reactions button */}
-
         {showMoreButton && (
           <TouchableOpacity
             style={
@@ -178,11 +131,7 @@ export default function ReactionBar({
             }
             activeOpacity={0.7}
             onPress={() => {
-              /*
-               * You can later open a full emoji picker here.
-               * For now this simply provides the Instagram-style
-               * "+" control without breaking the component.
-               */
+
             }}
           >
             <Ionicons
@@ -196,12 +145,6 @@ export default function ReactionBar({
     </View>
   );
 }
-
-/*
-|--------------------------------------------------------------------------
-| Styles
-|--------------------------------------------------------------------------
-*/
 
 const styles =
   StyleSheet.create({

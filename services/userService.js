@@ -1,38 +1,41 @@
 import api from "./api";
 
-/**
- * Search users
- */
 export async function searchUsers(query = "") {
+  const cleanQuery = String(query || "").trim();
+
+  if (!cleanQuery) {
+    return [];
+  }
+
   const response = await api.get("/users/search", {
     params: {
-      q: query,
+      q: cleanQuery,
     },
   });
 
-  return response.data?.users || [];
+  return Array.isArray(response.data?.users)
+    ? response.data.users
+    : [];
 }
 
-/**
- * Get a user's profile by username
- */
 export async function getUserProfile(username) {
-  if (!username) {
+  const cleanUsername = String(username || "")
+    .trim()
+    .toLowerCase();
+
+  if (!cleanUsername) {
     return null;
   }
 
   const response = await api.get(
-    `/users/profile/${encodeURIComponent(username)}`
+    `/users/profile/${encodeURIComponent(cleanUsername)}`
   );
 
   return response.data?.user || null;
 }
 
-/**
- * Update the authenticated user's profile
- */
 export async function updateProfile({
-  name = "",
+  fullName = "",
   username = "",
   bio = "",
   website = "",
@@ -42,12 +45,35 @@ export async function updateProfile({
 }) {
   const formData = new FormData();
 
-  formData.append("name", String(name || ""));
-  formData.append("username", String(username || ""));
-  formData.append("bio", String(bio || ""));
-  formData.append("website", String(website || ""));
-  formData.append("pronouns", String(pronouns || ""));
-  formData.append("gender", String(gender || ""));
+  formData.append(
+    "fullName",
+    String(fullName || "").trim()
+  );
+
+  formData.append(
+    "username",
+    String(username || "").trim().toLowerCase()
+  );
+
+  formData.append(
+    "bio",
+    String(bio || "").trim()
+  );
+
+  formData.append(
+    "website",
+    String(website || "").trim()
+  );
+
+  formData.append(
+    "pronouns",
+    String(pronouns || "").trim()
+  );
+
+  formData.append(
+    "gender",
+    String(gender || "").trim()
+  );
 
   if (avatar?.uri) {
     formData.append("avatar", {
@@ -55,7 +81,10 @@ export async function updateProfile({
       name:
         avatar.fileName ||
         `snapgram-avatar-${Date.now()}.jpg`,
-      type: avatar.mimeType || "image/jpeg",
+      type:
+        avatar.mimeType ||
+        avatar.type ||
+        "image/jpeg",
     });
   }
 
@@ -72,40 +101,39 @@ export async function updateProfile({
   return response.data?.user || null;
 }
 
-/**
- * Get posts created by a user
- */
 export async function getUserPosts(username) {
-  if (!username) {
+  const cleanUsername = String(username || "")
+    .trim()
+    .toLowerCase();
+
+  if (!cleanUsername) {
     return [];
   }
 
   const response = await api.get(
-    `/users/${encodeURIComponent(username)}/posts`
+    `/users/${encodeURIComponent(cleanUsername)}/posts`
   );
 
-  return response.data?.posts || [];
+  return Array.isArray(response.data?.posts)
+    ? response.data.posts
+    : [];
 }
 
-/**
- * Get saved posts for the authenticated user
- */
 export async function getSavedPosts() {
   const response = await api.get("/users/saved");
 
-  return response.data?.posts || [];
+  return Array.isArray(response.data?.posts)
+    ? response.data.posts
+    : [];
 }
 
-/**
- * Get a user's online/status information
- */
 export async function getUserStatus(userId) {
   if (!userId) {
     return null;
   }
 
   const response = await api.get(
-    `/status/${userId}`
+    `/status/${encodeURIComponent(userId)}`
   );
 
   return response.data || null;

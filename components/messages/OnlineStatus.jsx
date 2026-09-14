@@ -55,9 +55,6 @@ export default function OnlineStatus({
 
     loadStatus();
 
-    /*
-     * Get the globally connected socket.
-     */
     try {
       socket = getSocket();
     } catch (error) {
@@ -103,11 +100,6 @@ export default function OnlineStatus({
     };
   }, [userId, loadStatus]);
 
-  /*
-   * Refresh the displayed "5m ago",
-   * "6m ago", etc. without making
-   * another API request.
-   */
   useEffect(() => {
     if (!status.lastSeen || status.online) {
       return;
@@ -157,12 +149,6 @@ export default function OnlineStatus({
     </View>
   );
 }
-
-/*
-|--------------------------------------------------------------------------
-| LAST SEEN FORMATTER
-|--------------------------------------------------------------------------
-*/
 
 function formatLastSeen(lastSeen) {
   if (!lastSeen) {
@@ -222,12 +208,6 @@ function formatLastSeen(lastSeen) {
     }
   )}`;
 }
-
-/*
-|--------------------------------------------------------------------------
-| STYLES
-|--------------------------------------------------------------------------
-*/
 
 const styles = StyleSheet.create({
   container: {

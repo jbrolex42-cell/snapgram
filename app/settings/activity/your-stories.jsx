@@ -186,21 +186,19 @@ export default function StoriesScreen() {
           />
         }
       >
-        {/* Header */}
+
         <InfoCard
           icon="camera-outline"
           title="Your stories"
           text="Manage stories you've shared, view their activity, and access archived stories."
         />
 
-        {/* Error */}
         {error ? (
           <Notice>
             {error}
           </Notice>
         ) : null}
 
-        {/* Summary */}
         {!error ? (
           <View style={styles.summaryCard}>
             <View style={styles.summaryItem}>
@@ -233,7 +231,6 @@ export default function StoriesScreen() {
           </View>
         ) : null}
 
-        {/* Stories */}
         {items.length > 0 ? (
           <View style={styles.list}>
             {items.map((item, index) => {
@@ -274,7 +271,6 @@ export default function StoriesScreen() {
           </View>
         ) : null}
 
-        {/* Footer information */}
         {items.length > 0 ? (
           <Notice>
             Tap a story to view its details, activity, and management options.
@@ -329,4 +325,3 @@ const styles = StyleSheet.create({
     marginTop: 10,
   },
 });
-

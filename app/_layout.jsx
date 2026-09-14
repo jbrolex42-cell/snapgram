@@ -1,10 +1,14 @@
-import React, { useEffect } from "react";
+import React, {
+  useCallback,
+  useEffect,
+  useRef,
+} from "react";
 
 import {
   Stack,
   router,
+  usePathname,
   useRootNavigationState,
-  useSegments,
 } from "expo-router";
 
 import {
@@ -20,19 +24,29 @@ import {
 } from "../context/AuthContext";
 
 import {
+  connectSocket,
   getSocket,
 } from "../services/socket";
 
-function LoadingScreen() {
-  return (
-    <View style={styles.loadingScreen}>
-      <Text style={styles.loadingLogo}>
-        Snapgram
-      </Text>
+import {
+  getNotificationResponseData,
+} from "../services/notificationService";
 
-      <ActivityIndicator
-        size="small"
-      />
+function LoadingOverlay() {
+  return (
+    <View
+      pointerEvents="auto"
+      style={styles.loadingOverlay}
+    >
+      <View style={styles.loadingCard}>
+        <Text style={styles.loadingLogo}>
+          Snapgram
+        </Text>
+
+        <ActivityIndicator
+          size="small"
+        />
+      </View>
     </View>
   );
 }
@@ -40,144 +54,574 @@ function LoadingScreen() {
 function RootNavigator() {
   const {
     user,
-    loading,
+    loading: authLoading,
   } = useAuth();
 
   const navigationState =
     useRootNavigationState();
 
-  const segments =
-    useSegments();
+  const pathname =
+    usePathname();
+
+  const currentUserId =
+    user?._id ||
+    user?.id ||
+    user?.userId ||
+    "";
+
+  const navigationReady =
+    Boolean(navigationState?.key);
+
+  const redirectingRef =
+    useRef(false);
+
+  const lastAuthRouteRef =
+    useRef("");
+
+  const handledCallIdsRef =
+    useRef(new Set());
+
+  const navigatingToCallRef =
+    useRef(false);
+
+  const isAuthRoute =
+    pathname === "/login" ||
+    pathname?.startsWith("/(auth)") ||
+    pathname?.startsWith("/login");
+
+  const isCallRoute =
+    pathname?.startsWith("/calls");
+
+  const isIncomingCallRoute =
+    pathname === "/calls/incoming" ||
+    pathname?.startsWith("/calls/incoming/");
 
   useEffect(() => {
-    if (
-      loading ||
-      !navigationState?.key
-    ) {
+    if (!navigationReady) {
       return;
     }
 
-    const firstSegment =
-      segments?.[0];
-
-    const inAuthGroup =
-      firstSegment === "(auth)";
-
-    const inAppGroup =
-      firstSegment === "(tabs)";
+    if (authLoading) {
+      return;
+    }
 
     if (!user) {
-      if (!inAuthGroup) {
-        router.replace(
-          "/(auth)/login"
-        );
+      if (isAuthRoute) {
+        return;
       }
 
-      return;
+      if (
+        lastAuthRouteRef.current ===
+        "login"
+      ) {
+        return;
+      }
+
+      lastAuthRouteRef.current =
+        "login";
+
+      redirectingRef.current =
+        true;
+
+      router.replace(
+        "/(auth)/login"
+      );
+
+      const timer =
+        setTimeout(() => {
+          redirectingRef.current =
+            false;
+        }, 300);
+
+      return () =>
+        clearTimeout(timer);
     }
 
-    if (
-      inAuthGroup ||
-      !firstSegment
-    ) {
+    lastAuthRouteRef.current =
+      "";
+
+    if (isAuthRoute) {
+      if (redirectingRef.current) {
+        return;
+      }
+
+      redirectingRef.current =
+        true;
+
       router.replace(
         "/(tabs)"
       );
 
-      return;
-    }
+      const timer =
+        setTimeout(() => {
+          redirectingRef.current =
+            false;
+        }, 300);
 
-    if (
-      inAppGroup ||
-      firstSegment
-    ) {
-      return;
+      return () =>
+        clearTimeout(timer);
     }
   }, [
     user,
-    loading,
-    navigationState?.key,
-    segments,
+    authLoading,
+    navigationReady,
+    isAuthRoute,
   ]);
 
-  useEffect(() => {
-    if (
-      loading ||
-      !user
-    ) {
-      return;
-    }
+  const normalizeIncomingCall =
+    useCallback((call) => {
+      if (!call) {
+        return null;
+      }
 
-    const socket =
-      getSocket();
+      const callId =
+        call?.callId ||
+        call?._id ||
+        call?.id;
 
-    if (!socket) {
-      return;
-    }
+      if (!callId) {
+        console.warn(
+          "INCOMING CALL: Missing call ID.",
+          call
+        );
 
-    const handleIncomingCall =
-      (call) => {
+        return null;
+      }
+
+      const caller =
+        call?.caller ||
+        call?.from ||
+        call?.initiator ||
+        {};
+
+      const callerId =
+        caller?._id ||
+        caller?.id ||
+        caller?.userId ||
+        call?.callerId ||
+        call?.fromUserId ||
+        "";
+
+      const callerName =
+        caller?.username ||
+        caller?.fullName ||
+        caller?.name ||
+        call?.callerName ||
+        call?.username ||
+        "Someone";
+
+      const callerAvatar =
+        caller?.avatar ||
+        caller?.profilePicture ||
+        caller?.profileImage ||
+        call?.callerAvatar ||
+        call?.avatar ||
+        "";
+
+      const rawType =
+        call?.type ||
+        call?.callType ||
+        "voice";
+
+      const type =
+        String(rawType).toLowerCase() ===
+        "video"
+          ? "video"
+          : "voice";
+
+      return {
+        callId: String(callId),
+
+        callerId: String(
+          callerId || ""
+        ),
+
+        callerName: String(
+          callerName
+        ),
+
+        callerAvatar: String(
+          callerAvatar || ""
+        ),
+
+        type,
+      };
+    }, []);
+
+  const openIncomingCall =
+    useCallback(
+      (rawCall) => {
+        if (!rawCall || !user) {
+          return;
+        }
+
+        if (!navigationReady) {
+          return;
+        }
+
+        const call =
+          normalizeIncomingCall(
+            rawCall
+          );
+
         if (!call) {
           return;
         }
+
+        const {
+          callId,
+          callerId,
+          callerName,
+          callerAvatar,
+          type,
+        } = call;
+
+        if (
+          currentUserId &&
+          callerId &&
+          String(callerId) ===
+            String(currentUserId)
+        ) {
+          return;
+        }
+
+        if (
+          handledCallIdsRef.current.has(
+            callId
+          )
+        ) {
+          return;
+        }
+
+        if (isCallRoute) {
+          console.log(
+            "INCOMING CALL IGNORED: already in call.",
+            callId
+          );
+
+          return;
+        }
+
+        if (isIncomingCallRoute) {
+          return;
+        }
+
+        if (
+          navigatingToCallRef.current
+        ) {
+          return;
+        }
+
+        handledCallIdsRef.current.add(
+          callId
+        );
+
+        navigatingToCallRef.current =
+          true;
+
+        console.log(
+          "OPENING INCOMING CALL:",
+          call
+        );
 
         router.push({
           pathname:
             "/calls/incoming",
 
           params: {
-            callId:
-              call?.callId ||
-              "",
-
-            username:
-              call?.caller
-                ?.username ||
-              "",
-
-            avatar:
-              call?.caller
-                ?.avatar ||
-              "",
-
-            type:
-              call?.type ||
-              "voice",
-
-            callerId:
-              call?.caller
-                ?._id ||
-              "",
+            callId,
+            callerId,
+            callerName,
+            callerAvatar,
+            username: callerName,
+            avatar: callerAvatar,
+            type,
           },
         });
-      };
 
-    socket.on(
-      "call:incoming",
-      handleIncomingCall
+        const timer =
+          setTimeout(() => {
+            navigatingToCallRef.current =
+              false;
+          }, 700);
+
+        return () =>
+          clearTimeout(timer);
+      },
+      [
+        user,
+        navigationReady,
+        currentUserId,
+        normalizeIncomingCall,
+        isCallRoute,
+        isIncomingCallRoute,
+      ]
     );
 
-    return () => {
-      socket.off(
-        "call:incoming",
-        handleIncomingCall
+  useEffect(() => {
+    if (
+      authLoading ||
+      !user ||
+      !currentUserId ||
+      !navigationReady
+    ) {
+      return;
+    }
+
+    let cancelled = false;
+
+    try {
+      console.log(
+        "ROOT SOCKET: Connecting user:",
+        currentUserId
       );
+
+      const socket =
+        connectSocket(
+          String(currentUserId)
+        );
+
+      if (!socket) {
+        console.warn(
+          "ROOT SOCKET: connectSocket returned no socket."
+        );
+
+        return;
+      }
+
+      if (cancelled) {
+        return;
+      }
+
+      console.log(
+        "ROOT SOCKET: Socket ready."
+      );
+    } catch (error) {
+      console.error(
+        "ROOT SOCKET CONNECTION ERROR:",
+        error
+      );
+    }
+
+    return () => {
+      cancelled = true;
     };
   }, [
+    authLoading,
     user,
-    loading,
+    currentUserId,
+    navigationReady,
   ]);
 
-  if (loading) {
-    return <LoadingScreen />;
-  }
+  useEffect(() => {
+    if (
+      authLoading ||
+      !user ||
+      !currentUserId ||
+      !navigationReady
+    ) {
+      return;
+    }
+
+    let cancelled = false;
+    let socket = null;
+
+    const attachListener =
+      () => {
+        if (cancelled) {
+          return;
+        }
+
+        socket =
+          getSocket();
+
+        if (!socket) {
+          console.warn(
+            "ROOT CALL LISTENER: Socket unavailable."
+          );
+
+          return;
+        }
+
+        socket.off(
+          "call:incoming",
+          openIncomingCall
+        );
+
+        socket.on(
+          "call:incoming",
+          openIncomingCall
+        );
+
+        console.log(
+          "ROOT CALL LISTENER: attached."
+        );
+      };
+
+    attachListener();
+
+    const currentSocket =
+      getSocket();
+
+    if (currentSocket) {
+      currentSocket.on(
+        "connect",
+        attachListener
+      );
+    }
+
+    return () => {
+      cancelled = true;
+
+      if (socket) {
+        socket.off(
+          "call:incoming",
+          openIncomingCall
+        );
+      }
+
+      if (currentSocket) {
+        currentSocket.off(
+          "connect",
+          attachListener
+        );
+      }
+    };
+  }, [
+    authLoading,
+    user,
+    currentUserId,
+    navigationReady,
+    openIncomingCall,
+  ]);
+
+  useEffect(() => {
+    if (
+      authLoading ||
+      !navigationReady
+    ) {
+      return;
+    }
+
+    let cancelled = false;
+    let subscription = null;
+
+    const setup =
+      async () => {
+        try {
+          const Notifications =
+            await import(
+              "expo-notifications"
+            );
+
+          if (cancelled) {
+            return;
+          }
+
+          const {
+            addNotificationResponseReceivedListener,
+          } = Notifications;
+
+          if (
+            typeof addNotificationResponseReceivedListener !==
+            "function"
+          ) {
+            return;
+          }
+
+          subscription =
+            addNotificationResponseReceivedListener(
+              (response) => {
+                try {
+                  const data =
+                    getNotificationResponseData(
+                      response
+                    );
+
+                  if (!data) {
+                    return;
+                  }
+
+                  if (
+                    data?.type !==
+                    "incoming-call"
+                  ) {
+                    return;
+                  }
+
+                  console.log(
+                    "CALL NOTIFICATION OPENED:",
+                    data
+                  );
+
+                  openIncomingCall({
+                    callId:
+                      data?.callId,
+
+                    callType:
+                      data?.callType ||
+                      "voice",
+
+                    callerId:
+                      data?.callerId,
+
+                    callerName:
+                      data?.callerName,
+
+                    callerAvatar:
+                      data?.callerAvatar,
+                  });
+                } catch (error) {
+                  console.error(
+                    "CALL NOTIFICATION HANDLER ERROR:",
+                    error
+                  );
+                }
+              }
+            );
+        } catch (error) {
+          console.warn(
+            "NOTIFICATION LISTENER SETUP FAILED:",
+            error?.message ||
+              error
+          );
+        }
+      };
+
+    setup();
+
+    return () => {
+      cancelled = true;
+
+      if (
+        subscription &&
+        typeof subscription.remove ===
+          "function"
+      ) {
+        subscription.remove();
+        subscription = null;
+      }
+    };
+  }, [
+    authLoading,
+    navigationReady,
+    openIncomingCall,
+  ]);
 
   return (
-    <Stack
-      screenOptions={{
-        headerShown: false,
-      }}
-    />
+    <View style={styles.root}>
+
+      <Stack
+        screenOptions={{
+          headerShown: false,
+          animation: "default",
+        }}
+      />
+
+      {authLoading && (
+        <LoadingOverlay />
+      )}
+    </View>
   );
 }
 
@@ -190,12 +634,28 @@ export default function RootLayout() {
 }
 
 const styles = StyleSheet.create({
-  loadingScreen: {
+  root: {
     flex: 1,
+    backgroundColor:
+      "#FFFFFF",
+  },
+
+  loadingOverlay: {
+    ...StyleSheet.absoluteFillObject,
 
     backgroundColor:
       "#FFFFFF",
 
+    alignItems:
+      "center",
+
+    justifyContent:
+      "center",
+
+    zIndex: 9999,
+  },
+
+  loadingCard: {
     alignItems:
       "center",
 
@@ -214,5 +674,8 @@ const styles = StyleSheet.create({
 
     marginBottom:
       20,
+
+    letterSpacing:
+      -1,
   },
 });

@@ -88,7 +88,7 @@ export default function ProfileHeader({
     <View style={styles.container}>
 
       <View style={styles.profileRow}>
-        {/* Avatar */}
+
         <View style={styles.avatarWrapper}>
           <Image
             source={
@@ -100,7 +100,6 @@ export default function ProfileHeader({
           />
         </View>
 
-        {/* Stats */}
         <View style={styles.statsContainer}>
           <View style={styles.stat}>
             <Text style={styles.statNumber}>

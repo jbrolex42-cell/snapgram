@@ -5,7 +5,6 @@ import {
   Alert,
   KeyboardAvoidingView,
   Platform,
-  SafeAreaView,
   ScrollView,
   StyleSheet,
   Text,
@@ -16,6 +15,7 @@ import {
 
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
+import { SafeAreaView } from "react-native-safe-area-context";
 
 import Colors from "../../constants/Colors";
 import { useAuth } from "../../context/AuthContext";
@@ -60,7 +60,10 @@ export default function LoginScreen() {
     try {
       setLoading(true);
 
-      await login(cleanIdentifier, password);
+      await login(
+        cleanIdentifier,
+        password
+      );
 
       router.replace("/(tabs)");
     } catch (error) {
@@ -82,11 +85,11 @@ export default function LoginScreen() {
     try {
       setLoading(true);
 
-      const {
-        loginWithGoogle,
-      } = await import("../../services/socialAuth");
+      const { loginWithGoogle } =
+        await import("../../services/socialAuth");
 
-      const result = await loginWithGoogle();
+      const result =
+        await loginWithGoogle();
 
       if (!result?.token) {
         throw new Error(
@@ -104,7 +107,10 @@ export default function LoginScreen() {
 
       router.replace("/(tabs)");
     } catch (error) {
-      console.error("GOOGLE LOGIN ERROR:", error);
+      console.error(
+        "GOOGLE LOGIN ERROR:",
+        error
+      );
 
       Alert.alert(
         "Google login failed",
@@ -122,11 +128,11 @@ export default function LoginScreen() {
     try {
       setLoading(true);
 
-      const {
-        loginWithFacebook,
-      } = await import("../../services/socialAuth");
+      const { loginWithFacebook } =
+        await import("../../services/socialAuth");
 
-      const result = await loginWithFacebook();
+      const result =
+        await loginWithFacebook();
 
       if (!result?.token) {
         throw new Error(
@@ -144,7 +150,10 @@ export default function LoginScreen() {
 
       router.replace("/(tabs)");
     } catch (error) {
-      console.error("FACEBOOK LOGIN ERROR:", error);
+      console.error(
+        "FACEBOOK LOGIN ERROR:",
+        error
+      );
 
       Alert.alert(
         "Facebook login failed",
@@ -159,13 +168,17 @@ export default function LoginScreen() {
   function handleForgotPassword() {
     if (isLoading) return;
 
-    router.push("/(auth)/forgot-password");
+    router.push(
+      "/(auth)/forgot-password"
+    );
   }
 
   function handleRegister() {
     if (isLoading) return;
 
-    router.push("/(auth)/register");
+    router.push(
+      "/(auth)/register"
+    );
   }
 
   if (authLoading) {
@@ -184,7 +197,10 @@ export default function LoginScreen() {
   }
 
   return (
-    <SafeAreaView style={styles.safeArea}>
+    <SafeAreaView
+      style={styles.safeArea}
+      edges={["top", "bottom"]}
+    >
       <KeyboardAvoidingView
         style={styles.keyboard}
         behavior={
@@ -196,7 +212,9 @@ export default function LoginScreen() {
         <ScrollView
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
-          contentContainerStyle={styles.scrollContent}
+          contentContainerStyle={
+            styles.scrollContent
+          }
         >
           <View style={styles.container}>
 
@@ -224,7 +242,11 @@ export default function LoginScreen() {
                   style={styles.input}
                 />
 
-                <View style={styles.passwordWrapper}>
+                <View
+                  style={
+                    styles.passwordWrapper
+                  }
+                >
                   <TextInput
                     value={password}
                     onChangeText={setPassword}
@@ -232,11 +254,17 @@ export default function LoginScreen() {
                     placeholderTextColor="#8E8E8E"
                     autoCapitalize="none"
                     autoCorrect={false}
-                    secureTextEntry={!showPassword}
+                    secureTextEntry={
+                      !showPassword
+                    }
                     editable={!isLoading}
                     returnKeyType="done"
-                    onSubmitEditing={handleLogin}
-                    style={styles.passwordInput}
+                    onSubmitEditing={
+                      handleLogin
+                    }
+                    style={
+                      styles.passwordInput
+                    }
                   />
 
                   <TouchableOpacity
@@ -246,11 +274,19 @@ export default function LoginScreen() {
                       )
                     }
                     disabled={isLoading}
-                    style={styles.showButton}
+                    style={
+                      styles.showButton
+                    }
                     activeOpacity={0.7}
                   >
-                    <Text style={styles.showText}>
-                      {showPassword ? "Hide" : "Show"}
+                    <Text
+                      style={
+                        styles.showText
+                      }
+                    >
+                      {showPassword
+                        ? "Hide"
+                        : "Show"}
                     </Text>
                   </TouchableOpacity>
                 </View>
@@ -271,48 +307,84 @@ export default function LoginScreen() {
                       color="#FFFFFF"
                     />
                   ) : (
-                    <Text style={styles.loginButtonText}>
+                    <Text
+                      style={
+                        styles.loginButtonText
+                      }
+                    >
                       Log in
                     </Text>
                   )}
                 </TouchableOpacity>
 
                 <TouchableOpacity
-                  onPress={handleForgotPassword}
+                  onPress={
+                    handleForgotPassword
+                  }
                   disabled={isLoading}
-                  style={styles.forgotButton}
+                  style={
+                    styles.forgotButton
+                  }
                   activeOpacity={0.7}
                 >
-                  <Text style={styles.forgotText}>
+                  <Text
+                    style={
+                      styles.forgotText
+                    }
+                  >
                     Forgot password?
                   </Text>
                 </TouchableOpacity>
 
               </View>
 
-              <View style={styles.dividerContainer}>
-                <View style={styles.divider} />
+              <View
+                style={
+                  styles.dividerContainer
+                }
+              >
+                <View
+                  style={styles.divider}
+                />
 
-                <Text style={styles.orText}>
+                <Text
+                  style={styles.orText}
+                >
                   OR
                 </Text>
 
-                <View style={styles.divider} />
+                <View
+                  style={styles.divider}
+                />
               </View>
 
               <TouchableOpacity
                 style={styles.socialButton}
-                onPress={handleFacebookLogin}
+                onPress={
+                  handleFacebookLogin
+                }
                 disabled={isLoading}
                 activeOpacity={0.8}
               >
-                <View style={styles.facebookIcon}>
-                  <Text style={styles.facebookLetter}>
+                <View
+                  style={
+                    styles.facebookIcon
+                  }
+                >
+                  <Text
+                    style={
+                      styles.facebookLetter
+                    }
+                  >
                     f
                   </Text>
                 </View>
 
-                <Text style={styles.facebookText}>
+                <Text
+                  style={
+                    styles.facebookText
+                  }
+                >
                   Log in with Facebook
                 </Text>
               </TouchableOpacity>
@@ -322,25 +394,37 @@ export default function LoginScreen() {
                   styles.socialButton,
                   styles.googleButton,
                 ]}
-                onPress={handleGoogleLogin}
+                onPress={
+                  handleGoogleLogin
+                }
                 disabled={isLoading}
                 activeOpacity={0.8}
               >
-                <View style={styles.googleIcon}>
-                  <Text style={styles.googleG}>
+                <View
+                  style={styles.googleIcon}
+                >
+                  <Text
+                    style={styles.googleG}
+                  >
                     G
                   </Text>
                 </View>
 
-                <Text style={styles.googleText}>
+                <Text
+                  style={styles.googleText}
+                >
                   Log in with Google
                 </Text>
               </TouchableOpacity>
 
             </View>
 
-            <View style={styles.signupCard}>
-              <Text style={styles.signupText}>
+            <View
+              style={styles.signupCard}
+            >
+              <Text
+                style={styles.signupText}
+              >
                 Don't have an account?
               </Text>
 
@@ -349,54 +433,20 @@ export default function LoginScreen() {
                 disabled={isLoading}
                 activeOpacity={0.7}
               >
-                <Text style={styles.signupLink}>
+                <Text
+                  style={
+                    styles.signupLink
+                  }
+                >
                   Sign up
                 </Text>
               </TouchableOpacity>
             </View>
 
-            <View style={styles.getAppContainer}>
-              <Text style={styles.getAppText}>
-                Get the app.
-              </Text>
-
-              <View style={styles.storeButtons}>
-
-                <TouchableOpacity
-                  style={styles.storeButton}
-                  activeOpacity={0.8}
-                >
-                  <Ionicons
-                    name="logo-google-playstore"
-                    size={19}
-                    color="#111111"
-                  />
-
-                  <Text style={styles.storeText}>
-                    Google Play
-                  </Text>
-                </TouchableOpacity>
-
-                <TouchableOpacity
-                  style={styles.storeButton}
-                  activeOpacity={0.8}
-                >
-                  <Ionicons
-                    name="logo-apple"
-                    size={20}
-                    color="#111111"
-                  />
-
-                  <Text style={styles.storeText}>
-                    App Store
-                  </Text>
-                </TouchableOpacity>
-
-              </View>
-            </View>
-
             <View style={styles.footer}>
-              <Text style={styles.footerText}>
+              <Text
+                style={styles.footerText}
+              >
                 © 2026 Snapgram
               </Text>
             </View>
@@ -491,8 +541,8 @@ const styles = StyleSheet.create({
   },
 
   showButton: {
-    paddingHorizontal: 10,
     height: "100%",
+    paddingHorizontal: 10,
     justifyContent: "center",
   },
 
@@ -610,10 +660,10 @@ const styles = StyleSheet.create({
   signupCard: {
     width: "100%",
     maxWidth: 350,
+    minHeight: 62,
     borderWidth: 1,
     borderColor: "#DBDBDB",
     marginTop: 10,
-    minHeight: 62,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",

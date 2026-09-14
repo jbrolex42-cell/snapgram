@@ -15,25 +15,16 @@ import CameraView from "../../components/create/CameraView";
 export default function CameraScreen() {
   const params = useLocalSearchParams();
 
-  /*
-   * ==============================
-   * CAMERA MODE
-   * ==============================
-   *
-   * Supported:
-   * post
-   * story
-   * reel
-   * live
-   */
   const mode = useMemo(() => {
-    const value = params?.mode;
+    const value = Array.isArray(params?.mode)
+      ? params.mode[0]
+      : params?.mode;
 
     if (typeof value !== "string") {
       return "post";
     }
 
-    const normalized = value.toLowerCase();
+    const normalized = value.toLowerCase().trim();
 
     if (
       normalized === "story" ||
@@ -47,41 +38,23 @@ export default function CameraScreen() {
     return "post";
   }, [params?.mode]);
 
-  /*
-   * ==============================
-   * CLOSE CAMERA
-   * ==============================
-   */
   const handleClose = useCallback(() => {
-    try {
-      if (router.canGoBack()) {
-        router.back();
-        return;
-      }
-
-      router.replace("/");
-    } catch (error) {
-      console.log(
-        "CAMERA CLOSE ERROR:",
-        error
-      );
-
-      router.replace("/");
+    if (router.canGoBack()) {
+      router.back();
+      return;
     }
+
+    router.replace("/");
   }, []);
 
-  /*
-   * ==============================
-   * NORMALIZE CAPTURED MEDIA
-   * ==============================
-   */
   const normalizeMedia = useCallback((media) => {
     if (!media?.uri) {
       return null;
     }
 
     const isVideo =
-      media.type === "video";
+      media.type === "video" ||
+      media.mimeType?.startsWith("video/");
 
     const type = isVideo
       ? "video"
@@ -99,9 +72,7 @@ export default function CameraScreen() {
 
     return {
       uri: media.uri,
-
       type,
-
       mimeType,
 
       fileName:
@@ -125,126 +96,66 @@ export default function CameraScreen() {
     };
   }, []);
 
-  /*
-   * ==============================
-   * HANDLE CAPTURE
-   * ==============================
-   */
   const handleCaptured = useCallback(
     (media) => {
-      console.log(
-        "CAMERA CAPTURED:",
-        media
-      );
+      console.log("CAMERA CAPTURED:", media);
 
       const normalizedMedia =
         normalizeMedia(media);
 
-      if (!normalizedMedia) {
-        console.log(
-          "CAMERA CAPTURE ERROR: No media URI"
+      if (!normalizedMedia?.uri) {
+        console.error(
+          "CAMERA CAPTURE ERROR: Missing media URI"
         );
         return;
       }
 
-      /*
-       * Expo Router parameters
-       * must be serializable strings.
-       */
-      const mediaParam =
-        JSON.stringify([
-          normalizedMedia,
-        ]);
+      const mediaParam = JSON.stringify([
+        normalizedMedia,
+      ]);
 
-      /*
-       * ==============================
-       * POST
-       * ==============================
-       */
-      if (mode === "post") {
-        router.push({
-          pathname: "/create/editor",
-          params: {
-            media: mediaParam,
-            mode: "post",
-          },
-        });
+      switch (mode) {
+        case "story":
+          router.push({
+            pathname: "/create/story",
+            params: {
+              media: mediaParam,
+            },
+          });
+          return;
 
-        return;
+        case "reel":
+          router.push({
+            pathname: "/create/reel",
+            params: {
+              media: mediaParam,
+            },
+          });
+          return;
+
+        case "live":
+          router.replace({
+            pathname: "/create/live",
+            params: {
+              mode: "live",
+            },
+          });
+          return;
+
+        case "post":
+        default:
+          router.push({
+            pathname: "/create/editor",
+            params: {
+              media: mediaParam,
+              mode: "post",
+            },
+          });
       }
-
-      /*
-       * ==============================
-       * STORY
-       * ==============================
-       */
-      if (mode === "story") {
-        router.push({
-          pathname: "/create/story",
-          params: {
-            media: mediaParam,
-          },
-        });
-
-        return;
-      }
-
-      /*
-       * ==============================
-       * REEL
-       * ==============================
-       */
-      if (mode === "reel") {
-        router.push({
-          pathname: "/create/reel",
-          params: {
-            media: mediaParam,
-          },
-        });
-
-        return;
-      }
-
-      /*
-       * ==============================
-       * LIVE
-       * ==============================
-       *
-       * Live should not wait for
-       * captured media.
-       */
-      if (mode === "live") {
-        router.replace({
-          pathname: "/create/live",
-          params: {
-            mode: "live",
-          },
-        });
-
-        return;
-      }
-
-      /*
-       * ==============================
-       * FALLBACK
-       * ==============================
-       */
-      router.push({
-        pathname: "/create/editor",
-        params: {
-          media: mediaParam,
-          mode: "post",
-        },
-      });
     },
     [mode, normalizeMedia]
   );
 
-  /*
-   * ==============================
-   * RENDER
-   * ==============================
-   */
   return (
     <View style={styles.container}>
       <CameraView
@@ -259,8 +170,6 @@ export default function CameraScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    width: "100%",
-    height: "100%",
-    backgroundColor: "#000000",
+    backgroundColor: "#000",
   },
 });

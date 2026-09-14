@@ -66,7 +66,7 @@ export default function HelpScreen() {
 
   function contactWhatsApp() {
     openURL(
-      `https://wa.me/${SUPPORT_WHATSAPP}?text=Hello%20Snapgram%20Support,%20I%20need%20help.`,
+      `https://wa.me/qr/WYE74MOMBBA3J1/${SUPPORT_WHATSAPP}?text=Hello%20Snapgram%20Support,%20I%20need%20help.`,
       "WhatsApp is not available on this device."
     );
   }
@@ -281,4 +281,3 @@ const styles = StyleSheet.create({
     paddingBottom: 20,
   },
 });
-

@@ -262,7 +262,6 @@ export default function ReelScreen() {
         }
       />
 
-      {/* TOP GRADIENT so the back/mute icons stay legible */}
       <LinearGradient
         pointerEvents="none"
         colors={[

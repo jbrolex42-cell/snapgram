@@ -4,43 +4,53 @@ function getErrorDetails(error) {
   return {
     message: error?.message,
     code: error?.code,
+    status: error?.response?.status,
     url: error?.config?.url,
     baseURL: error?.config?.baseURL,
     method: error?.config?.method,
-    status: error?.response?.status,
     response: error?.response?.data,
   };
 }
 
+function getData(response, fallback = null) {
+  return response?.data ?? fallback;
+}
+
+function getArray(response, key) {
+  const value =
+    response?.data?.[key] ??
+    response?.data?.data?.[key] ??
+    [];
+
+  return Array.isArray(value) ? value : [];
+}
+
 export async function getStories() {
   try {
-    console.log("GET STORIES START");
-
     const response = await api.get("/stories");
 
-    console.log("GET STORIES SUCCESS:", {
-      status: response.status,
-      count: response.data?.stories?.length || 0,
-    });
-
-    return response.data?.stories || [];
+    return getArray(response, "stories");
   } catch (error) {
-    console.error("GET STORIES FAILED:", getErrorDetails(error));
+    console.error(
+      "GET STORIES FAILED:",
+      getErrorDetails(error)
+    );
+
     throw error;
   }
 }
 
 export async function getUserStories(userId) {
-  try {
-    if (!userId) {
-      throw new Error("User ID is required");
-    }
+  if (!userId) {
+    throw new Error("User ID is required");
+  }
 
+  try {
     const response = await api.get(
       `/stories/user/${userId}`
     );
 
-    return response.data?.stories || [];
+    return getArray(response, "stories");
   } catch (error) {
     console.error(
       "GET USER STORIES FAILED:",
@@ -53,79 +63,18 @@ export async function getUserStories(userId) {
 
 export async function getStoryGroups() {
   try {
-    console.log("━━━━━━━━ GET STORY GROUPS START ━━━━━━━━");
-
-    const url = "/stories/groups";
-
-    console.log("REQUEST URL:", url);
-
-    const response = await api.get(url, {
-      timeout: 30000,
-    });
-
-    console.log(
-      "GET STORY GROUPS SUCCESS:",
-      response.status
+    const response = await api.get(
+      "/stories/groups",
+      {
+        timeout: 30000,
+      }
     );
 
-    console.log(
-      "GROUP COUNT:",
-      response.data?.groups?.length || 0
-    );
-
-    return response.data?.groups || [];
+    return getArray(response, "groups");
   } catch (error) {
     console.error(
-      "━━━━━━━━ GET STORY GROUPS FAILED ━━━━━━━━"
-    );
-
-    console.error(
-      "MESSAGE:",
-      error?.message
-    );
-
-    console.error(
-      "CODE:",
-      error?.code
-    );
-
-    console.error(
-      "URL:",
-      error?.config?.url
-    );
-
-    console.error(
-      "BASE URL:",
-      error?.config?.baseURL
-    );
-
-    console.error(
-      "FULL URL:",
-      `${error?.config?.baseURL || ""}${error?.config?.url || ""}`
-    );
-
-    console.error(
-      "METHOD:",
-      error?.config?.method
-    );
-
-    console.error(
-      "STATUS:",
-      error?.response?.status
-    );
-
-    console.error(
-      "RESPONSE:",
-      error?.response?.data
-    );
-
-    console.error(
-      "NETWORK ERROR:",
-      !error?.response
-    );
-
-    console.error(
-      "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+      "GET STORY GROUPS FAILED:",
+      getErrorDetails(error)
     );
 
     throw error;
@@ -141,58 +90,64 @@ export async function createStory(
     throw new Error("Story media is required");
   }
 
+  const type =
+    mediaType === "video"
+      ? "video"
+      : "image";
+
+  const isVideo = type === "video";
+
   const formData = new FormData();
-
-  const isVideo = mediaType === "video";
-
-  const fileName = isVideo
-    ? `snapgram-story-${Date.now()}.mp4`
-    : `snapgram-story-${Date.now()}.jpg`;
-
-  const mimeType = isVideo
-    ? "video/mp4"
-    : "image/jpeg";
 
   formData.append("media", {
     uri,
-    name: fileName,
-    type: mimeType,
+    name: `snapgram-story-${Date.now()}.${
+      isVideo ? "mp4" : "jpg"
+    }`,
+    type: isVideo
+      ? "video/mp4"
+      : "image/jpeg",
   });
 
-  if (caption?.trim()) {
+  const cleanCaption =
+    typeof caption === "string"
+      ? caption.trim()
+      : "";
+
+  if (cleanCaption) {
     formData.append(
       "caption",
-      caption.trim()
+      cleanCaption
     );
   }
 
-  console.log("CREATE STORY UPLOAD:", {
-    uri,
-    mediaType,
-    fileName,
-    mimeType,
-  });
+  try {
+    const response = await api.post(
+      "/stories",
+      formData,
+      {
+        headers: {
+          Accept: "application/json",
+          "Content-Type":
+            "multipart/form-data",
+        },
+        timeout: 120000,
+      }
+    );
 
-  const response = await api.post(
-    "/stories",
-    formData,
-    {
-      headers: {
-        Accept: "application/json",
-      },
-      timeout: 120000,
-    }
-  );
+    return (
+      response?.data?.story ??
+      response?.data ??
+      null
+    );
+  } catch (error) {
+    console.error(
+      "CREATE STORY FAILED:",
+      getErrorDetails(error)
+    );
 
-  console.log(
-    "CREATE STORY RESPONSE:",
-    response.data
-  );
-
-  return (
-    response.data?.story ||
-    response.data
-  );
+    throw error;
+  }
 }
 
 export async function viewStory(storyId) {
@@ -200,11 +155,20 @@ export async function viewStory(storyId) {
     throw new Error("Story ID is required");
   }
 
-  const response = await api.post(
-    `/stories/${storyId}/view`
-  );
+  try {
+    const response = await api.post(
+      `/stories/${storyId}/view`
+    );
 
-  return response.data;
+    return getData(response, {});
+  } catch (error) {
+    console.error(
+      "VIEW STORY FAILED:",
+      getErrorDetails(error)
+    );
+
+    throw error;
+  }
 }
 
 export async function toggleStoryLike(storyId) {
@@ -212,11 +176,20 @@ export async function toggleStoryLike(storyId) {
     throw new Error("Story ID is required");
   }
 
-  const response = await api.post(
-    `/stories/${storyId}/toggle-like`
-  );
+  try {
+    const response = await api.post(
+      `/stories/${storyId}/toggle-like`
+    );
 
-  return response.data;
+    return getData(response, {});
+  } catch (error) {
+    console.error(
+      "TOGGLE STORY LIKE FAILED:",
+      getErrorDetails(error)
+    );
+
+    throw error;
+  }
 }
 
 export async function replyToStory(
@@ -236,17 +209,33 @@ export async function replyToStory(
     throw new Error("Reply cannot be empty");
   }
 
-  const response = await api.post(
-    `/stories/${storyId}/reply`,
-    {
-      text: cleanText,
-    }
-  );
+  if (cleanText.length > 500) {
+    throw new Error(
+      "Reply cannot exceed 500 characters"
+    );
+  }
 
-  return (
-    response.data?.reply ||
-    response.data
-  );
+  try {
+    const response = await api.post(
+      `/stories/${storyId}/reply`,
+      {
+        text: cleanText,
+      }
+    );
+
+    return (
+      response?.data?.reply ??
+      response?.data ??
+      null
+    );
+  } catch (error) {
+    console.error(
+      "REPLY TO STORY FAILED:",
+      getErrorDetails(error)
+    );
+
+    throw error;
+  }
 }
 
 export async function getStoryReplies(storyId) {
@@ -254,11 +243,20 @@ export async function getStoryReplies(storyId) {
     throw new Error("Story ID is required");
   }
 
-  const response = await api.get(
-    `/stories/${storyId}/replies`
-  );
+  try {
+    const response = await api.get(
+      `/stories/${storyId}/replies`
+    );
 
-  return response.data?.replies || [];
+    return getArray(response, "replies");
+  } catch (error) {
+    console.error(
+      "GET STORY REPLIES FAILED:",
+      getErrorDetails(error)
+    );
+
+    throw error;
+  }
 }
 
 export async function deleteStory(storyId) {
@@ -266,11 +264,20 @@ export async function deleteStory(storyId) {
     throw new Error("Story ID is required");
   }
 
-  const response = await api.delete(
-    `/stories/${storyId}`
-  );
+  try {
+    const response = await api.delete(
+      `/stories/${storyId}`
+    );
 
-  return response.data;
+    return getData(response, {});
+  } catch (error) {
+    console.error(
+      "DELETE STORY FAILED:",
+      getErrorDetails(error)
+    );
+
+    throw error;
+  }
 }
 
 export async function getStoryViewers(storyId) {
@@ -278,9 +285,31 @@ export async function getStoryViewers(storyId) {
     throw new Error("Story ID is required");
   }
 
-  const response = await api.get(
-    `/stories/${storyId}/viewers`
-  );
+  try {
+    const response = await api.get(
+      `/stories/${storyId}/viewers`
+    );
 
-  return response.data?.viewers || [];
+    return getArray(response, "viewers");
+  } catch (error) {
+    console.error(
+      "GET STORY VIEWERS FAILED:",
+      getErrorDetails(error)
+    );
+
+    throw error;
+  }
 }
+
+export default {
+  getStories,
+  getUserStories,
+  getStoryGroups,
+  createStory,
+  viewStory,
+  toggleStoryLike,
+  replyToStory,
+  getStoryReplies,
+  deleteStory,
+  getStoryViewers,
+};

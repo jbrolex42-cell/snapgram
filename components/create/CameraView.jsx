@@ -410,11 +410,6 @@ export default function CameraView({
             b.pixels - a.pixels
         );
 
-        /*
-         * Use a high-quality supported size,
-         * but avoid blindly trusting an invalid
-         * native value.
-         */
         const selected =
           validSizes[0];
 
@@ -453,12 +448,6 @@ export default function CameraView({
 
       setCameraError("");
 
-      /*
-       * Do not make pictureSize mandatory.
-       * If Android does not provide a usable
-       * size, native Expo Camera can use its
-       * default configuration.
-       */
       const selectedSize =
         await getPictureSize(camera);
 
@@ -623,10 +612,6 @@ export default function CameraView({
           return;
         }
 
-        /*
-         * Give the native camera one more
-         * frame to settle before capture.
-         */
         await new Promise((resolve) => {
           requestAnimationFrame(() => {
             requestAnimationFrame(resolve);
@@ -642,10 +627,6 @@ export default function CameraView({
           exif: false,
         };
 
-        /*
-         * Only send pictureSize if we have
-         * verified a valid native value.
-         */
         if (
           pictureSizeRef.current &&
           /^\d+:\d+$/.test(
@@ -932,14 +913,6 @@ export default function CameraView({
 
       setFlash("off");
 
-      /*
-       * Force the native CameraView to
-       * completely remount.
-       *
-       * This is important on Android when
-       * switching cameras after a previous
-       * native surface existed.
-       */
       cameraKeyRef.current += 1;
     }, [resetCameraReadiness]);
 

@@ -31,9 +31,6 @@ export async function followUser(userId) {
   }
 }
 
-/**
- * Unfollow a user.
- */
 export async function unfollowUser(userId) {
   if (!userId) {
     throw new Error("User ID is required");
@@ -46,9 +43,6 @@ export async function unfollowUser(userId) {
   return response.data;
 }
 
-/**
- * Toggle follow status.
- */
 export async function toggleFollow(userId) {
   if (!userId) {
     throw new Error("User ID is required");
@@ -61,9 +55,6 @@ export async function toggleFollow(userId) {
   return response.data;
 }
 
-/**
- * Get follow status for a user.
- */
 export async function getFollowStatus(userId) {
   if (!userId) {
     throw new Error("User ID is required");
@@ -76,9 +67,6 @@ export async function getFollowStatus(userId) {
   return response.data;
 }
 
-/**
- * Get followers using cursor pagination.
- */
 export async function getFollowers(
   userId,
   {
@@ -122,9 +110,6 @@ export async function getFollowers(
   };
 }
 
-/**
- * Get following using cursor pagination.
- */
 export async function getFollowing(
   userId,
   {
@@ -168,9 +153,6 @@ export async function getFollowing(
   };
 }
 
-/**
- * Get pending follow requests.
- */
 export async function getPendingRequests() {
   const response = await api.get(
     "/follows/requests"
@@ -179,9 +161,6 @@ export async function getPendingRequests() {
   return response.data?.requests || [];
 }
 
-/**
- * Accept a follow request.
- */
 export async function acceptFollowRequest(
   requestId
 ) {
@@ -196,9 +175,6 @@ export async function acceptFollowRequest(
   return response.data;
 }
 
-/**
- * Reject a follow request.
- */
 export async function rejectFollowRequest(
   requestId
 ) {

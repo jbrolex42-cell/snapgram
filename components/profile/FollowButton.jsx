@@ -34,9 +34,6 @@ export default function FollowButton({
       try {
         setLoading(true);
 
-        /*
-         * Requested → cancel request
-         */
         if (
           isRequested &&
           typeof onCancelRequest ===
@@ -46,9 +43,6 @@ export default function FollowButton({
           return;
         }
 
-        /*
-         * Following → unfollow
-         */
         if (
           isFollowing &&
           typeof onUnfollow ===
@@ -58,9 +52,6 @@ export default function FollowButton({
           return;
         }
 
-        /*
-         * Not following → follow
-         */
         if (
           !isFollowing &&
           typeof onFollow ===
@@ -86,9 +77,6 @@ export default function FollowButton({
       onCancelRequest,
     ]);
 
-  /*
-   * Requested takes priority over Following.
-   */
   const label = isRequested
     ? "Requested"
     : isFollowing
@@ -187,17 +175,11 @@ const styles =
         "transparent",
     },
 
-    /*
-     * Instagram-style primary Follow button.
-     */
     followButton: {
       backgroundColor:
         "#0095F6",
     },
 
-    /*
-     * Following button.
-     */
     followingButton: {
       backgroundColor:
         "#EFEFEF",
@@ -206,9 +188,6 @@ const styles =
         "#DBDBDB",
     },
 
-    /*
-     * Pending request.
-     */
     requestedButton: {
       backgroundColor:
         "#EFEFEF",
