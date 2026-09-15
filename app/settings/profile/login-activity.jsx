@@ -1,4 +1,9 @@
-import React, { useCallback, useEffect, useState } from "react";
+import React, {
+  useCallback,
+  useEffect,
+  useState,
+} from "react";
+
 import {
   ActivityIndicator,
   Alert,
@@ -6,16 +11,17 @@ import {
   ScrollView,
   StyleSheet,
   Text,
+  TouchableOpacity,
   View,
 } from "react-native";
+
+import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
 
 import {
-  Page,
-  InfoCard,
-  SettingItem,
-  PageLoading,
   Notice,
+  Page,
+  PageLoading,
 } from "../../../components/settings/SettingsUI";
 
 import api from "../../../services/api";
@@ -23,26 +29,48 @@ import api from "../../../services/api";
 const SESSIONS_ENDPOINT = "/auth/sessions";
 
 function getSessionId(session) {
-  return session?._id || session?.id || session?.sessionId || null;
+  return (
+    session?._id ||
+    session?.id ||
+    session?.sessionId ||
+    null
+  );
 }
 
 function getDeviceName(session, index) {
   return (
     session?.deviceName ||
     session?.device ||
-    session?.deviceName ||
+    session?.name ||
     session?.platform ||
-    session?.userAgent ||
     `Device ${index + 1}`
   );
 }
 
 function getLocation(session) {
+  if (typeof session?.location === "string") {
+    return session.location;
+  }
+
+  if (
+    session?.location &&
+    typeof session.location === "object"
+  ) {
+    return (
+      session.location.city ||
+      session.location.country ||
+      "Unknown location"
+    );
+  }
+
+  if (session?.city && session?.country) {
+    return `${session.city}, ${session.country}`;
+  }
+
   return (
-    session?.location ||
     session?.city ||
     session?.country ||
-    "Unknown location"
+    "Location unavailable"
   );
 }
 
@@ -71,167 +99,339 @@ function isCurrentSession(session) {
   );
 }
 
-function getDeviceIcon(session) {
-  const platform = String(
+function getPlatform(session) {
+  return String(
     session?.platform ||
       session?.deviceType ||
       session?.device ||
       session?.userAgent ||
       ""
   ).toLowerCase();
+}
+
+function getDeviceIcon(session) {
+  const platform = getPlatform(session);
 
   if (
     platform.includes("iphone") ||
     platform.includes("ios")
   ) {
-    return "iPhone";
+    return "phone-portrait-outline";
   }
 
   if (
     platform.includes("android") ||
     platform.includes("phone")
   ) {
-    return "Android";
+    return "phone-portrait-outline";
+  }
+
+  if (
+    platform.includes("ipad") ||
+    platform.includes("tablet")
+  ) {
+    return "tablet-portrait-outline";
   }
 
   if (
     platform.includes("windows") ||
     platform.includes("mac") ||
     platform.includes("linux") ||
-    platform.includes("desktop")
+    platform.includes("desktop") ||
+    platform.includes("computer")
   ) {
-    return "Computer";
+    return "laptop-outline";
   }
 
-  return "Device";
+  return "phone-portrait-outline";
+}
+
+function getSessionDate(session) {
+  return (
+    session?.lastSeen ||
+    session?.lastActive ||
+    session?.updatedAt ||
+    session?.createdAt
+  );
+}
+
+function SessionRow({
+  session,
+  index,
+  revokingId,
+  onRevoke,
+}) {
+  const id = getSessionId(session);
+
+  const current = isCurrentSession(session);
+
+  const revoking =
+    id && String(revokingId) === String(id);
+
+  const device = getDeviceName(
+    session,
+    index
+  );
+
+  const location = getLocation(session);
+
+  const lastSeen = formatLastSeen(
+    getSessionDate(session)
+  );
+
+  const icon = getDeviceIcon(session);
+
+  return (
+    <View style={styles.sessionRow}>
+      <View style={styles.deviceIcon}>
+        <Ionicons
+          name={icon}
+          size={25}
+          color="#111"
+        />
+      </View>
+
+      <View style={styles.sessionInfo}>
+        <View style={styles.deviceHeader}>
+          <Text
+            style={styles.deviceName}
+            numberOfLines={2}
+          >
+            {device}
+          </Text>
+
+          {current ? (
+            <View style={styles.currentBadge}>
+              <Text style={styles.currentBadgeText}>
+                This device
+              </Text>
+            </View>
+          ) : null}
+        </View>
+
+        <Text
+          style={styles.location}
+          numberOfLines={1}
+        >
+          {location}
+        </Text>
+
+        <Text style={styles.lastSeen}>
+          Last active {lastSeen}
+        </Text>
+
+        {!current ? (
+          <TouchableOpacity
+            activeOpacity={0.7}
+            disabled={revoking || !id}
+            onPress={() =>
+              onRevoke(session)
+            }
+            style={styles.logoutButton}
+          >
+            {revoking ? (
+              <ActivityIndicator
+                size="small"
+              />
+            ) : (
+              <Text style={styles.logoutText}>
+                Log out
+              </Text>
+            )}
+          </TouchableOpacity>
+        ) : (
+          <Text style={styles.currentText}>
+            You're currently using this device
+          </Text>
+        )}
+      </View>
+
+      {!current ? (
+        <Ionicons
+          name="ellipsis-horizontal"
+          size={20}
+          color="#8e8e8e"
+          style={styles.moreIcon}
+        />
+      ) : null}
+    </View>
+  );
 }
 
 export default function LoginActivityScreen() {
   const [sessions, setSessions] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
-  const [revokingId, setRevokingId] = useState(null);
+  const [refreshing, setRefreshing] =
+    useState(false);
+  const [revokingId, setRevokingId] =
+    useState(null);
   const [error, setError] = useState("");
 
-  const loadSessions = useCallback(async () => {
-    try {
-      setError("");
+  const loadSessions = useCallback(
+    async ({ initial = false } = {}) => {
+      try {
+        if (initial) {
+          setLoading(true);
+        }
 
-      const response = await api.get(SESSIONS_ENDPOINT);
+        setError("");
 
-      const data = response?.data;
+        const response = await api.get(
+          SESSIONS_ENDPOINT
+        );
 
-      const list =
-        Array.isArray(data)
+        const data = response?.data;
+
+        const list = Array.isArray(data)
           ? data
           : Array.isArray(data?.sessions)
           ? data.sessions
-          : Array.isArray(data?.data?.sessions)
+          : Array.isArray(
+              data?.data?.sessions
+            )
           ? data.data.sessions
           : [];
 
-      setSessions(list);
-    } catch (err) {
-      console.error(
-        "LOGIN ACTIVITY ERROR:",
-        err?.response?.data || err?.message || err
-      );
+        setSessions(list);
+      } catch (err) {
+        console.error(
+          "LOGIN ACTIVITY ERROR:",
+          err?.response?.data ||
+            err?.message ||
+            err
+        );
 
-      const message =
-        err?.response?.data?.message ||
-        err?.message ||
-        "Unable to load your login activity.";
+        const message =
+          err?.response?.data?.message ||
+          err?.message ||
+          "Unable to load your login activity.";
 
-      setError(message);
-      setSessions([]);
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
-    }
-  }, []);
+        setError(message);
+
+        if (initial) {
+          setSessions([]);
+        }
+      } finally {
+        if (initial) {
+          setLoading(false);
+        }
+
+        setRefreshing(false);
+      }
+    },
+    []
+  );
 
   useEffect(() => {
-    loadSessions();
+    loadSessions({
+      initial: true,
+    });
   }, [loadSessions]);
 
-  const refresh = useCallback(() => {
+  const refresh = useCallback(async () => {
     setRefreshing(true);
-    loadSessions();
+
+    await loadSessions();
   }, [loadSessions]);
 
-  async function revokeSession(session) {
-    const id = getSessionId(session);
+  const revokeSession = useCallback(
+    (session) => {
+      const id = getSessionId(session);
 
-    if (!id) {
+      if (!id) {
+        Alert.alert(
+          "Unable to log out",
+          "This session does not have a valid session identifier."
+        );
+        return;
+      }
+
+      if (isCurrentSession(session)) {
+        Alert.alert(
+          "This is your current device",
+          "You cannot remotely log out of the device you're currently using."
+        );
+        return;
+      }
+
+      if (revokingId) {
+        return;
+      }
+
+      const deviceName =
+        getDeviceName(session, 0);
+
       Alert.alert(
-        "Unable to sign out",
-        "This session does not have a valid session identifier."
-      );
-      return;
-    }
-
-    if (isCurrentSession(session)) {
-      Alert.alert(
-        "This is your current session",
-        "You cannot remotely sign out of the device you are currently using from this screen."
-      );
-      return;
-    }
-
-    if (revokingId) {
-      return;
-    }
-
-    Alert.alert(
-      "Sign out this device?",
-      `You'll need to sign in again on ${getDeviceName(
-        session,
-        0
-      )}.`,
-      [
-        {
-          text: "Cancel",
-          style: "cancel",
-        },
-        {
-          text: "Sign out",
-          style: "destructive",
-          onPress: async () => {
-            try {
-              setRevokingId(id);
-
-              await api.delete(`${SESSIONS_ENDPOINT}/${id}`);
-
-              setSessions((previous) =>
-                previous.filter(
-                  (item) => getSessionId(item) !== id
-                )
-              );
-
-              Alert.alert(
-                "Device signed out",
-                "The selected session has been signed out."
-              );
-            } catch (err) {
-              console.error(
-                "REVOKE SESSION ERROR:",
-                err?.response?.data || err?.message || err
-              );
-
-              const message =
-                err?.response?.data?.message ||
-                err?.message ||
-                "Unable to sign out this session.";
-
-              Alert.alert("Unable to sign out", message);
-            } finally {
-              setRevokingId(null);
-            }
+        "Log out of this device?",
+        `You'll need to sign in again on ${deviceName}.`,
+        [
+          {
+            text: "Cancel",
+            style: "cancel",
           },
-        },
-      ]
-    );
-  }
+          {
+            text: "Log out",
+            style: "destructive",
+            onPress: async () => {
+              try {
+                setRevokingId(id);
+
+                await api.delete(
+                  `${SESSIONS_ENDPOINT}/${encodeURIComponent(
+                    id
+                  )}`
+                );
+
+                setSessions((previous) =>
+                  previous.filter(
+                    (item) =>
+                      String(
+                        getSessionId(item)
+                      ) !== String(id)
+                  )
+                );
+
+                Alert.alert(
+                  "Logged out",
+                  `${deviceName} has been logged out of your account.`
+                );
+              } catch (err) {
+                console.error(
+                  "REVOKE SESSION ERROR:",
+                  err?.response?.data ||
+                    err?.message ||
+                    err
+                );
+
+                const message =
+                  err?.response?.data?.message ||
+                  err?.message ||
+                  "Unable to log out this device.";
+
+                Alert.alert(
+                  "Unable to log out",
+                  message
+                );
+              } finally {
+                setRevokingId(null);
+              }
+            },
+          },
+        ]
+      );
+    },
+    [revokingId]
+  );
+
+  const currentSessions = sessions.filter(
+    (session) =>
+      isCurrentSession(session)
+  );
+
+  const otherSessions = sessions.filter(
+    (session) =>
+      !isCurrentSession(session)
+  );
 
   if (loading) {
     return (
@@ -257,173 +457,254 @@ export default function LoginActivityScreen() {
             onRefresh={refresh}
           />
         }
-        contentContainerStyle={styles.content}
+        contentContainerStyle={
+          styles.content
+        }
       >
-        <InfoCard
-          icon="phone-portrait-outline"
-          title="Where you're logged in"
-          text="Review the devices and locations where your Snapgram account is currently signed in."
-        />
+        {/* Header information */}
 
-        {error ? (
-          <Notice tone="error">
-            {error}
-          </Notice>
-        ) : null}
+        <View style={styles.intro}>
+          <View style={styles.introIcon}>
+            <Ionicons
+              name="phone-portrait-outline"
+              size={30}
+              color="#111"
+            />
+          </View>
 
-        <View style={styles.summary}>
-          <Text style={styles.summaryTitle}>
-            {sessions.length === 1
-              ? "1 active session"
-              : `${sessions.length} active sessions`}
+          <Text style={styles.introTitle}>
+            Where you're logged in
           </Text>
 
-          <Text style={styles.summaryText}>
-            If you don't recognize a device, sign it out and change your
-            password immediately.
+          <Text style={styles.introText}>
+            See where your Snapgram account is
+            currently signed in. If you don't
+            recognize a device, log it out.
           </Text>
         </View>
 
-        {sessions.length === 0 ? (
-          <View style={styles.empty}>
-            <View style={styles.emptyIcon}>
-              <Text style={styles.emptyIconText}>✓</Text>
+        {/* Error */}
+
+        {error ? (
+          <TouchableOpacity
+            activeOpacity={0.8}
+            onPress={() =>
+              loadSessions({
+                initial: false,
+              })
+            }
+            style={styles.errorBox}
+          >
+            <Ionicons
+              name="warning-outline"
+              size={20}
+              color="#b45309"
+            />
+
+            <View
+              style={styles.errorContent}
+            >
+              <Text style={styles.errorTitle}>
+                Couldn't load login activity
+              </Text>
+
+              <Text style={styles.errorText}>
+                {error}
+              </Text>
+
+              <Text style={styles.retryText}>
+                Tap to try again
+              </Text>
             </View>
 
-            <Text style={styles.emptyTitle}>
-              No sessions found
+            <Ionicons
+              name="refresh-outline"
+              size={19}
+              color="#b45309"
+            />
+          </TouchableOpacity>
+        ) : null}
+
+        {/* Current device */}
+
+        {currentSessions.length > 0 ? (
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>
+              Currently logged in
             </Text>
 
-            <Text style={styles.emptyText}>
-              Snapgram could not find any active login sessions for your
-              account.
-            </Text>
+            <View style={styles.card}>
+              {currentSessions.map(
+                (session, index) => (
+                  <SessionRow
+                    key={
+                      getSessionId(
+                        session
+                      ) ||
+                      `current-${index}`
+                    }
+                    session={session}
+                    index={index}
+                    revokingId={
+                      revokingId
+                    }
+                    onRevoke={
+                      revokeSession
+                    }
+                  />
+                )
+              )}
+            </View>
           </View>
-        ) : (
-          <View style={styles.sessionList}>
-            {sessions.map((session, index) => {
-              const id = getSessionId(session);
-              const current = isCurrentSession(session);
-              const revoking = revokingId === id;
+        ) : null}
 
-              const device = getDeviceName(
-                session,
-                index
-              );
+        {/* Other devices */}
 
-              const deviceType = getDeviceIcon(
-                session
-              );
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>
+            Other devices
+          </Text>
 
-              const location = getLocation(
-                session
-              );
+          {otherSessions.length > 0 ? (
+            <View style={styles.card}>
+              {otherSessions.map(
+                (session, index) => (
+                  <React.Fragment
+                    key={
+                      getSessionId(
+                        session
+                      ) ||
+                      `session-${index}`
+                    }
+                  >
+                    <SessionRow
+                      session={session}
+                      index={index}
+                      revokingId={
+                        revokingId
+                      }
+                      onRevoke={
+                        revokeSession
+                      }
+                    />
 
-              const lastSeen = formatLastSeen(
-                session?.lastSeen ||
-                  session?.lastActive ||
-                  session?.updatedAt ||
-                  session?.createdAt
-              );
-
-              return (
-                <View
-                  key={id || `session-${index}`}
-                  style={styles.sessionCard}
-                >
-                  <View style={styles.deviceIcon}>
-                    <Text style={styles.deviceIconText}>
-                      {deviceType === "Computer"
-                        ? "▣"
-                        : "▯"}
-                    </Text>
-                  </View>
-
-                  <View style={styles.sessionContent}>
-                    <View style={styles.titleRow}>
-                      <Text
-                        style={styles.deviceTitle}
-                        numberOfLines={1}
-                      >
-                        {device}
-                      </Text>
-
-                      {current ? (
-                        <View style={styles.currentBadge}>
-                          <Text style={styles.currentBadgeText}>
-                            This device
-                          </Text>
-                        </View>
-                      ) : null}
-                    </View>
-
-                    <Text style={styles.location}>
-                      {location}
-                    </Text>
-
-                    <Text style={styles.lastSeen}>
-                      Last active: {lastSeen}
-                    </Text>
-
-                    {!current && id ? (
-                      <SettingItem
-                        title={
-                          revoking
-                            ? "Signing out..."
-                            : "Sign out"
-                        }
-                        subtitle="Remove access from this device."
-                        onPress={() =>
-                          revokeSession(session)
-                        }
+                    {index <
+                    otherSessions.length - 1 ? (
+                      <View
+                        style={styles.divider}
                       />
                     ) : null}
+                  </React.Fragment>
+                )
+              )}
+            </View>
+          ) : (
+            <View style={styles.emptyCard}>
+              <View style={styles.emptyIcon}>
+                <Ionicons
+                  name="shield-checkmark-outline"
+                  size={28}
+                  color="#111"
+                />
+              </View>
 
-                    {revoking ? (
-                      <View style={styles.loadingRow}>
-                        <ActivityIndicator size="small" />
-                      </View>
-                    ) : null}
-                  </View>
-                </View>
-              );
-            })}
+              <Text style={styles.emptyTitle}>
+                No other devices
+              </Text>
+
+              <Text style={styles.emptyText}>
+                Your account isn't currently
+                signed in on any other
+                recognized device.
+              </Text>
+            </View>
+          )}
+        </View>
+
+        {/* Security */}
+
+        <View style={styles.securityCard}>
+          <View style={styles.securityIcon}>
+            <Ionicons
+              name="shield-checkmark-outline"
+              size={24}
+              color="#111"
+            />
           </View>
-        )}
 
-        <View style={styles.securityBox}>
           <Text style={styles.securityTitle}>
-            Don't recognize a device?
+            Keep your account secure
           </Text>
 
           <Text style={styles.securityText}>
-            Sign out of the unfamiliar session, then change your password
-            and enable two-factor authentication for additional protection.
+            If you see a device or location you
+            don't recognize, log it out and
+            change your password.
           </Text>
 
-          <Text
-            style={styles.securityLink}
+          <TouchableOpacity
+            activeOpacity={0.7}
             onPress={() =>
-              router.push("/settings/change-password")
+              router.push(
+                "/settings/change-password"
+              )
             }
+            style={styles.securityAction}
           >
-            Change password
-          </Text>
+            <Text
+              style={
+                styles.securityActionText
+              }
+            >
+              Change password
+            </Text>
 
-          <Text
-            style={styles.securityLink}
+            <Ionicons
+              name="chevron-forward"
+              size={18}
+              color="#111"
+            />
+          </TouchableOpacity>
+
+          <View style={styles.actionDivider} />
+
+          <TouchableOpacity
+            activeOpacity={0.7}
             onPress={() =>
-              router.push("/settings/profile/two-factor")
+              router.push(
+                "/settings/profile/two-factor"
+              )
             }
+            style={styles.securityAction}
           >
-            Two-factor authentication
-          </Text>
+            <Text
+              style={
+                styles.securityActionText
+              }
+            >
+              Two-factor authentication
+            </Text>
+
+            <Ionicons
+              name="chevron-forward"
+              size={18}
+              color="#111"
+            />
+          </TouchableOpacity>
         </View>
 
+        {/* Location notice */}
+
         <Notice>
-          Login locations may be approximate because they can be based on
-          network information rather than your exact physical location.
+          Login locations may be approximate.
+          They can be based on network
+          information rather than your exact
+          physical location.
         </Notice>
+
+        <Text style={styles.footer}>
+          Snapgram login activity
+        </Text>
       </ScrollView>
     </Page>
   );
@@ -431,77 +712,140 @@ export default function LoginActivityScreen() {
 
 const styles = StyleSheet.create({
   content: {
-    paddingBottom: 36,
+    paddingBottom: 45,
   },
 
-  summary: {
-    marginTop: 14,
-    padding: 16,
-    borderRadius: 14,
-    backgroundColor: "#f7f7f7",
+  intro: {
+    alignItems: "center",
+    paddingHorizontal: 22,
+    paddingTop: 8,
+    paddingBottom: 24,
   },
 
-  summaryTitle: {
-    fontSize: 15,
+  introIcon: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#f2f2f2",
+    marginBottom: 13,
+  },
+
+  introTitle: {
+    fontSize: 20,
     fontWeight: "700",
-    color: "#222",
-    marginBottom: 5,
+    color: "#111",
+    textAlign: "center",
   },
 
-  summaryText: {
+  introText: {
+    marginTop: 7,
     fontSize: 13,
     lineHeight: 19,
-    color: "#666",
+    color: "#737373",
+    textAlign: "center",
   },
 
-  sessionList: {
-    marginTop: 10,
-  },
-
-  sessionCard: {
+  errorBox: {
+    minHeight: 64,
+    marginBottom: 18,
+    padding: 13,
+    borderRadius: 12,
     flexDirection: "row",
-    marginTop: 8,
-    padding: 15,
-    borderRadius: 14,
-    backgroundColor: "#f7f7f7",
+    alignItems: "center",
+    backgroundColor: "#fff7ed",
+  },
+
+  errorContent: {
+    flex: 1,
+    marginHorizontal: 10,
+  },
+
+  errorTitle: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: "#92400e",
+  },
+
+  errorText: {
+    marginTop: 3,
+    fontSize: 11.5,
+    lineHeight: 16,
+    color: "#a16207",
+  },
+
+  retryText: {
+    marginTop: 4,
+    fontSize: 11.5,
+    fontWeight: "600",
+    color: "#92400e",
+  },
+
+  section: {
+    marginBottom: 22,
+  },
+
+  sectionTitle: {
+    marginBottom: 9,
+    marginLeft: 2,
+    fontSize: 15,
+    fontWeight: "700",
+    color: "#111",
+  },
+
+  card: {
+    overflow: "hidden",
+    borderTopWidth:
+      StyleSheet.hairlineWidth,
+    borderBottomWidth:
+      StyleSheet.hairlineWidth,
+    borderColor: "#dedede",
+    backgroundColor: "#fff",
+  },
+
+  sessionRow: {
+    minHeight: 108,
+    paddingHorizontal: 13,
+    paddingVertical: 14,
+    flexDirection: "row",
+    alignItems: "flex-start",
   },
 
   deviceIcon: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
+    width: 48,
+    height: 48,
+    borderRadius: 24,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "#e9e9e9",
-    marginRight: 13,
+    backgroundColor: "#f1f1f1",
+    marginRight: 12,
   },
 
-  deviceIconText: {
-    fontSize: 20,
-    fontWeight: "600",
-    color: "#333",
-  },
-
-  sessionContent: {
+  sessionInfo: {
     flex: 1,
+    minWidth: 0,
   },
 
-  titleRow: {
+  deviceHeader: {
     flexDirection: "row",
     alignItems: "center",
     flexWrap: "wrap",
+    paddingRight: 5,
   },
 
-  deviceTitle: {
+  deviceName: {
     flexShrink: 1,
-    fontSize: 15,
+    fontSize: 14.5,
+    lineHeight: 19,
     fontWeight: "700",
-    color: "#222",
+    color: "#111",
   },
 
   currentBadge: {
-    marginLeft: 8,
-    paddingHorizontal: 8,
+    marginLeft: 7,
+    marginTop: 2,
+    paddingHorizontal: 7,
     paddingVertical: 3,
     borderRadius: 8,
     backgroundColor: "#e8f5e9",
@@ -515,26 +859,61 @@ const styles = StyleSheet.create({
 
   location: {
     marginTop: 5,
-    fontSize: 13,
+    fontSize: 12.5,
     color: "#555",
   },
 
   lastSeen: {
     marginTop: 3,
-    fontSize: 12,
-    color: "#888",
+    fontSize: 11.5,
+    color: "#8a8a8a",
   },
 
-  loadingRow: {
-    marginTop: 6,
-    alignItems: "flex-start",
-  },
-
-  empty: {
+  logoutButton: {
+    alignSelf: "flex-start",
+    minWidth: 76,
+    minHeight: 32,
+    marginTop: 10,
+    paddingHorizontal: 12,
+    borderRadius: 7,
     alignItems: "center",
-    marginTop: 24,
+    justifyContent: "center",
+    backgroundColor: "#f1f1f1",
+  },
+
+  logoutText: {
+    fontSize: 12.5,
+    fontWeight: "700",
+    color: "#111",
+  },
+
+  currentText: {
+    marginTop: 9,
+    fontSize: 11.5,
+    fontWeight: "500",
+    color: "#737373",
+  },
+
+  moreIcon: {
+    marginTop: 4,
+    marginLeft: 7,
+  },
+
+  divider: {
+    height: StyleSheet.hairlineWidth,
+    marginLeft: 73,
+    backgroundColor: "#e5e5e5",
+  },
+
+  emptyCard: {
+    alignItems: "center",
     paddingHorizontal: 25,
-    paddingVertical: 30,
+    paddingVertical: 28,
+    borderTopWidth:
+      StyleSheet.hairlineWidth,
+    borderBottomWidth:
+      StyleSheet.hairlineWidth,
+    borderColor: "#dedede",
   },
 
   emptyIcon: {
@@ -543,54 +922,77 @@ const styles = StyleSheet.create({
     borderRadius: 29,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "#f0f0f0",
-    marginBottom: 12,
-  },
-
-  emptyIconText: {
-    fontSize: 25,
-    fontWeight: "700",
+    backgroundColor: "#f1f1f1",
+    marginBottom: 11,
   },
 
   emptyTitle: {
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: "700",
-    color: "#222",
-    marginBottom: 6,
+    color: "#111",
   },
 
   emptyText: {
-    fontSize: 13,
-    lineHeight: 19,
+    marginTop: 6,
+    fontSize: 12.5,
+    lineHeight: 18,
     textAlign: "center",
     color: "#777",
   },
 
-  securityBox: {
-    marginTop: 22,
+  securityCard: {
+    marginBottom: 20,
     padding: 16,
     borderRadius: 14,
     backgroundColor: "#f7f7f7",
   },
 
-  securityTitle: {
-    fontSize: 14,
-    fontWeight: "700",
-    color: "#222",
-    marginBottom: 7,
-  },
-
-  securityText: {
-    fontSize: 13,
-    lineHeight: 19,
-    color: "#666",
+  securityIcon: {
+    width: 45,
+    height: 45,
+    borderRadius: 23,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#e9e9e9",
     marginBottom: 12,
   },
 
-  securityLink: {
-    fontSize: 14,
+  securityTitle: {
+    fontSize: 15,
+    fontWeight: "700",
+    color: "#111",
+  },
+
+  securityText: {
+    marginTop: 5,
+    fontSize: 12.5,
+    lineHeight: 18,
+    color: "#666",
+  },
+
+  securityAction: {
+    minHeight: 43,
+    marginTop: 10,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+
+  securityActionText: {
+    fontSize: 13.5,
     fontWeight: "600",
     color: "#111",
-    marginTop: 8,
+  },
+
+  actionDivider: {
+    height: StyleSheet.hairlineWidth,
+    backgroundColor: "#dedede",
+  },
+
+  footer: {
+    marginTop: 18,
+    textAlign: "center",
+    fontSize: 11.5,
+    color: "#aaa",
   },
 });

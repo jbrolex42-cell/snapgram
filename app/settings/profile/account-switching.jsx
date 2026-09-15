@@ -5,25 +5,19 @@ import React, {
 } from "react";
 
 import {
+  ActivityIndicator,
   Alert,
   Image,
   RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
+  TouchableOpacity,
   View,
 } from "react-native";
 
+import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
-
-import {
-  Page,
-  InfoCard,
-  SettingItem,
-  PrimaryButton,
-  Notice,
-  PageLoading,
-} from "../../../components/settings/SettingsUI";
 
 import {
   getSavedAccounts,
@@ -43,6 +37,7 @@ function getAccountId(account) {
 function getDisplayName(account) {
   return (
     account?.name ||
+    account?.fullName ||
     account?.username ||
     account?.email ||
     "Snapgram account"
@@ -55,6 +50,163 @@ function getUsername(account) {
   }
 
   return `@${account.username}`;
+}
+
+function getInitial(account) {
+  const value =
+    account?.username ||
+    account?.name ||
+    account?.fullName ||
+    account?.email ||
+    "S";
+
+  return String(value)
+    .trim()
+    .charAt(0)
+    .toUpperCase();
+}
+
+function AccountAvatar({ account, large = false }) {
+  const size = large ? 64 : 54;
+
+  if (account?.avatar) {
+    return (
+      <Image
+        source={{
+          uri: account.avatar,
+        }}
+        style={[
+          styles.avatar,
+          {
+            width: size,
+            height: size,
+            borderRadius: size / 2,
+          },
+        ]}
+      />
+    );
+  }
+
+  return (
+    <View
+      style={[
+        styles.avatarFallback,
+        {
+          width: size,
+          height: size,
+          borderRadius: size / 2,
+        },
+      ]}
+    >
+      <Text
+        style={[
+          styles.avatarText,
+          large && styles.avatarTextLarge,
+        ]}
+      >
+        {getInitial(account)}
+      </Text>
+    </View>
+  );
+}
+
+function AccountRow({
+  account,
+  isCurrent,
+  switching,
+  removing,
+  disabled,
+  onSwitch,
+  onRemove,
+}) {
+  return (
+    <View
+      style={[
+        styles.accountRow,
+        isCurrent && styles.currentAccountRow,
+      ]}
+    >
+      <AccountAvatar account={account} />
+
+      <View style={styles.accountInfo}>
+        <Text
+          style={styles.accountName}
+          numberOfLines={1}
+        >
+          {getDisplayName(account)}
+        </Text>
+
+        {!!getUsername(account) && (
+          <Text
+            style={styles.username}
+            numberOfLines={1}
+          >
+            {getUsername(account)}
+          </Text>
+        )}
+
+        {isCurrent ? (
+          <View style={styles.currentBadge}>
+            <View style={styles.currentDot} />
+
+            <Text style={styles.currentBadgeText}>
+              Current account
+            </Text>
+          </View>
+        ) : null}
+      </View>
+
+      <View style={styles.rowActions}>
+        {!isCurrent ? (
+          <TouchableOpacity
+            activeOpacity={0.75}
+            disabled={disabled}
+            onPress={onSwitch}
+            style={[
+              styles.switchButton,
+              disabled &&
+                styles.disabledButton,
+            ]}
+          >
+            {switching ? (
+              <ActivityIndicator
+                size="small"
+                color="#fff"
+              />
+            ) : (
+              <Text style={styles.switchText}>
+                Switch
+              </Text>
+            )}
+          </TouchableOpacity>
+        ) : null}
+
+        <TouchableOpacity
+          activeOpacity={0.75}
+          disabled={disabled}
+          onPress={onRemove}
+          style={[
+            styles.removeButton,
+            disabled &&
+              styles.disabledRemoveButton,
+          ]}
+        >
+          {removing ? (
+            <ActivityIndicator
+              size="small"
+              color="#ed4956"
+            />
+          ) : (
+            <Ionicons
+              name="ellipsis-horizontal"
+              size={20}
+              color="#555"
+            />
+          )}
+        </TouchableOpacity>
+      </View>
+    </View>
+  );
 }
 
 export default function AccountSwitchingScreen() {
@@ -79,7 +231,7 @@ export default function AccountSwitchingScreen() {
     useState(null);
 
   const [error, setError] =
-    useState(null);
+    useState("");
 
   const currentUserId = String(
     user?._id ||
@@ -90,7 +242,7 @@ export default function AccountSwitchingScreen() {
   const loadAccounts =
     useCallback(async () => {
       try {
-        setError(null);
+        setError("");
 
         const savedAccounts =
           await getSavedAccounts();
@@ -103,11 +255,14 @@ export default function AccountSwitchingScreen() {
       } catch (error) {
         console.error(
           "LOAD SAVED ACCOUNTS ERROR:",
-          error?.message || error
+          error?.response?.data ||
+            error?.message ||
+            error
         );
 
         setError(
-          error?.message ||
+          error?.response?.data?.message ||
+            error?.message ||
             "Unable to load saved accounts."
         );
       }
@@ -142,14 +297,20 @@ export default function AccountSwitchingScreen() {
     }
 
     if (
-      String(accountId) ===
-      currentUserId
+      accountId === currentUserId
+    ) {
+      return;
+    }
+
+    if (
+      switchingId ||
+      removingId
     ) {
       return;
     }
 
     try {
-      setError(null);
+      setError("");
       setSwitchingId(accountId);
 
       await switchAccount(accountId);
@@ -170,12 +331,15 @@ export default function AccountSwitchingScreen() {
     } catch (error) {
       console.error(
         "SWITCH ACCOUNT ERROR:",
-        error?.message || error
+        error?.response?.data ||
+          error?.message ||
+          error
       );
 
       Alert.alert(
         "Unable to switch account",
-        error?.message ||
+        error?.response?.data?.message ||
+          error?.message ||
           "The selected account could not be activated."
       );
     } finally {
@@ -188,19 +352,29 @@ export default function AccountSwitchingScreen() {
       getAccountId(account);
 
     if (!accountId) {
+      Alert.alert(
+        "Unable to remove",
+        "This account does not contain a valid account ID."
+      );
+      return;
+    }
+
+    if (
+      switchingId ||
+      removingId
+    ) {
       return;
     }
 
     const isCurrent =
-      String(accountId) ===
-      currentUserId;
+      accountId === currentUserId;
 
     Alert.alert(
       isCurrent
         ? "Remove current account?"
         : "Remove account?",
       isCurrent
-        ? "This will remove the current account from this device. If another account is saved, Snapgram will switch to it."
+        ? "This will remove the current account from this device. If another saved account is available, Snapgram may switch to it."
         : `Remove ${getDisplayName(
             account
           )} from this device?`,
@@ -227,7 +401,7 @@ export default function AccountSwitchingScreen() {
     isCurrent
   ) {
     try {
-      setError(null);
+      setError("");
       setRemovingId(accountId);
 
       const result =
@@ -265,12 +439,15 @@ export default function AccountSwitchingScreen() {
     } catch (error) {
       console.error(
         "REMOVE SAVED ACCOUNT ERROR:",
-        error?.message || error
+        error?.response?.data ||
+          error?.message ||
+          error
       );
 
       Alert.alert(
         "Unable to remove account",
-        error?.message ||
+        error?.response?.data?.message ||
+          error?.message ||
           "The account could not be removed from this device."
       );
     } finally {
@@ -280,20 +457,42 @@ export default function AccountSwitchingScreen() {
 
   if (loading) {
     return (
-      <Page
-        title="Account switching"
-        onBack={() => router.back()}
-      >
-        <PageLoading />
-      </Page>
+      <View style={styles.loadingScreen}>
+        <ActivityIndicator
+          size="small"
+          color="#111"
+        />
+      </View>
     );
   }
 
+  const hasAccounts =
+    accounts.length > 0;
+
   return (
-    <Page
-      title="Account switching"
-      onBack={() => router.back()}
-    >
+    <View style={styles.screen}>
+      {/* Header */}
+
+      <View style={styles.header}>
+        <TouchableOpacity
+          activeOpacity={0.7}
+          onPress={() => router.back()}
+          style={styles.headerButton}
+        >
+          <Ionicons
+            name="chevron-back"
+            size={28}
+            color="#111"
+          />
+        </TouchableOpacity>
+
+        <Text style={styles.headerTitle}>
+          Account switching
+        </Text>
+
+        <View style={styles.headerSpacer} />
+      </View>
+
       <ScrollView
         showsVerticalScrollIndicator={false}
         refreshControl={
@@ -306,313 +505,568 @@ export default function AccountSwitchingScreen() {
           styles.content
         }
       >
-        <InfoCard
-          icon="swap-horizontal-outline"
-          title="Account switching"
-          text="Switch between Snapgram accounts saved on this device. Each account keeps its own authenticated session."
-        />
+        {/* Intro */}
 
-        {error ? (
-          <Notice>
-            {error}
-          </Notice>
-        ) : null}
+        <View style={styles.hero}>
+          <View style={styles.heroIcon}>
+            <Ionicons
+              name="swap-horizontal-outline"
+              size={34}
+              color="#111"
+            />
+          </View>
 
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>
-            Saved accounts
+          <Text style={styles.heroTitle}>
+            Switch accounts
           </Text>
 
-          {accounts.length === 0 ? (
-            <Notice>
-              No accounts are saved on this
-              device yet. Add another account
-              by logging in.
-            </Notice>
-          ) : (
-            accounts.map((account) => {
-              const accountId =
-                getAccountId(account);
+          <Text style={styles.heroText}>
+            Quickly switch between Snapgram
+            accounts saved on this device.
+          </Text>
+        </View>
 
-              const isCurrent =
-                accountId ===
-                currentUserId;
+        {/* Error */}
 
-              const isSwitching =
-                switchingId === accountId;
+        {error ? (
+          <View style={styles.errorBox}>
+            <Ionicons
+              name="alert-circle-outline"
+              size={21}
+              color="#d93025"
+            />
 
-              const isRemoving =
-                removingId === accountId;
+            <View style={styles.errorContent}>
+              <Text style={styles.errorTitle}>
+                Something went wrong
+              </Text>
 
-              return (
-                <View
-                  key={accountId}
-                  style={styles.accountCard}
-                >
-                  {account?.avatar ? (
-                    <Image
-                      source={{
-                        uri: account.avatar,
-                      }}
-                      style={styles.avatar}
-                    />
-                  ) : (
-                    <View
-                      style={styles.avatarFallback}
-                    >
-                      <Text
-                        style={
-                          styles.avatarText
-                        }
-                      >
-                        {(
-                          account?.username ||
-                          account?.name ||
-                          account?.email ||
-                          "S"
-                        )
-                          .charAt(0)
-                          .toUpperCase()}
-                      </Text>
-                    </View>
-                  )}
+              <Text style={styles.errorText}>
+                {error}
+              </Text>
 
-                  <View
-                    style={styles.accountInfo}
+              <TouchableOpacity
+                activeOpacity={0.7}
+                onPress={loadAccounts}
+              >
+                <Text style={styles.retryText}>
+                  Try again
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        ) : null}
+
+        {/* Accounts */}
+
+        <Text style={styles.sectionTitle}>
+          Saved accounts
+        </Text>
+
+        {hasAccounts ? (
+          <View style={styles.accountsCard}>
+            {accounts.map(
+              (account, index) => {
+                const accountId =
+                  getAccountId(account);
+
+                const isCurrent =
+                  accountId ===
+                  currentUserId;
+
+                const switching =
+                  switchingId ===
+                  accountId;
+
+                const removing =
+                  removingId ===
+                  accountId;
+
+                const disabled =
+                  Boolean(switchingId) ||
+                  Boolean(removingId);
+
+                return (
+                  <React.Fragment
+                    key={
+                      accountId ||
+                      `account-${index}`
+                    }
                   >
-                    <Text
-                      style={styles.accountName}
-                      numberOfLines={1}
-                    >
-                      {getDisplayName(
-                        account
-                      )}
-                    </Text>
-
-                    {!!getUsername(
-                      account
-                    ) && (
-                      <Text
-                        style={
-                          styles.accountUsername
-                        }
-                        numberOfLines={1}
-                      >
-                        {getUsername(
-                          account
-                        )}
-                      </Text>
-                    )}
-
-                    {!!account?.email && (
-                      <Text
-                        style={
-                          styles.accountEmail
-                        }
-                        numberOfLines={1}
-                      >
-                        {account.email}
-                      </Text>
-                    )}
-
-                    {isCurrent && (
-                      <Text
-                        style={
-                          styles.currentLabel
-                        }
-                      >
-                        Current account
-                      </Text>
-                    )}
-                  </View>
-
-                  <View
-                    style={styles.actions}
-                  >
-                    {!isCurrent && (
-                      <SettingItem
-                        title={
-                          isSwitching
-                            ? "Switching..."
-                            : "Switch"
-                        }
-                        subtitle="Use this account"
-                        onPress={() =>
-                          handleSwitch(
-                            account
-                          )
-                        }
-                        disabled={
-                          Boolean(
-                            switchingId
-                          ) ||
-                          Boolean(
-                            removingId
-                          )
-                        }
-                      />
-                    )}
-
-                    <SettingItem
-                      title={
-                        isRemoving
-                          ? "Removing..."
-                          : "Remove"
+                    <AccountRow
+                      account={account}
+                      isCurrent={
+                        isCurrent
                       }
-                      subtitle="Remove from this device"
-                      onPress={() =>
+                      switching={
+                        switching
+                      }
+                      removing={
+                        removing
+                      }
+                      disabled={
+                        disabled
+                      }
+                      onSwitch={() =>
+                        handleSwitch(
+                          account
+                        )
+                      }
+                      onRemove={() =>
                         handleRemove(
                           account
                         )
                       }
-                      disabled={
-                        Boolean(
-                          switchingId
-                        ) ||
-                        Boolean(
-                          removingId
-                        )
-                      }
                     />
-                  </View>
-                </View>
-              );
-            })
-          )}
-        </View>
 
-        <PrimaryButton
-          text="Add account"
+                    {index <
+                    accounts.length - 1 ? (
+                      <View
+                        style={
+                          styles.divider
+                        }
+                      />
+                    ) : null}
+                  </React.Fragment>
+                );
+              }
+            )}
+          </View>
+        ) : (
+          <View style={styles.emptyCard}>
+            <View style={styles.emptyIcon}>
+              <Ionicons
+                name="people-outline"
+                size={30}
+                color="#777"
+              />
+            </View>
+
+            <Text style={styles.emptyTitle}>
+              No saved accounts
+            </Text>
+
+            <Text style={styles.emptyText}>
+              Accounts you save on this device
+              will appear here so you can switch
+              between them quickly.
+            </Text>
+          </View>
+        )}
+
+        {/* Add account */}
+
+        <TouchableOpacity
+          activeOpacity={0.8}
+          disabled={
+            Boolean(switchingId) ||
+            Boolean(removingId)
+          }
           onPress={() =>
             router.push(
               "/settings/profile/add-account"
             )
           }
-        />
+          style={[
+            styles.addButton,
+            (switchingId ||
+              removingId) &&
+              styles.disabledButton,
+          ]}
+        >
+          <View style={styles.addIcon}>
+            <Ionicons
+              name="add"
+              size={22}
+              color="#0095f6"
+            />
+          </View>
+
+          <Text style={styles.addText}>
+            Add account
+          </Text>
+        </TouchableOpacity>
+
+        {/* Security */}
 
         <View style={styles.securityBox}>
-          <Text
-            style={styles.securityTitle}
-          >
-            Security
-          </Text>
+          <View style={styles.securityIcon}>
+            <Ionicons
+              name="lock-closed-outline"
+              size={20}
+              color="#555"
+            />
+          </View>
 
-          <Text
-            style={styles.securityText}
-          >
-            Snapgram does not save your
-            password for account switching.
-            Your authenticated session is
-            saved on this device so you can
-            switch accounts without signing in
-            again.
-          </Text>
+          <View style={styles.securityContent}>
+            <Text style={styles.securityTitle}>
+              Account security
+            </Text>
 
-          <Text
-            style={styles.securityText}
-          >
-            Only save accounts on a device
-            that you control. Remove an
-            account if you are using a shared
-            or public device.
-          </Text>
+            <Text style={styles.securityText}>
+              Snapgram does not save your
+              password for account switching.
+              Saved accounts use their
+              authenticated session on this
+              device.
+            </Text>
+
+            <Text style={styles.securityText}>
+              Only save accounts on a device you
+              control. Remove saved accounts when
+              using a shared or public device.
+            </Text>
+          </View>
         </View>
+
+        <Text style={styles.footerText}>
+          Pull down to refresh your saved accounts.
+        </Text>
       </ScrollView>
-    </Page>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  content: {
-    paddingBottom: 32,
+  screen: {
+    flex: 1,
+    backgroundColor: "#fff",
   },
 
-  section: {
-    marginTop: 18,
+  loadingScreen: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#fff",
   },
 
-  sectionTitle: {
-    fontSize: 14,
-    fontWeight: "700",
-    marginBottom: 10,
-  },
-
-  accountCard: {
-    borderWidth: 1,
-    borderRadius: 16,
-    padding: 14,
-    marginBottom: 12,
+  header: {
+    height: 56,
+    paddingHorizontal: 8,
     flexDirection: "row",
-    alignItems: "flex-start",
+    alignItems: "center",
+    justifyContent: "space-between",
+    borderBottomWidth:
+      StyleSheet.hairlineWidth,
+    borderBottomColor: "#dbdbdb",
+    backgroundColor: "#fff",
   },
 
-  avatar: {
-    width: 52,
-    height: 52,
-    borderRadius: 26,
-  },
-
-  avatarFallback: {
-    width: 52,
-    height: 52,
-    borderRadius: 26,
+  headerButton: {
+    width: 44,
+    height: 44,
     alignItems: "center",
     justifyContent: "center",
   },
 
-  avatarText: {
-    fontSize: 20,
+  headerTitle: {
+    flex: 1,
+    textAlign: "center",
+    fontSize: 16,
     fontWeight: "700",
+    color: "#111",
+  },
+
+  headerSpacer: {
+    width: 44,
+  },
+
+  content: {
+    paddingHorizontal: 16,
+    paddingTop: 22,
+    paddingBottom: 50,
+  },
+
+  hero: {
+    alignItems: "center",
+    paddingHorizontal: 20,
+    marginBottom: 22,
+  },
+
+  heroIcon: {
+    width: 68,
+    height: 68,
+    borderRadius: 34,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#f2f2f2",
+    marginBottom: 10,
+  },
+
+  heroTitle: {
+    fontSize: 19,
+    fontWeight: "700",
+    color: "#111",
+    marginBottom: 5,
+  },
+
+  heroText: {
+    maxWidth: 340,
+    textAlign: "center",
+    fontSize: 13,
+    lineHeight: 19,
+    color: "#737373",
+  },
+
+  errorBox: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 10,
+    padding: 14,
+    marginBottom: 20,
+    borderRadius: 12,
+    backgroundColor: "#fff2f2",
+  },
+
+  errorContent: {
+    flex: 1,
+  },
+
+  errorTitle: {
+    marginBottom: 3,
+    fontSize: 13.5,
+    fontWeight: "700",
+    color: "#d93025",
+  },
+
+  errorText: {
+    fontSize: 12.5,
+    lineHeight: 18,
+    color: "#b3261e",
+  },
+
+  retryText: {
+    marginTop: 7,
+    fontSize: 13,
+    fontWeight: "700",
+    color: "#0095f6",
+  },
+
+  sectionTitle: {
+    marginBottom: 10,
+    fontSize: 16,
+    fontWeight: "700",
+    color: "#111",
+  },
+
+  accountsCard: {
+    borderTopWidth:
+      StyleSheet.hairlineWidth,
+    borderBottomWidth:
+      StyleSheet.hairlineWidth,
+    borderColor: "#e5e5e5",
+  },
+
+  accountRow: {
+    minHeight: 82,
+    paddingVertical: 13,
+    flexDirection: "row",
+    alignItems: "center",
+  },
+
+  currentAccountRow: {
+    backgroundColor: "#fff",
+  },
+
+  avatar: {
+    backgroundColor: "#eee",
+  },
+
+  avatarFallback: {
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#efefef",
+  },
+
+  avatarText: {
+    fontSize: 18,
+    fontWeight: "700",
+    color: "#555",
+  },
+
+  avatarTextLarge: {
+    fontSize: 23,
   },
 
   accountInfo: {
     flex: 1,
     marginLeft: 12,
-    paddingTop: 2,
+    paddingRight: 8,
   },
 
   accountName: {
+    fontSize: 15,
+    fontWeight: "700",
+    color: "#111",
+  },
+
+  username: {
+    marginTop: 2,
+    fontSize: 13,
+    color: "#737373",
+  },
+
+  currentBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginTop: 6,
+    gap: 5,
+  },
+
+  currentDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: "#0095f6",
+  },
+
+  currentBadgeText: {
+    fontSize: 11.5,
+    fontWeight: "600",
+    color: "#0095f6",
+  },
+
+  rowActions: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 7,
+  },
+
+  switchButton: {
+    minWidth: 68,
+    height: 34,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#0095f6",
+  },
+
+  switchText: {
+    fontSize: 12.5,
+    fontWeight: "700",
+    color: "#fff",
+  },
+
+  removeButton: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#f2f2f2",
+  },
+
+  disabledRemoveButton: {
+    opacity: 0.55,
+  },
+
+  disabledButton: {
+    opacity: 0.55,
+  },
+
+  divider: {
+    height: StyleSheet.hairlineWidth,
+    marginLeft: 66,
+    backgroundColor: "#e5e5e5",
+  },
+
+  emptyCard: {
+    alignItems: "center",
+    paddingVertical: 30,
+    paddingHorizontal: 25,
+    borderTopWidth:
+      StyleSheet.hairlineWidth,
+    borderBottomWidth:
+      StyleSheet.hairlineWidth,
+    borderColor: "#e5e5e5",
+  },
+
+  emptyIcon: {
+    width: 58,
+    height: 58,
+    borderRadius: 29,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#f2f2f2",
+    marginBottom: 10,
+  },
+
+  emptyTitle: {
+    marginBottom: 5,
     fontSize: 16,
     fontWeight: "700",
+    color: "#111",
   },
 
-  accountUsername: {
+  emptyText: {
+    maxWidth: 310,
+    textAlign: "center",
+    fontSize: 12.5,
+    lineHeight: 18,
+    color: "#737373",
+  },
+
+  addButton: {
+    height: 48,
+    marginTop: 22,
+    borderRadius: 9,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#0095f6",
+  },
+
+  addIcon: {
+    marginRight: 7,
+  },
+
+  addText: {
     fontSize: 14,
-    marginTop: 2,
-  },
-
-  accountEmail: {
-    fontSize: 13,
-    marginTop: 2,
-  },
-
-  currentLabel: {
-    fontSize: 12,
     fontWeight: "700",
-    marginTop: 5,
-  },
-
-  actions: {
-    width: 115,
-    marginLeft: 8,
+    color: "#fff",
   },
 
   securityBox: {
-    marginTop: 20,
-    padding: 16,
-    borderRadius: 16,
-    borderWidth: 1,
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 11,
+    marginTop: 24,
+    padding: 15,
+    borderRadius: 12,
+    backgroundColor: "#f7f7f7",
+  },
+
+  securityIcon: {
+    width: 30,
+    height: 30,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  securityContent: {
+    flex: 1,
   },
 
   securityTitle: {
-    fontSize: 15,
+    marginBottom: 5,
+    fontSize: 14,
     fontWeight: "700",
-    marginBottom: 8,
+    color: "#222",
   },
 
   securityText: {
-    fontSize: 13,
-    lineHeight: 19,
     marginBottom: 8,
+    fontSize: 12.5,
+    lineHeight: 18,
+    color: "#666",
+  },
+
+  footerText: {
+    marginTop: 16,
+    textAlign: "center",
+    fontSize: 12,
+    lineHeight: 18,
+    color: "#8a8a8a",
   },
 });

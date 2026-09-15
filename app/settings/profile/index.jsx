@@ -1,10 +1,12 @@
 import React, {
   useCallback,
+  useEffect,
   useMemo,
   useState,
 } from "react";
 
 import {
+  ActivityIndicator,
   RefreshControl,
   ScrollView,
   StyleSheet,
@@ -14,15 +16,17 @@ import {
   View,
 } from "react-native";
 
-import { router } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
+import { router } from "expo-router";
 
 import {
-  Notice,
-  Page,
   SectionHeading,
   SettingItem,
 } from "../../../components/settings/SettingsUI";
+
+import {
+  loadSettings,
+} from "../../../services/settingsApi";
 
 const sections = [
   {
@@ -413,22 +417,52 @@ const sections = [
 
 export default function SettingsScreen() {
   const [refreshing, setRefreshing] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
+  const [settings, setSettings] = useState(null);
+  const [loadError, setLoadError] = useState("");
 
-  const onRefresh = useCallback(async () => {
-    setRefreshing(true);
-
+  const loadSettingsData = useCallback(async () => {
     try {
-      await new Promise((resolve) => {
-        setTimeout(resolve, 350);
-      });
+      setLoadError("");
+
+      const data = await loadSettings();
+
+      setSettings(data || {});
+    } catch (error) {
+      console.error(
+        "SETTINGS LOAD ERROR:",
+        error?.response?.data ||
+          error?.message ||
+          error
+      );
+
+      setLoadError(
+        "Some account settings could not be loaded."
+      );
     } finally {
-      setRefreshing(false);
+      setLoading(false);
     }
   }, []);
 
+  useEffect(() => {
+    loadSettingsData();
+  }, [loadSettingsData]);
+
+  const onRefresh = useCallback(async () => {
+    try {
+      setRefreshing(true);
+
+      await loadSettingsData();
+    } finally {
+      setRefreshing(false);
+    }
+  }, [loadSettingsData]);
+
   const filteredSections = useMemo(() => {
-    const query = searchQuery.trim().toLowerCase();
+    const query = searchQuery
+      .trim()
+      .toLowerCase();
 
     if (!query) {
       return sections;
@@ -436,25 +470,25 @@ export default function SettingsScreen() {
 
     return sections
       .map((section) => {
-        const sectionMatches = section.title
-          .toLowerCase()
-          .includes(query);
+        const sectionMatches =
+          section.title
+            .toLowerCase()
+            .includes(query);
 
-        const matchingItems = section.items.filter(
-          (item) => {
-            const title = item.title
-              .toLowerCase();
+        const matchingItems =
+          section.items.filter((item) => {
+            const title =
+              item.title.toLowerCase();
 
-            const subtitle = item.subtitle
-              .toLowerCase();
+            const subtitle =
+              item.subtitle.toLowerCase();
 
             return (
               sectionMatches ||
               title.includes(query) ||
               subtitle.includes(query)
             );
-          }
-        );
+          });
 
         return {
           ...section,
@@ -479,17 +513,36 @@ export default function SettingsScreen() {
     setSearchQuery("");
   }, []);
 
-  const hasSearchQuery =
+  const hasSearch =
     searchQuery.trim().length > 0;
 
   const hasResults =
     filteredSections.length > 0;
 
   return (
-    <Page
-      title="Settings"
-      onBack={() => router.back()}
-    >
+    <View style={styles.screen}>
+      {/* Instagram-style header */}
+
+      <View style={styles.header}>
+        <TouchableOpacity
+          activeOpacity={0.7}
+          onPress={() => router.back()}
+          style={styles.headerButton}
+        >
+          <Ionicons
+            name="chevron-back"
+            size={28}
+            color="#111"
+          />
+        </TouchableOpacity>
+
+        <Text style={styles.headerTitle}>
+          Settings
+        </Text>
+
+        <View style={styles.headerButton} />
+      </View>
+
       <ScrollView
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
@@ -499,12 +552,24 @@ export default function SettingsScreen() {
             onRefresh={onRefresh}
           />
         }
-        contentContainerStyle={styles.content}
+        contentContainerStyle={
+          styles.content
+        }
       >
-        <Notice>
-          Manage your Snapgram account, privacy,
-          security and app preferences.
-        </Notice>
+        {/* Intro */}
+
+        <View style={styles.intro}>
+          <Text style={styles.introTitle}>
+            Settings and activity
+          </Text>
+
+          <Text style={styles.introSubtitle}>
+            Manage your account, privacy,
+            security and Snapgram preferences.
+          </Text>
+        </View>
+
+        {/* Search */}
 
         <View style={styles.searchContainer}>
           <Ionicons
@@ -522,33 +587,82 @@ export default function SettingsScreen() {
             autoCapitalize="none"
             autoCorrect={false}
             returnKeyType="search"
-            clearButtonMode="never"
           />
 
-          {searchQuery.length > 0 ? (
+          {hasSearch ? (
             <TouchableOpacity
+              activeOpacity={0.7}
               onPress={clearSearch}
-              style={styles.clearButton}
               hitSlop={10}
-              accessibilityRole="button"
-              accessibilityLabel="Clear settings search"
+              style={styles.clearButton}
             >
               <Ionicons
                 name="close-circle"
-                size={20}
-                color="#8A8A8A"
+                size={19}
+                color="#8a8a8a"
               />
             </TouchableOpacity>
           ) : null}
         </View>
 
-        {hasSearchQuery && !hasResults ? (
+        {/* Backend warning */}
+
+        {!!loadError && (
+          <TouchableOpacity
+            activeOpacity={0.8}
+            onPress={loadSettingsData}
+            style={styles.warning}
+          >
+            <Ionicons
+              name="warning-outline"
+              size={19}
+              color="#b45309"
+            />
+
+            <View style={styles.warningContent}>
+              <Text style={styles.warningTitle}>
+                Settings unavailable
+              </Text>
+
+              <Text style={styles.warningText}>
+                Some settings could not be loaded.
+                Tap to try again.
+              </Text>
+            </View>
+
+            <Ionicons
+              name="refresh-outline"
+              size={19}
+              color="#b45309"
+            />
+          </TouchableOpacity>
+        )}
+
+        {/* Initial loading */}
+
+        {loading ? (
+          <View style={styles.loading}>
+            <ActivityIndicator
+              size="small"
+            />
+
+            <Text style={styles.loadingText}>
+              Loading settings...
+            </Text>
+          </View>
+        ) : null}
+
+        {/* Empty search */}
+
+        {!loading &&
+        hasSearch &&
+        !hasResults ? (
           <View style={styles.emptyState}>
             <View style={styles.emptyIcon}>
               <Ionicons
                 name="search-outline"
                 size={30}
-                color="#777777"
+                color="#777"
               />
             </View>
 
@@ -557,63 +671,178 @@ export default function SettingsScreen() {
             </Text>
 
             <Text style={styles.emptyText}>
-              Try searching for privacy, password,
-              messages, notifications or subscription.
+              Try searching for privacy,
+              password, messages,
+              notifications or account.
             </Text>
+
+            <TouchableOpacity
+              activeOpacity={0.8}
+              onPress={clearSearch}
+              style={styles.clearSearchButton}
+            >
+              <Text
+                style={
+                  styles.clearSearchButtonText
+                }
+              >
+                Clear search
+              </Text>
+            </TouchableOpacity>
           </View>
         ) : null}
 
-        {filteredSections.map((section) => (
-          <View
-            key={section.title}
-            style={styles.section}
-          >
-            <SectionHeading>
-              {section.title}
-            </SectionHeading>
+        {/* Settings sections */}
 
-            {section.items.map((item) => (
-              <SettingItem
-                key={item.route}
-                title={item.title}
-                subtitle={item.subtitle}
-                icon={item.icon}
-                danger={item.danger === true}
-                onPress={() =>
-                  openRoute(item.route)
-                }
+        {!loading &&
+          filteredSections.map(
+            (section) => (
+              <View
+                key={section.title}
+                style={styles.section}
+              >
+                <SectionHeading>
+                  {section.title}
+                </SectionHeading>
+
+                <View
+                  style={styles.sectionCard}
+                >
+                  {section.items.map(
+                    (item, index) => (
+                      <React.Fragment
+                        key={item.route}
+                      >
+                        <SettingItem
+                          title={item.title}
+                          subtitle={
+                            item.subtitle
+                          }
+                          icon={item.icon}
+                          danger={
+                            item.danger === true
+                          }
+                          onPress={() =>
+                            openRoute(
+                              item.route
+                            )
+                          }
+                        />
+
+                        {index <
+                          section.items.length -
+                            1 && (
+                          <View
+                            style={
+                              styles.divider
+                            }
+                          />
+                        )}
+                      </React.Fragment>
+                    )
+                  )}
+                </View>
+              </View>
+            )
+          )}
+
+        {/* Footer */}
+
+        {!loading && !hasSearch ? (
+          <View style={styles.footer}>
+            <View style={styles.footerIcon}>
+              <Ionicons
+                name="settings-outline"
+                size={20}
+                color="#999"
               />
-            ))}
+            </View>
+
+            <Text style={styles.footerTitle}>
+              Snapgram
+            </Text>
+
+            <Text style={styles.footerText}>
+              Settings and activity
+            </Text>
           </View>
-        ))}
+        ) : null}
       </ScrollView>
-    </Page>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
+  screen: {
+    flex: 1,
+    backgroundColor: "#fff",
+  },
+
+  header: {
+    height: 56,
+    paddingHorizontal: 8,
+    flexDirection: "row",
+    alignItems: "center",
+    borderBottomWidth:
+      StyleSheet.hairlineWidth,
+    borderBottomColor: "#dbdbdb",
+  },
+
+  headerButton: {
+    width: 44,
+    height: 44,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  headerTitle: {
+    flex: 1,
+    textAlign: "center",
+    fontSize: 16,
+    fontWeight: "700",
+    color: "#111",
+  },
+
   content: {
-    paddingBottom: 40,
+    paddingHorizontal: 16,
+    paddingTop: 18,
+    paddingBottom: 45,
+  },
+
+  intro: {
+    marginBottom: 15,
+  },
+
+  introTitle: {
+    fontSize: 22,
+    fontWeight: "700",
+    color: "#111",
+  },
+
+  introSubtitle: {
+    marginTop: 5,
+    fontSize: 13.5,
+    lineHeight: 19,
+    color: "#737373",
   },
 
   searchContainer: {
     height: 48,
     borderRadius: 12,
-    backgroundColor: "#F1F1F1",
+    backgroundColor: "#f1f1f1",
     flexDirection: "row",
     alignItems: "center",
     paddingHorizontal: 13,
-    marginTop: 14,
-    marginBottom: 20,
+    marginBottom: 18,
   },
 
   searchInput: {
     flex: 1,
     height: 48,
-    fontSize: 15,
-    color: "#111111",
     marginLeft: 9,
     paddingVertical: 0,
+    fontSize: 15,
+    color: "#111",
   },
 
   clearButton: {
@@ -622,8 +851,65 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
 
-  section: {
+  warning: {
+    minHeight: 58,
     marginBottom: 18,
+    paddingHorizontal: 13,
+    paddingVertical: 10,
+    borderRadius: 10,
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#fff7ed",
+  },
+
+  warningContent: {
+    flex: 1,
+    marginHorizontal: 10,
+  },
+
+  warningTitle: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: "#92400e",
+  },
+
+  warningText: {
+    marginTop: 2,
+    fontSize: 11.5,
+    lineHeight: 16,
+    color: "#a16207",
+  },
+
+  loading: {
+    minHeight: 100,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  loadingText: {
+    marginTop: 8,
+    fontSize: 13,
+    color: "#777",
+  },
+
+  section: {
+    marginBottom: 22,
+  },
+
+  sectionCard: {
+    overflow: "hidden",
+    borderTopWidth:
+      StyleSheet.hairlineWidth,
+    borderBottomWidth:
+      StyleSheet.hairlineWidth,
+    borderColor: "#dedede",
+    backgroundColor: "#fff",
+  },
+
+  divider: {
+    height: StyleSheet.hairlineWidth,
+    marginLeft: 58,
+    backgroundColor: "#e5e5e5",
   },
 
   emptyState: {
@@ -637,16 +923,16 @@ const styles = StyleSheet.create({
     width: 64,
     height: 64,
     borderRadius: 32,
-    backgroundColor: "#F1F1F1",
     alignItems: "center",
     justifyContent: "center",
+    backgroundColor: "#f1f1f1",
     marginBottom: 16,
   },
 
   emptyTitle: {
     fontSize: 18,
     fontWeight: "700",
-    color: "#111111",
+    color: "#111",
     textAlign: "center",
   },
 
@@ -654,7 +940,49 @@ const styles = StyleSheet.create({
     marginTop: 8,
     fontSize: 14,
     lineHeight: 20,
-    color: "#777777",
+    color: "#777",
     textAlign: "center",
+  },
+
+  clearSearchButton: {
+    marginTop: 18,
+    paddingHorizontal: 18,
+    paddingVertical: 9,
+    borderRadius: 8,
+    backgroundColor: "#0095f6",
+  },
+
+  clearSearchButtonText: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: "#fff",
+  },
+
+  footer: {
+    alignItems: "center",
+    paddingTop: 15,
+    paddingBottom: 15,
+  },
+
+  footerIcon: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#f2f2f2",
+  },
+
+  footerTitle: {
+    marginTop: 8,
+    fontSize: 13,
+    fontWeight: "600",
+    color: "#999",
+  },
+
+  footerText: {
+    marginTop: 2,
+    fontSize: 11,
+    color: "#b0b0b0",
   },
 });
