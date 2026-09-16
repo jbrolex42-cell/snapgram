@@ -1,6 +1,18 @@
-import React, { useCallback, useEffect, useState } from "react";
-import { Alert, RefreshControl, ScrollView, View } from "react-native";
+import React, {
+  useCallback,
+  useEffect,
+  useState,
+} from "react";
+
+import {
+  Alert,
+  RefreshControl,
+  ScrollView,
+  View,
+} from "react-native";
+
 import { router } from "expo-router";
+
 import {
   Page,
   InfoCard,
@@ -8,9 +20,10 @@ import {
   PageLoading,
   Notice,
 } from "../../../components/settings/SettingsUI";
+
 import {
-  loadSettings,
-  saveSettings,
+  getSettings,
+  updateSettings,
 } from "../../../services/settingsApi";
 
 const DEFAULTS = {
@@ -19,18 +32,23 @@ const DEFAULTS = {
 };
 
 export default function MotionScreen() {
-  const [animations, setAnimations] = useState(
-    DEFAULTS.animations
-  );
+  const [animations, setAnimations] =
+    useState(DEFAULTS.animations);
 
-  const [reduceMotion, setReduceMotion] = useState(
-    DEFAULTS.reduceMotion
-  );
+  const [reduceMotion, setReduceMotion] =
+    useState(DEFAULTS.reduceMotion);
 
-  const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState("");
+  const [loading, setLoading] =
+    useState(true);
+
+  const [refreshing, setRefreshing] =
+    useState(false);
+
+  const [saving, setSaving] =
+    useState(false);
+
+  const [error, setError] =
+    useState("");
 
   const loadMotionSettings = useCallback(
     async (isRefresh = false) => {
@@ -43,21 +61,30 @@ export default function MotionScreen() {
 
         setError("");
 
-        const data = await loadSettings();
-        const settings = data?.preferences?.motion || {};
+        const data = await getSettings();
+
+        const preferences =
+          data?.preferences || {};
 
         setAnimations(
-          typeof settings.animations === "boolean"
-            ? settings.animations
+          typeof preferences.animations ===
+            "boolean"
+            ? preferences.animations
             : DEFAULTS.animations
         );
 
         setReduceMotion(
-          typeof settings.reduceMotion === "boolean"
-            ? settings.reduceMotion
+          typeof preferences.reduceMotion ===
+            "boolean"
+            ? preferences.reduceMotion
             : DEFAULTS.reduceMotion
         );
       } catch (err) {
+        console.error(
+          "MOTION SETTINGS LOAD ERROR:",
+          err
+        );
+
         const message =
           err?.response?.data?.message ||
           err?.message ||
@@ -76,114 +103,150 @@ export default function MotionScreen() {
     loadMotionSettings();
   }, [loadMotionSettings]);
 
-  const updateMotionSetting = useCallback(
-    async (key, value) => {
-      if (saving) {
-        return;
-      }
+  const updateMotionSetting =
+    useCallback(
+      async (key, value) => {
+        if (saving) {
+          return;
+        }
 
-      if (
-        key !== "animations" &&
-        key !== "reduceMotion"
-      ) {
-        return;
-      }
+        if (
+          key !== "animations" &&
+          key !== "reduceMotion"
+        ) {
+          return;
+        }
 
-      if (typeof value !== "boolean") {
-        return;
-      }
+        if (typeof value !== "boolean") {
+          return;
+        }
 
-      const isAnimations = key === "animations";
+        const previousValue =
+          key === "animations"
+            ? animations
+            : reduceMotion;
 
-      const previousValue = isAnimations
-        ? animations
-        : reduceMotion;
+        if (key === "animations") {
+          setAnimations(value);
+        } else {
+          setReduceMotion(value);
+        }
 
-      const setter = isAnimations
-        ? setAnimations
-        : setReduceMotion;
+        setSaving(true);
+        setError("");
 
-      setter(value);
-      setSaving(true);
-      setError("");
-
-      try {
-        await saveSettings({
-          motion: {
+        try {
+          await updateSettings({
             [key]: value,
-          },
-        });
-      } catch (err) {
-        setter(previousValue);
+          });
+        } catch (err) {
+          console.error(
+            "MOTION SETTINGS SAVE ERROR:",
+            err
+          );
 
-        const message =
-          err?.response?.data?.message ||
-          err?.message ||
-          "Unable to save your motion preference.";
+          if (key === "animations") {
+            setAnimations(previousValue);
+          } else {
+            setReduceMotion(previousValue);
+          }
 
-        setError(message);
+          const message =
+            err?.response?.data?.message ||
+            err?.message ||
+            "Unable to save your motion preference.";
 
-        Alert.alert("Unable to save", message);
-      } finally {
-        setSaving(false);
-      }
-    },
-    [animations, reduceMotion, saving]
-  );
+          setError(message);
+
+          Alert.alert(
+            "Unable to save",
+            message
+          );
+        } finally {
+          setSaving(false);
+        }
+      },
+      [
+        animations,
+        reduceMotion,
+        saving,
+      ]
+    );
 
   if (loading) {
     return (
-      <Page title="Motion" onBack={() => router.back()}>
+      <Page
+        title="Motion"
+        onBack={() => router.back()}
+      >
         <PageLoading />
       </Page>
     );
   }
 
   return (
-    <Page title="Motion" onBack={() => router.back()}>
+    <Page
+      title="Motion"
+      onBack={() => router.back()}
+    >
       <ScrollView
         showsVerticalScrollIndicator={false}
         refreshControl={
           <RefreshControl
             refreshing={refreshing}
-            onRefresh={() => loadMotionSettings(true)}
+            onRefresh={() =>
+              loadMotionSettings(true)
+            }
           />
         }
         contentContainerStyle={{
-          paddingBottom: 32,
+          paddingBottom: 40,
         }}
       >
         <InfoCard
           icon="flash-outline"
           title="Motion"
-          text="Control interface animations and reduce non-essential motion effects."
+          text="Choose how much movement and animation you want to see while using Snapgram."
         />
 
         {error ? (
-          <View style={{ marginTop: 12 }}>
+          <View
+            style={{
+              marginTop: 12,
+            }}
+          >
             <Notice
               type="error"
               title="Something went wrong"
               text={error}
               actionText="Try again"
-              onAction={() => loadMotionSettings()}
+              onAction={() =>
+                loadMotionSettings()
+              }
             />
           </View>
         ) : null}
 
-        <View style={{ marginTop: 12 }}>
+        <View
+          style={{
+            marginTop: 12,
+          }}
+        >
           <SwitchRow
             title="Animations"
-            subtitle="Enable interface animations and transitions throughout Snapgram."
+            subtitle="Show interface animations and transitions throughout Snapgram."
             value={animations}
             onChange={(value) =>
-              updateMotionSetting("animations", value)
+              updateMotionSetting(
+                "animations",
+                value
+              )
             }
           />
 
           <SwitchRow
             title="Reduce motion"
-            subtitle="Reduce non-essential motion effects and transitions."
+            subtitle="Reduce non-essential animations and movement throughout Snapgram."
             value={reduceMotion}
             onChange={(value) =>
               updateMotionSetting(
@@ -194,8 +257,26 @@ export default function MotionScreen() {
           />
         </View>
 
+        {reduceMotion ? (
+          <View
+            style={{
+              marginTop: 12,
+            }}
+          >
+            <InfoCard
+              icon="accessibility-outline"
+              title="Reduced motion is on"
+              text="Snapgram will reduce non-essential movement where supported. Some animations may still appear when they are important for navigation or feedback."
+            />
+          </View>
+        ) : null}
+
         {saving ? (
-          <View style={{ marginTop: 12 }}>
+          <View
+            style={{
+              marginTop: 12,
+            }}
+          >
             <Notice
               type="info"
               title="Saving"

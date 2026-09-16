@@ -3,13 +3,17 @@ import React, {
   useEffect,
   useState,
 } from "react";
+
 import {
   Alert,
   RefreshControl,
   ScrollView,
   StyleSheet,
+  Text,
   View,
 } from "react-native";
+
+import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
 
 import {
@@ -33,11 +37,12 @@ export default function AccessibilityScreen() {
   const [reduceTransparency, setReduceTransparency] =
     useState(DEFAULT_REDUCE_TRANSPARENCY);
 
-  const [screenReaderOptimizations, setScreenReaderOptimizations] =
-    useState(DEFAULT_SCREEN_READER);
+  const [
+    screenReaderOptimizations,
+    setScreenReaderOptimizations,
+  ] = useState(DEFAULT_SCREEN_READER);
 
-  const [loading, setLoading] =
-    useState(true);
+  const [loading, setLoading] = useState(true);
 
   const [refreshing, setRefreshing] =
     useState(false);
@@ -45,8 +50,7 @@ export default function AccessibilityScreen() {
   const [savingKey, setSavingKey] =
     useState(null);
 
-  const [error, setError] =
-    useState("");
+  const [error, setError] = useState("");
 
   const load = useCallback(
     async (showLoader = true) => {
@@ -57,12 +61,11 @@ export default function AccessibilityScreen() {
 
         setError("");
 
-        const data =
-          await loadSettings();
+        const data = await loadSettings();
 
         const accessibility =
-          data?.preferences?.accessibility ||
-          {};
+          data?.preferences
+            ?.accessibility || {};
 
         setReduceTransparency(
           typeof accessibility.reduceTransparency ===
@@ -79,15 +82,16 @@ export default function AccessibilityScreen() {
         );
       } catch (err) {
         console.error(
-          "Failed to load accessibility settings:",
+          "ACCESSIBILITY LOAD ERROR:",
           err
         );
 
-        setError(
+        const message =
           err?.response?.data?.message ||
-            err?.message ||
-            "Unable to load your accessibility settings."
-        );
+          err?.message ||
+          "Unable to load your accessibility settings.";
+
+        setError(message);
       } finally {
         if (showLoader) {
           setLoading(false);
@@ -105,6 +109,7 @@ export default function AccessibilityScreen() {
     useCallback(async () => {
       try {
         setRefreshing(true);
+
         await load(false);
       } finally {
         setRefreshing(false);
@@ -121,22 +126,26 @@ export default function AccessibilityScreen() {
         previousValue =
           reduceTransparency;
 
-        setReduceTransparency(
-          nextValue
-        );
-      } else {
+        setReduceTransparency(nextValue);
+      } else if (
+        key ===
+        "screenReaderOptimizations"
+      ) {
         previousValue =
           screenReaderOptimizations;
 
         setScreenReaderOptimizations(
           nextValue
         );
+      } else {
+        return;
       }
 
       setSavingKey(key);
       setError("");
 
       try {
+
         await saveSettings({
           accessibility: {
             [key]: nextValue,
@@ -144,7 +153,7 @@ export default function AccessibilityScreen() {
         });
       } catch (err) {
         console.error(
-          `Failed to save accessibility setting ${key}:`,
+          `ACCESSIBILITY SAVE ERROR (${key}):`,
           err
         );
 
@@ -169,7 +178,7 @@ export default function AccessibilityScreen() {
         setError(message);
 
         Alert.alert(
-          "Update failed",
+          "Couldn't update setting",
           message
         );
       } finally {
@@ -210,11 +219,33 @@ export default function AccessibilityScreen() {
           styles.content
         }
       >
-        <InfoCard
-          icon="accessibility-outline"
-          title="Accessibility"
-          text="Adjust Snapgram to make supported features easier to use and more accessible."
-        />
+        {/* =================================================
+            HEADER
+        ================================================= */}
+
+        <View style={styles.header}>
+          <View style={styles.headerIcon}>
+            <Ionicons
+              name="accessibility-outline"
+              size={27}
+              color="#000"
+            />
+          </View>
+
+          <Text style={styles.headerTitle}>
+            Accessibility
+          </Text>
+
+          <Text style={styles.headerText}>
+            Customize supported Snapgram
+            features to make the app easier
+            to see, read, and use.
+          </Text>
+        </View>
+
+        {/* =================================================
+            ERROR
+        ================================================= */}
 
         {error ? (
           <View
@@ -237,37 +268,118 @@ export default function AccessibilityScreen() {
           </View>
         ) : null}
 
-        <SwitchRow
-          title="Reduce transparency"
-          subtitle="Reduce translucent interface elements to improve visibility and readability."
-          value={reduceTransparency}
-          onChange={(value) =>
-            changeSetting(
-              "reduceTransparency",
-              value
-            )
-          }
-          disabled={Boolean(
-            savingKey
-          )}
-        />
+        {/* =================================================
+            DISPLAY
+        ================================================= */}
 
-        <SwitchRow
-          title="Screen reader optimizations"
-          subtitle="Optimize supported Snapgram interfaces for screen readers and assistive technologies."
-          value={
-            screenReaderOptimizations
-          }
-          onChange={(value) =>
-            changeSetting(
-              "screenReaderOptimizations",
-              value
-            )
-          }
-          disabled={Boolean(
-            savingKey
-          )}
-        />
+        <Text style={styles.sectionTitle}>
+          Display
+        </Text>
+
+        <Text style={styles.sectionDescription}>
+          Adjust visual effects that can
+          affect readability.
+        </Text>
+
+        <View style={styles.settingCard}>
+          <SwitchRow
+            title="Reduce transparency"
+            subtitle="Reduce translucent interface elements and effects to make content easier to see."
+            value={reduceTransparency}
+            onChange={(value) =>
+              changeSetting(
+                "reduceTransparency",
+                value
+              )
+            }
+            disabled={
+              savingKey !== null
+            }
+          />
+
+          {savingKey ===
+          "reduceTransparency" ? (
+            <Text
+              style={styles.savingText}
+            >
+              Saving...
+            </Text>
+          ) : null}
+        </View>
+
+        {/* =================================================
+            ASSISTIVE TECHNOLOGY
+        ================================================= */}
+
+        <Text
+          style={[
+            styles.sectionTitle,
+            styles.secondSectionTitle,
+          ]}
+        >
+          Assistive technology
+        </Text>
+
+        <Text style={styles.sectionDescription}>
+          Improve supported Snapgram
+          interfaces when using accessibility
+          tools.
+        </Text>
+
+        <View style={styles.settingCard}>
+          <SwitchRow
+            title="Screen reader optimizations"
+            subtitle="Optimize supported Snapgram interfaces for screen readers and assistive technologies."
+            value={
+              screenReaderOptimizations
+            }
+            onChange={(value) =>
+              changeSetting(
+                "screenReaderOptimizations",
+                value
+              )
+            }
+            disabled={
+              savingKey !== null
+            }
+          />
+
+          {savingKey ===
+          "screenReaderOptimizations" ? (
+            <Text
+              style={styles.savingText}
+            >
+              Saving...
+            </Text>
+          ) : null}
+        </View>
+
+        {/* =================================================
+            INFORMATION
+        ================================================= */}
+
+        <View style={styles.infoCard}>
+          <View style={styles.infoIcon}>
+            <Ionicons
+              name="information-circle-outline"
+              size={22}
+              color="#000"
+            />
+          </View>
+
+          <View style={styles.infoContent}>
+            <Text style={styles.infoTitle}>
+              Accessibility
+            </Text>
+
+            <Text style={styles.infoText}>
+              These settings are saved to your
+              Snapgram account and will remain
+              available when you sign in on
+              another supported device.
+            </Text>
+          </View>
+        </View>
       </ScrollView>
     </Page>
   );
@@ -275,11 +387,110 @@ export default function AccessibilityScreen() {
 
 const styles = StyleSheet.create({
   content: {
-    paddingBottom: 32,
+    paddingBottom: 40,
+  },
+
+  header: {
+    alignItems: "center",
+    paddingHorizontal: 24,
+    paddingTop: 8,
+    paddingBottom: 22,
+  },
+
+  headerIcon: {
+    width: 54,
+    height: 54,
+    borderRadius: 27,
+    borderWidth: 1,
+    borderColor: "#dbdbdb",
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 13,
+  },
+
+  headerTitle: {
+    fontSize: 20,
+    fontWeight: "700",
+    color: "#000",
+    textAlign: "center",
+    marginBottom: 7,
+  },
+
+  headerText: {
+    maxWidth: 340,
+    fontSize: 13,
+    lineHeight: 19,
+    color: "#737373",
+    textAlign: "center",
   },
 
   errorContainer: {
-    marginTop: 12,
-    marginBottom: 8,
+    marginBottom: 12,
+  },
+
+  sectionTitle: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: "#000",
+    marginTop: 4,
+    marginBottom: 4,
+    paddingHorizontal: 16,
+  },
+
+  secondSectionTitle: {
+    marginTop: 28,
+  },
+
+  sectionDescription: {
+    fontSize: 13,
+    lineHeight: 19,
+    color: "#737373",
+    paddingHorizontal: 16,
+    marginBottom: 10,
+  },
+
+  settingCard: {
+    marginHorizontal: 8,
+    borderRadius: 12,
+    overflow: "hidden",
+  },
+
+  savingText: {
+    fontSize: 12,
+    color: "#737373",
+    paddingHorizontal: 16,
+    paddingBottom: 10,
+    marginTop: -4,
+  },
+
+  infoCard: {
+    flexDirection: "row",
+    marginTop: 28,
+    marginHorizontal: 12,
+    padding: 16,
+    borderRadius: 12,
+    backgroundColor: "#f7f7f7",
+  },
+
+  infoIcon: {
+    marginRight: 12,
+    paddingTop: 1,
+  },
+
+  infoContent: {
+    flex: 1,
+  },
+
+  infoTitle: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: "#000",
+    marginBottom: 5,
+  },
+
+  infoText: {
+    fontSize: 13,
+    lineHeight: 19,
+    color: "#737373",
   },
 });

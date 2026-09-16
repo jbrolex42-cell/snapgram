@@ -3,14 +3,18 @@ import React, {
   useEffect,
   useState,
 } from "react";
+
 import {
   Alert,
   FlatList,
   RefreshControl,
   StyleSheet,
   Text,
+  TouchableOpacity,
   View,
 } from "react-native";
+
+import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
 
 import {
@@ -23,142 +27,147 @@ import {
 } from "../../../components/settings/SettingsUI";
 
 import { loadSettings } from "../../../services/settingsApi";
+
 import {
   removeRelationship,
 } from "../../../services/settingsService";
 
-export default function Screen() {
-  const [restrictedUsers, setRestrictedUsers] =
-    useState([]);
+const RELATIONSHIP_TYPE = "restrictedUsers";
 
-  const [loading, setLoading] =
-    useState(true);
+export default function RestrictedAccountsScreen() {
+  const [restrictedUsers, setRestrictedUsers] = useState([]);
 
-  const [refreshing, setRefreshing] =
-    useState(false);
+  const [loading, setLoading] = useState(true);
 
-  const [removingId, setRemovingId] =
-    useState(null);
+  const [refreshing, setRefreshing] = useState(false);
 
-  const [error, setError] =
-    useState("");
+  const [removingId, setRemovingId] = useState(null);
 
-  const getUserId = useCallback(
-    (user) => {
-      if (!user) {
-        return null;
-      }
+  const [error, setError] = useState("");
 
-      if (typeof user === "string") {
-        return user;
-      }
+  const getUserId = useCallback((user) => {
+    if (!user) {
+      return null;
+    }
 
-      return (
-        user._id ||
-        user.id ||
-        user.userId ||
-        null
-      );
-    },
-    []
-  );
+    if (typeof user === "string") {
+      return user;
+    }
 
-  const getUserName = useCallback(
-    (user) => {
-      if (!user) {
-        return "Unknown user";
-      }
-
-      if (typeof user === "string") {
-        return user;
-      }
-
-      return (
-        user.username ||
-        user.userName ||
-        user.name ||
-        user.fullName ||
-        "Snapgram user"
-      );
-    },
-    []
-  );
-
-  const getUserSubtitle = useCallback(
-    (user) => {
-      if (
-        !user ||
-        typeof user === "string"
-      ) {
-        return "";
-      }
-
-      if (user.username) {
-        return `@${user.username}`;
-      }
-
-      if (user.email) {
-        return user.email;
-      }
-
-      return "";
-    },
-    []
-  );
-
-  const loadRestrictedUsers =
-    useCallback(
-      async (showLoader = true) => {
-        try {
-          if (showLoader) {
-            setLoading(true);
-          }
-
-          setError("");
-
-          const settings =
-            await loadSettings();
-
-          const users = Array.isArray(
-            settings?.restrictedUsers
-          )
-            ? settings.restrictedUsers
-            : [];
-
-          setRestrictedUsers(users);
-        } catch (err) {
-          console.error(
-            "Failed to load restricted accounts:",
-            err
-          );
-
-          setError(
-            err?.response?.data?.message ||
-              err?.message ||
-              "Unable to load restricted accounts."
-          );
-        } finally {
-          if (showLoader) {
-            setLoading(false);
-          }
-        }
-      },
-      []
+    return (
+      user._id ||
+      user.id ||
+      user.userId ||
+      null
     );
+  }, []);
+
+  const getUsername = useCallback((user) => {
+    if (!user) {
+      return "Snapgram user";
+    }
+
+    if (typeof user === "string") {
+      return user;
+    }
+
+    return (
+      user.username ||
+      user.userName ||
+      "Snapgram user"
+    );
+  }, []);
+
+  const getFullName = useCallback((user) => {
+    if (!user || typeof user === "string") {
+      return "";
+    }
+
+    return (
+      user.fullName ||
+      user.name ||
+      ""
+    );
+  }, []);
+
+  const getAvatar = useCallback((user) => {
+    if (!user || typeof user === "string") {
+      return null;
+    }
+
+    return (
+      user.avatar?.url ||
+      user.avatar ||
+      user.profilePicture ||
+      user.photo ||
+      null
+    );
+  }, []);
+
+  const getInitial = useCallback(
+    (user) => {
+      const username = getUsername(user);
+
+      return (
+        username?.charAt(0)?.toUpperCase() ||
+        "S"
+      );
+    },
+    [getUsername]
+  );
+
+  const loadRestrictedUsers = useCallback(
+    async (showLoader = true) => {
+      try {
+        if (showLoader) {
+          setLoading(true);
+        }
+
+        setError("");
+
+        const settings = await loadSettings();
+
+        const users = Array.isArray(
+          settings?.restrictedUsers
+        )
+          ? settings.restrictedUsers
+          : [];
+
+        setRestrictedUsers(users);
+      } catch (err) {
+        console.error(
+          "RESTRICTED ACCOUNTS LOAD ERROR:",
+          err
+        );
+
+        const message =
+          err?.response?.data?.message ||
+          err?.message ||
+          "Unable to load restricted accounts.";
+
+        setError(message);
+      } finally {
+        if (showLoader) {
+          setLoading(false);
+        }
+      }
+    },
+    []
+  );
 
   useEffect(() => {
     loadRestrictedUsers();
   }, [loadRestrictedUsers]);
 
-  const handleRefresh =
-    useCallback(async () => {
-      try {
-        setRefreshing(true);
-        await loadRestrictedUsers(false);
-      } finally {
-        setRefreshing(false);
-      }
-    }, [loadRestrictedUsers]);
+  const handleRefresh = useCallback(async () => {
+    try {
+      setRefreshing(true);
+
+      await loadRestrictedUsers(false);
+    } finally {
+      setRefreshing(false);
+    }
+  }, [loadRestrictedUsers]);
 
   const openProfile = useCallback(
     (user) => {
@@ -169,6 +178,7 @@ export default function Screen() {
           "Profile unavailable",
           "This account does not have a valid profile ID."
         );
+
         return;
       }
 
@@ -182,132 +192,184 @@ export default function Screen() {
     [getUserId]
   );
 
-  const unrestrictUser =
-    useCallback(
-      async (user) => {
-        const userId = getUserId(user);
+  const unrestrictUser = useCallback(
+    (user) => {
+      const userId = getUserId(user);
 
-        if (!userId) {
-          Alert.alert(
-            "Unable to remove restriction",
-            "This account does not have a valid user ID."
-          );
-          return;
-        }
-
-        const username =
-          getUserName(user);
-
+      if (!userId) {
         Alert.alert(
-          "Remove restriction?",
-          `${username} will no longer be restricted.`,
-          [
-            {
-              text: "Cancel",
-              style: "cancel",
-            },
-            {
-              text: "Remove",
-              onPress: async () => {
-                try {
-                  setRemovingId(
-                    String(userId)
-                  );
-
-                  setError("");
-
-                  await removeRelationship(
-                    userId,
-                    "restricted"
-                  );
-
-                  setRestrictedUsers(
-                    (current) =>
-                      current.filter(
-                        (item) =>
-                          String(
-                            getUserId(item)
-                          ) !==
-                          String(userId)
-                      )
-                  );
-                } catch (err) {
-                  console.error(
-                    "Failed to remove restriction:",
-                    err
-                  );
-
-                  Alert.alert(
-                    "Couldn't remove restriction",
-                    err?.response?.data
-                      ?.message ||
-                      err?.message ||
-                      "The restriction could not be removed."
-                  );
-                } finally {
-                  setRemovingId(null);
-                }
-              },
-            },
-          ]
+          "Unable to remove restriction",
+          "This account does not have a valid user ID."
         );
-      },
-      [getUserId, getUserName]
-    );
 
-  const renderItem = useCallback(
+        return;
+      }
+
+      const username = getUsername(user);
+
+      Alert.alert(
+        "Remove restriction?",
+        `Remove the restriction from ${username}?`,
+        [
+          {
+            text: "Cancel",
+            style: "cancel",
+          },
+
+          {
+            text: "Remove",
+            style: "destructive",
+
+            onPress: async () => {
+              try {
+                const id = String(userId);
+
+                setRemovingId(id);
+
+                setError("");
+
+                await removeRelationship(
+                  userId,
+                  RELATIONSHIP_TYPE
+                );
+
+                setRestrictedUsers((current) =>
+                  current.filter(
+                    (item) =>
+                      String(
+                        getUserId(item)
+                      ) !== id
+                  )
+                );
+              } catch (err) {
+                console.error(
+                  "REMOVE RESTRICTION ERROR:",
+                  err
+                );
+
+                Alert.alert(
+                  "Couldn't remove restriction",
+                  err?.response?.data?.message ||
+                    err?.message ||
+                    "The restriction could not be removed."
+                );
+              } finally {
+                setRemovingId(null);
+              }
+            },
+          },
+        ]
+      );
+    },
+    [getUserId, getUsername]
+  );
+
+  const renderUser = useCallback(
     ({ item }) => {
-      const userId =
-        getUserId(item);
+      const userId = getUserId(item);
 
-      const username =
-        getUserName(item);
+      const username = getUsername(item);
 
-      const subtitle =
-        getUserSubtitle(item);
+      const fullName = getFullName(item);
+
+      const avatar = getAvatar(item);
 
       const isRemoving =
-        removingId &&
-        userId &&
+        Boolean(userId) &&
         String(removingId) ===
           String(userId);
 
       return (
-        <SettingItem
-          title={username}
-          description={subtitle}
-          icon="person-outline"
-          onPress={() =>
-            openProfile(item)
-          }
-          right={
-            <PrimaryButton
-              title={
-                isRemoving
-                  ? "Removing..."
-                  : "Remove"
-              }
-              text={
-                isRemoving
-                  ? "Removing..."
-                  : "Remove"
-              }
-              compact
-              disabled={Boolean(
-                isRemoving
+        <View style={styles.userRow}>
+          {/* PROFILE BUTTON */}
+
+          <TouchableOpacity
+            activeOpacity={0.7}
+            style={styles.userInfo}
+            onPress={() =>
+              openProfile(item)
+            }
+            disabled={isRemoving}
+          >
+            {/* AVATAR */}
+
+            <View style={styles.avatar}>
+              {avatar ? (
+                <View style={styles.avatarImageWrapper}>
+                  <View
+                    style={[
+                      styles.avatarImage,
+                      {
+                        backgroundColor:
+                          "transparent",
+                      },
+                    ]}
+                  >
+                    <ImageWithFallback
+                      uri={avatar}
+                      initial={getInitial(item)}
+                    />
+                  </View>
+                </View>
+              ) : (
+                <Text style={styles.avatarText}>
+                  {getInitial(item)}
+                </Text>
               )}
-              onPress={() =>
-                unrestrictUser(item)
-              }
-            />
-          }
-        />
+            </View>
+
+            {/* USER DETAILS */}
+
+            <View style={styles.userDetails}>
+              <Text
+                style={styles.username}
+                numberOfLines={1}
+              >
+                {username}
+              </Text>
+
+              {fullName ? (
+                <Text
+                  style={styles.fullName}
+                  numberOfLines={1}
+                >
+                  {fullName}
+                </Text>
+              ) : null}
+            </View>
+          </TouchableOpacity>
+
+          {/* REMOVE BUTTON */}
+
+          <TouchableOpacity
+            activeOpacity={0.75}
+            style={[
+              styles.removeButton,
+              isRemoving &&
+                styles.removeButtonDisabled,
+            ]}
+            onPress={() =>
+              unrestrictUser(item)
+            }
+            disabled={isRemoving}
+          >
+            <Text
+              style={styles.removeButtonText}
+            >
+              {isRemoving
+                ? "Removing..."
+                : "Remove"}
+            </Text>
+          </TouchableOpacity>
+        </View>
       );
     },
     [
       getUserId,
-      getUserName,
-      getUserSubtitle,
+      getUsername,
+      getFullName,
+      getAvatar,
+      getInitial,
       openProfile,
       removingId,
       unrestrictUser,
@@ -318,7 +380,7 @@ export default function Screen() {
     return (
       <Page
         title="Restricted accounts"
-        icon="remove-circle-outline"
+        icon="person-remove-outline"
       >
         <PageLoading />
       </Page>
@@ -332,7 +394,7 @@ export default function Screen() {
     return (
       <Page
         title="Restricted accounts"
-        icon="remove-circle-outline"
+        icon="person-remove-outline"
       >
         <Notice
           type="error"
@@ -354,19 +416,19 @@ export default function Screen() {
   return (
     <Page
       title="Restricted accounts"
-      icon="remove-circle-outline"
+      icon="person-remove-outline"
     >
       <FlatList
         data={restrictedUsers}
         keyExtractor={(item, index) => {
-          const id =
-            getUserId(item);
+          const id = getUserId(item);
 
           return id
             ? String(id)
-            : `restricted-user-${index}`;
+            : `restricted-${index}`;
         }}
-        renderItem={renderItem}
+        renderItem={renderUser}
+        showsVerticalScrollIndicator={false}
         refreshControl={
           <RefreshControl
             refreshing={refreshing}
@@ -375,32 +437,53 @@ export default function Screen() {
         }
         contentContainerStyle={
           restrictedUsers.length === 0
-            ? styles.emptyContent
-            : styles.listContent
+            ? styles.emptyList
+            : styles.list
         }
         ListHeaderComponent={
           <View>
-            <InfoCard
-              title="Restricted accounts"
-              description="Manage accounts whose interactions with you are limited."
-            />
+            {/* INTRO */}
+
+            <View style={styles.intro}>
+              <View style={styles.introIcon}>
+                <Ionicons
+                  name="person-remove-outline"
+                  size={24}
+                  color="#000"
+                />
+              </View>
+
+              <Text style={styles.introTitle}>
+                Restricted accounts
+              </Text>
+
+              <Text style={styles.introText}>
+                When you restrict someone, they
+                won't be notified. They can still
+                see your posts, but their comments
+                on your posts are only visible to
+                them until you approve them.
+              </Text>
+            </View>
+
+            {/* ERROR */}
 
             {error ? (
-              <Notice
-                type="error"
-                title="Refresh issue"
-                message={error}
-              />
+              <View style={styles.errorWrapper}>
+                <Notice
+                  type="error"
+                  title="Couldn't refresh"
+                  message={error}
+                />
+              </View>
             ) : null}
 
-            {restrictedUsers.length >
-            0 ? (
-              <Text
-                style={styles.count}
-              >
+            {/* COUNT */}
+
+            {restrictedUsers.length > 0 ? (
+              <Text style={styles.sectionTitle}>
                 {restrictedUsers.length}{" "}
-                {restrictedUsers.length ===
-                1
+                {restrictedUsers.length === 1
                   ? "account"
                   : "accounts"}
               </Text>
@@ -408,80 +491,243 @@ export default function Screen() {
           </View>
         }
         ListEmptyComponent={
-          <View
-            style={styles.empty}
-          >
-            <Text
-              style={styles.emptyIcon}
-            >
-              🚫
-            </Text>
+          <View style={styles.emptyState}>
+            <View style={styles.emptyCircle}>
+              <Ionicons
+                name="person-remove-outline"
+                size={34}
+                color="#000"
+              />
+            </View>
 
-            <Text
-              style={styles.emptyTitle}
-            >
+            <Text style={styles.emptyTitle}>
               No restricted accounts
             </Text>
 
-            <Text
-              style={styles.emptyText}
-            >
-              Accounts you restrict will
-              appear here. You can remove
-              the restriction at any time.
+            <Text style={styles.emptyText}>
+              Accounts you restrict will appear
+              here. You can remove a restriction
+              at any time.
             </Text>
           </View>
-        }
-        showsVerticalScrollIndicator={
-          false
         }
       />
     </Page>
   );
 }
 
+function ImageWithFallback({
+  uri,
+  initial,
+}) {
+  const [failed, setFailed] =
+    useState(false);
+
+  if (!uri || failed) {
+    return (
+      <View style={styles.avatarFallback}>
+        <Text style={styles.avatarText}>
+          {initial}
+        </Text>
+      </View>
+    );
+  }
+
+  const {
+    Image,
+  } = require("react-native");
+
+  return (
+    <Image
+      source={{ uri }}
+      style={styles.avatarImage}
+      onError={() => setFailed(true)}
+    />
+  );
+}
+
 const styles = StyleSheet.create({
-  listContent: {
-    paddingBottom: 32,
+  list: {
+    paddingBottom: 40,
   },
 
-  emptyContent: {
+  emptyList: {
     flexGrow: 1,
-    paddingBottom: 32,
+    paddingBottom: 40,
   },
 
-  count: {
-    marginTop: 18,
+  intro: {
+    alignItems: "center",
+    paddingHorizontal: 24,
+    paddingTop: 8,
+    paddingBottom: 24,
+  },
+
+  introIcon: {
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    borderWidth: 1,
+    borderColor: "#dbdbdb",
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 14,
+  },
+
+  introTitle: {
+    fontSize: 20,
+    fontWeight: "700",
+    color: "#000",
+    textAlign: "center",
     marginBottom: 8,
+  },
+
+  introText: {
+    maxWidth: 340,
+    fontSize: 13,
+    lineHeight: 19,
+    color: "#737373",
+    textAlign: "center",
+  },
+
+  errorWrapper: {
+    marginBottom: 8,
+  },
+
+  sectionTitle: {
+    paddingHorizontal: 16,
+    paddingTop: 8,
+    paddingBottom: 10,
     fontSize: 14,
     fontWeight: "600",
-    opacity: 0.65,
+    color: "#737373",
   },
 
-  empty: {
+  userRow: {
+    minHeight: 72,
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    backgroundColor: "#fff",
+  },
+
+  userInfo: {
     flex: 1,
-    minHeight: 280,
+    minWidth: 0,
+    flexDirection: "row",
+    alignItems: "center",
+    marginRight: 12,
+  },
+
+  avatar: {
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    backgroundColor: "#efefef",
+    alignItems: "center",
+    justifyContent: "center",
+    overflow: "hidden",
+    marginRight: 12,
+  },
+
+  avatarImageWrapper: {
+    width: "100%",
+    height: "100%",
+  },
+
+  avatarImage: {
+    width: "100%",
+    height: "100%",
+    resizeMode: "cover",
+  },
+
+  avatarFallback: {
+    width: "100%",
+    height: "100%",
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#efefef",
+  },
+
+  avatarText: {
+    fontSize: 18,
+    fontWeight: "700",
+    color: "#555",
+  },
+
+  userDetails: {
+    flex: 1,
+    minWidth: 0,
+  },
+
+  username: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: "#000",
+    marginBottom: 3,
+  },
+
+  fullName: {
+    fontSize: 13,
+    color: "#737373",
+  },
+
+  removeButton: {
+    minWidth: 82,
+    height: 34,
+    paddingHorizontal: 14,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: "#dbdbdb",
+    backgroundColor: "#fff",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  removeButtonDisabled: {
+    opacity: 0.5,
+  },
+
+  removeButtonText: {
+    fontSize: 13,
+    fontWeight: "600",
+    color: "#000",
+  },
+
+  emptyState: {
+    flex: 1,
+    minHeight: 300,
     alignItems: "center",
     justifyContent: "center",
     paddingHorizontal: 32,
+    paddingTop: 35,
   },
 
-  emptyIcon: {
-    fontSize: 42,
-    marginBottom: 14,
+  emptyCircle: {
+    width: 76,
+    height: 76,
+    borderRadius: 38,
+    borderWidth: 1,
+    borderColor: "#dbdbdb",
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 18,
   },
 
   emptyTitle: {
     fontSize: 18,
     fontWeight: "700",
+    color: "#000",
     textAlign: "center",
     marginBottom: 8,
   },
 
   emptyText: {
+    maxWidth: 320,
     fontSize: 14,
-    lineHeight: 21,
+    lineHeight: 20,
+    color: "#737373",
     textAlign: "center",
-    opacity: 0.65,
   },
 });

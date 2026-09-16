@@ -25,15 +25,6 @@ function validateAuthResponse(data, provider) {
   return data;
 }
 
-/**
- * WEB GOOGLE LOGIN
- *
- * Uses Google's browser OAuth flow instead of
- * @react-native-google-signin/google-signin.
- *
- * This keeps the native Google SDK completely
- * out of the web bundle.
- */
 export async function loginWithGoogle() {
   try {
     console.log(
@@ -57,9 +48,6 @@ export async function loginWithGoogle() {
       );
     }
 
-    /*
-     * Load Google's Identity Services script.
-     */
     await loadGoogleScript();
 
     if (
@@ -142,10 +130,6 @@ export async function loginWithGoogle() {
             }
           );
 
-          /*
-           * Render Google's Sign-In button
-           * into a temporary hidden container.
-           */
           const container =
             document.createElement(
               "div"
@@ -199,10 +183,6 @@ export async function loginWithGoogle() {
 
           button.click();
 
-          /*
-           * Clean up the temporary container
-           * after Google responds.
-           */
           const cleanup = () => {
             try {
               container.remove();

@@ -1,4 +1,5 @@
 import React from "react";
+
 import SettingsDetailScreen from "../../../components/settings/SettingsDetailScreen";
 
 export default function LikesScreen() {

@@ -40,10 +40,6 @@ import {
   updateProfile,
 } from "../../../services/userService";
 
-/* =========================================================
-   EDIT PROFILE
-========================================================= */
-
 export default function EditProfileScreen() {
   const {
     user,
@@ -76,10 +72,6 @@ export default function EditProfileScreen() {
 
   const [saving, setSaving] =
     useState(false);
-
-  /* =======================================================
-     LOAD USER
-  ======================================================= */
 
   useEffect(() => {
     if (!user) {
@@ -125,10 +117,6 @@ export default function EditProfileScreen() {
         ""
     );
   }, [user]);
-
-  /* =======================================================
-     PICK PROFILE PHOTO
-  ======================================================= */
 
   const handleChangePhoto =
     useCallback(async () => {
@@ -186,10 +174,6 @@ export default function EditProfileScreen() {
         );
       }
     }, []);
-
-  /* =======================================================
-     VALIDATE
-  ======================================================= */
 
   const validateProfile =
     useCallback(() => {
@@ -274,10 +258,6 @@ export default function EditProfileScreen() {
       bio,
     ]);
 
-  /* =======================================================
-     SAVE PROFILE
-  ======================================================= */
-
   const handleSave =
     useCallback(async () => {
       if (saving) {
@@ -321,16 +301,6 @@ export default function EditProfileScreen() {
             "The server did not return the updated profile."
           );
         }
-
-        /*
-         * Update the local AuthContext if your AuthContext
-         * exposes a user-update function.
-         *
-         * The screen intentionally does not invent one.
-         *
-         * The profile screen will reload the current user
-         * when it mounts/refreshes.
-         */
 
         Alert.alert(
           "Profile updated",
@@ -377,10 +347,6 @@ export default function EditProfileScreen() {
       avatar,
     ]);
 
-  /* =======================================================
-     LOADING
-  ======================================================= */
-
   if (
     authLoading &&
     !user
@@ -399,10 +365,6 @@ export default function EditProfileScreen() {
       </SafeAreaView>
     );
   }
-
-  /* =======================================================
-     SCREEN
-  ======================================================= */
 
   return (
     <SafeAreaView
@@ -730,10 +692,6 @@ export default function EditProfileScreen() {
   );
 }
 
-/* =========================================================
-   REUSABLE FIELD
-========================================================= */
-
 function ProfileField({
   label,
   value,
@@ -771,10 +729,6 @@ function ProfileField({
   );
 }
 
-/* =========================================================
-   STYLES
-========================================================= */
-
 const styles =
   StyleSheet.create({
     safeArea: {
@@ -792,10 +746,6 @@ const styles =
       alignItems: "center",
       justifyContent: "center",
     },
-
-    /* -----------------------------------------------------
-       HEADER
-    ----------------------------------------------------- */
 
     header: {
       height: 52,
@@ -829,10 +779,6 @@ const styles =
       textAlign: "right",
     },
 
-    /* -----------------------------------------------------
-       CONTENT
-    ----------------------------------------------------- */
-
     scrollView: {
       flex: 1,
     },
@@ -840,10 +786,6 @@ const styles =
     content: {
       paddingBottom: 50,
     },
-
-    /* -----------------------------------------------------
-       PHOTO
-    ----------------------------------------------------- */
 
     photoSection: {
       alignItems: "center",
@@ -883,10 +825,6 @@ const styles =
       fontSize: 14,
       fontWeight: "600",
     },
-
-    /* -----------------------------------------------------
-       FIELDS
-    ----------------------------------------------------- */
 
     field: {
       paddingHorizontal: 16,
@@ -933,10 +871,6 @@ const styles =
       color: "#8e8e8e",
     },
 
-    /* -----------------------------------------------------
-       PERSONAL INFORMATION
-    ----------------------------------------------------- */
-
     personalInfoRow: {
       marginTop: 4,
       paddingHorizontal: 16,
@@ -967,10 +901,6 @@ const styles =
       fontSize: 13,
       lineHeight: 18,
     },
-
-    /* -----------------------------------------------------
-       FOOTER INFO
-    ----------------------------------------------------- */
 
     infoText: {
       paddingHorizontal: 16,

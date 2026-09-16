@@ -1,8 +1,10 @@
 import React, {
   useCallback,
   useEffect,
+  useMemo,
   useState,
 } from "react";
+
 import {
   Alert,
   RefreshControl,
@@ -11,6 +13,7 @@ import {
   Text,
   View,
 } from "react-native";
+
 import { router } from "expo-router";
 
 import {
@@ -29,6 +32,8 @@ import {
 } from "../../../services/settingsApi";
 
 const DEFAULT_ENABLED = true;
+const MAX_WORDS = 200;
+const MAX_WORD_LENGTH = 100;
 
 function normalizeWords(value) {
   if (Array.isArray(value)) {
@@ -47,15 +52,55 @@ function normalizeWords(value) {
   return [];
 }
 
+function cleanUniqueWords(value) {
+  const words = normalizeWords(value);
+  const seen = new Set();
+  const result = [];
+
+  for (const word of words) {
+    const cleaned = word
+      .replace(/\s+/g, " ")
+      .trim();
+
+    if (!cleaned) {
+      continue;
+    }
+
+    if (cleaned.length > MAX_WORD_LENGTH) {
+      continue;
+    }
+
+    const key = cleaned.toLowerCase();
+
+    if (seen.has(key)) {
+      continue;
+    }
+
+    seen.add(key);
+    result.push(cleaned);
+  }
+
+  return result.slice(0, MAX_WORDS);
+}
+
 function wordsToText(words) {
-  return normalizeWords(words).join(", ");
+  return cleanUniqueWords(words).join(", ");
+}
+
+function getErrorMessage(error, fallback) {
+  return (
+    error?.response?.data?.message ||
+    error?.message ||
+    fallback
+  );
 }
 
 export default function HiddenWordsScreen() {
   const [enabled, setEnabled] =
     useState(DEFAULT_ENABLED);
 
-  const [words, setWords] = useState("");
+  const [words, setWords] =
+    useState("");
 
   const [loading, setLoading] =
     useState(true);
@@ -71,6 +116,10 @@ export default function HiddenWordsScreen() {
 
   const [error, setError] =
     useState("");
+
+  const wordCount = useMemo(() => {
+    return cleanUniqueWords(words).length;
+  }, [words]);
 
   const load = useCallback(
     async (showLoader = true) => {
@@ -96,19 +145,20 @@ export default function HiddenWordsScreen() {
 
         setWords(
           wordsToText(
-            preferences.hiddenWords
+            preferences.hiddenWords || []
           )
         );
       } catch (err) {
         console.error(
-          "Failed to load hidden words settings:",
+          "HIDDEN WORDS LOAD ERROR:",
           err
         );
 
         setError(
-          err?.response?.data?.message ||
-            err?.message ||
+          getErrorMessage(
+            err,
             "Unable to load hidden words settings."
+          )
         );
       } finally {
         if (showLoader) {
@@ -123,98 +173,118 @@ export default function HiddenWordsScreen() {
     load();
   }, [load]);
 
-  const handleRefresh = useCallback(
-    async () => {
+  const handleRefresh =
+    useCallback(async () => {
       try {
         setRefreshing(true);
+
         await load(false);
       } finally {
         setRefreshing(false);
       }
-    },
-    [load]
-  );
+    }, [load]);
 
-  const handleToggle = useCallback(
-    async (value) => {
-      const previousValue = enabled;
+  const handleToggle =
+    useCallback(
+      async (value) => {
+        const nextValue =
+          Boolean(value);
 
-      setEnabled(Boolean(value));
-      setToggling(true);
-      setError("");
+        const previousValue =
+          enabled;
 
-      try {
-        await saveSettings({
-          hiddenWordsEnabled:
-            Boolean(value),
-        });
-      } catch (err) {
-        console.error(
-          "Failed to update hidden words status:",
-          err
-        );
+        setEnabled(nextValue);
+        setToggling(true);
+        setError("");
 
-        setEnabled(previousValue);
+        try {
+          await saveSettings({
+            hiddenWordsEnabled:
+              nextValue,
+          });
+        } catch (err) {
+          console.error(
+            "HIDDEN WORDS TOGGLE ERROR:",
+            err
+          );
 
-        const message =
-          err?.response?.data?.message ||
-          err?.message ||
-          "Unable to update hidden words settings.";
+          setEnabled(previousValue);
 
-        setError(message);
+          const message =
+            getErrorMessage(
+              err,
+              "Unable to update hidden words settings."
+            );
 
-        Alert.alert(
-          "Update failed",
-          message
-        );
-      } finally {
-        setToggling(false);
-      }
-    },
-    [enabled]
-  );
+          setError(message);
 
-  const handleSave = useCallback(
-    async () => {
-      const normalizedWords =
+          Alert.alert(
+            "Couldn't update",
+            message
+          );
+        } finally {
+          setToggling(false);
+        }
+      },
+      [enabled]
+    );
+
+  const handleSave =
+    useCallback(async () => {
+      const cleanedWords =
+        cleanUniqueWords(words);
+
+      const rawWords =
         normalizeWords(words);
 
-      const uniqueWords = [
-        ...new Set(
-          normalizedWords.map((word) =>
-            word.toLowerCase()
+      const uniqueRawWords =
+        new Set(
+          rawWords.map((word) =>
+            word
+              .replace(/\s+/g, " ")
+              .trim()
+              .toLowerCase()
           )
-        ),
-      ];
+        );
 
       if (
-        uniqueWords.length >
-        200
+        uniqueRawWords.size >
+        MAX_WORDS
       ) {
         Alert.alert(
           "Too many words",
-          "You can add up to 200 hidden words or phrases."
+          `You can add up to ${MAX_WORDS} hidden words or phrases.`
         );
+
         return;
       }
 
-      const cleanedWords =
-        normalizedWords.filter(
-          (word, index) =>
-            normalizedWords.findIndex(
-              (existing) =>
-                existing.toLowerCase() ===
-                word.toLowerCase()
-            ) === index
+      const tooLong =
+        rawWords.find(
+          (word) =>
+            String(word).trim().length >
+            MAX_WORD_LENGTH
         );
+
+      if (tooLong) {
+        Alert.alert(
+          "Word or phrase too long",
+          `Each hidden word or phrase can contain up to ${MAX_WORD_LENGTH} characters.`
+        );
+
+        return;
+      }
 
       setSaving(true);
       setError("");
 
       try {
         await saveSettings({
-          hiddenWordsEnabled: enabled,
-          hiddenWords: cleanedWords,
+          hiddenWordsEnabled:
+            enabled,
+
+          hiddenWords:
+            cleanedWords,
         });
 
         setWords(
@@ -223,31 +293,55 @@ export default function HiddenWordsScreen() {
 
         Alert.alert(
           "Saved",
-          "Your hidden words settings were updated."
+          "Your hidden words settings have been updated."
         );
       } catch (err) {
         console.error(
-          "Failed to save hidden words:",
+          "HIDDEN WORDS SAVE ERROR:",
           err
         );
 
         const message =
-          err?.response?.data?.message ||
-          err?.message ||
-          "Unable to save hidden words settings.";
+          getErrorMessage(
+            err,
+            "Unable to save hidden words settings."
+          );
 
         setError(message);
 
         Alert.alert(
-          "Update failed",
+          "Couldn't save",
           message
         );
       } finally {
         setSaving(false);
       }
-    },
-    [enabled, words]
-  );
+    }, [enabled, words]);
+
+  const handleClear =
+    useCallback(() => {
+      if (!words.trim()) {
+        return;
+      }
+
+      Alert.alert(
+        "Clear hidden words?",
+        "This will remove all words and phrases from your hidden-word list.",
+        [
+          {
+            text: "Cancel",
+            style: "cancel",
+          },
+          {
+            text: "Clear",
+            style: "destructive",
+            onPress: () => {
+              setWords("");
+            },
+          },
+        ]
+      );
+    }, [words]);
 
   if (loading) {
     return (
@@ -267,6 +361,7 @@ export default function HiddenWordsScreen() {
     >
       <ScrollView
         showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
         refreshControl={
           <RefreshControl
             refreshing={refreshing}
@@ -277,14 +372,26 @@ export default function HiddenWordsScreen() {
           styles.content
         }
       >
+        {/* =================================================
+            INTRO
+        ================================================= */}
+
         <InfoCard
           icon="eye-off-outline"
           title="Hidden words"
-          text="Automatically hide comments and other interactions containing words or phrases you don't want to see."
+          text="Hide comments and message requests that contain words, phrases or emojis you don't want to see."
         />
 
+        {/* =================================================
+            ERROR
+        ================================================= */}
+
         {error ? (
-          <View style={styles.errorContainer}>
+          <View
+            style={
+              styles.errorContainer
+            }
+          >
             <Notice
               type="error"
               title="Settings issue"
@@ -304,15 +411,51 @@ export default function HiddenWordsScreen() {
           </View>
         ) : null}
 
+        {/* =================================================
+            MAIN TOGGLE
+        ================================================= */}
+
         <SwitchRow
           title="Hide unwanted words"
-          subtitle="Use your custom word list to filter unwanted comments and interactions."
+          subtitle={
+            enabled
+              ? "Comments and interactions containing your hidden words will be filtered."
+              : "Hidden words filtering is currently turned off."
+          }
           value={enabled}
           onChange={handleToggle}
           disabled={
-            saving || toggling
+            saving ||
+            toggling
           }
         />
+
+        {/* =================================================
+            WORD LIST
+        ================================================= */}
+
+        <View
+          style={
+            styles.section
+          }
+        >
+          <Text
+            style={
+              styles.sectionTitle
+            }
+          >
+            Custom words and phrases
+          </Text>
+
+          <Text
+            style={
+              styles.sectionDescription
+            }
+          >
+            Add words, phrases or emojis
+            separated by commas.
+          </Text>
+        </View>
 
         <TextField
           label="Words or phrases"
@@ -322,21 +465,76 @@ export default function HiddenWordsScreen() {
           editable={!saving}
           autoCapitalize="none"
           autoCorrect={false}
+          multiline
         />
 
-        <Notice>
-          Separate words or phrases with commas. Matching is handled by the
-          server using your saved hidden-word list.
-        </Notice>
+        {/* =================================================
+            WORD COUNT
+        ================================================= */}
 
-        <View style={styles.summary}>
-          <Text style={styles.summaryText}>
-            {normalizeWords(words).length}{" "}
-            {normalizeWords(words).length === 1
+        <View
+          style={
+            styles.countRow
+          }
+        >
+          <Text
+            style={
+              styles.countText
+            }
+          >
+            {wordCount}{" "}
+            {wordCount === 1
               ? "word or phrase"
               : "words or phrases"}
           </Text>
+
+          {words.trim() ? (
+            <Text
+              style={
+                styles.limitText
+              }
+            >
+              {MAX_WORDS} max
+            </Text>
+          ) : null}
         </View>
+
+        {/* =================================================
+            INFO
+        ================================================= */}
+
+        <Notice>
+          Separate each word or phrase with
+          commas. Matching is case-insensitive.
+          Your hidden-word list is saved to
+          your Snapgram account.
+        </Notice>
+
+        {/* =================================================
+            CLEAR BUTTON
+        ================================================= */}
+
+        {words.trim() ? (
+          <View
+            style={
+              styles.clearContainer
+            }
+          >
+            <PrimaryButton
+              text="Clear all"
+              title="Clear all"
+              onPress={handleClear}
+              disabled={
+                saving ||
+                toggling
+              }
+            />
+          </View>
+        ) : null}
+
+        {/* =================================================
+            SAVE
+        ================================================= */}
 
         <PrimaryButton
           text={
@@ -355,6 +553,26 @@ export default function HiddenWordsScreen() {
           }
           onPress={handleSave}
         />
+
+        {/* =================================================
+            FOOTER INFO
+        ================================================= */}
+
+        <View
+          style={
+            styles.footer
+          }
+        >
+          <Text
+            style={
+              styles.footerText
+            }
+          >
+            Hidden words are applied to
+            interactions using your account
+            settings.
+          </Text>
+        </View>
       </ScrollView>
     </Page>
   );
@@ -362,7 +580,7 @@ export default function HiddenWordsScreen() {
 
 const styles = StyleSheet.create({
   content: {
-    paddingBottom: 32,
+    paddingBottom: 40,
   },
 
   errorContainer: {
@@ -370,13 +588,54 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
 
-  summary: {
-    marginTop: 10,
+  section: {
+    marginTop: 22,
+    marginBottom: 10,
+  },
+
+  sectionTitle: {
+    fontSize: 16,
+    fontWeight: "700",
+    marginBottom: 5,
+  },
+
+  sectionDescription: {
+    fontSize: 13,
+    lineHeight: 19,
+    opacity: 0.6,
+  },
+
+  countRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginTop: 8,
     marginBottom: 14,
   },
 
-  summaryText: {
+  countText: {
     fontSize: 13,
     opacity: 0.6,
+  },
+
+  limitText: {
+    fontSize: 12,
+    opacity: 0.45,
+  },
+
+  clearContainer: {
+    marginBottom: 10,
+  },
+
+  footer: {
+    marginTop: 20,
+    paddingHorizontal: 8,
+  },
+
+  footerText: {
+    textAlign: "center",
+    fontSize: 12,
+    lineHeight: 18,
+    opacity: 0.45,
   },
 });

@@ -3,22 +3,26 @@ import React, {
   useEffect,
   useState,
 } from "react";
+
 import {
   Alert,
   FlatList,
+  Image,
   RefreshControl,
   StyleSheet,
   Text,
+  TouchableOpacity,
   View,
 } from "react-native";
+
 import { router } from "expo-router";
+import { Ionicons } from "@expo/vector-icons";
 
 import {
   Page,
   InfoCard,
   Notice,
   PageLoading,
-  SettingItem,
   PrimaryButton,
 } from "../../../components/settings/SettingsUI";
 
@@ -27,128 +31,159 @@ import {
   removeRelationship,
 } from "../../../services/settingsService";
 
-export default function Screen() {
-  const [mutedUsers, setMutedUsers] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
-  const [removingId, setRemovingId] = useState(null);
-  const [error, setError] = useState("");
+function getUserId(user) {
+  if (!user) {
+    return null;
+  }
 
-  const getUserId = useCallback((user) => {
-    if (!user) {
-      return null;
-    }
+  if (typeof user === "string") {
+    return user;
+  }
 
-    if (typeof user === "string") {
-      return user;
-    }
-
-    return (
-      user._id ||
-      user.id ||
-      user.userId ||
-      null
-    );
-  }, []);
-
-  const getUserName = useCallback((user) => {
-    if (!user) {
-      return "Unknown user";
-    }
-
-    if (typeof user === "string") {
-      return user;
-    }
-
-    return (
-      user.username ||
-      user.userName ||
-      user.name ||
-      user.fullName ||
-      "Snapgram user"
-    );
-  }, []);
-
-  const getUserSubtitle = useCallback((user) => {
-    if (!user || typeof user === "string") {
-      return "";
-    }
-
-    if (user.username) {
-      return `@${user.username}`;
-    }
-
-    if (user.email) {
-      return user.email;
-    }
-
-    return "";
-  }, []);
-
-  const loadMutedUsers = useCallback(
-    async (showLoader = true) => {
-      try {
-        if (showLoader) {
-          setLoading(true);
-        }
-
-        setError("");
-
-        const settings =
-          await loadSettings();
-
-        const users = Array.isArray(
-          settings?.mutedUsers
-        )
-          ? settings.mutedUsers
-          : [];
-
-        setMutedUsers(users);
-      } catch (err) {
-        console.error(
-          "Failed to load muted accounts:",
-          err
-        );
-
-        setError(
-          err?.response?.data?.message ||
-            err?.message ||
-            "Unable to load muted accounts."
-        );
-      } finally {
-        if (showLoader) {
-          setLoading(false);
-        }
-      }
-    },
-    []
+  return (
+    user._id ||
+    user.id ||
+    user.userId ||
+    null
   );
+}
+
+function getUsername(user) {
+  if (!user) {
+    return "Snapgram user";
+  }
+
+  if (typeof user === "string") {
+    return "Snapgram user";
+  }
+
+  return (
+    user.username ||
+    user.userName ||
+    "Snapgram user"
+  );
+}
+
+function getFullName(user) {
+  if (!user || typeof user === "string") {
+    return "";
+  }
+
+  return (
+    user.fullName ||
+    user.name ||
+    ""
+  );
+}
+
+function getAvatar(user) {
+  if (!user || typeof user === "string") {
+    return null;
+  }
+
+  return (
+    user.avatar?.url ||
+    user.avatar ||
+    user.profilePicture ||
+    user.profileImage ||
+    null
+  );
+}
+
+function getInitial(username) {
+  if (!username) {
+    return "S";
+  }
+
+  return String(username)
+    .charAt(0)
+    .toUpperCase();
+}
+
+export default function MutedAccountsScreen() {
+  const [mutedUsers, setMutedUsers] =
+    useState([]);
+
+  const [loading, setLoading] =
+    useState(true);
+
+  const [refreshing, setRefreshing] =
+    useState(false);
+
+  const [removingId, setRemovingId] =
+    useState(null);
+
+  const [error, setError] =
+    useState("");
+
+  const loadMutedUsers =
+    useCallback(
+      async (showLoader = true) => {
+        try {
+          if (showLoader) {
+            setLoading(true);
+          }
+
+          setError("");
+
+          const settings =
+            await loadSettings();
+
+          const users =
+            Array.isArray(
+              settings?.mutedUsers
+            )
+              ? settings.mutedUsers
+              : [];
+
+          setMutedUsers(users);
+        } catch (err) {
+          console.error(
+            "MUTED ACCOUNTS LOAD ERROR:",
+            err
+          );
+
+          setError(
+            err?.response?.data
+              ?.message ||
+              err?.message ||
+              "Unable to load muted accounts."
+          );
+        } finally {
+          if (showLoader) {
+            setLoading(false);
+          }
+        }
+      },
+      []
+    );
 
   useEffect(() => {
     loadMutedUsers();
   }, [loadMutedUsers]);
 
-  const handleRefresh = useCallback(
-    async () => {
+  const handleRefresh =
+    useCallback(async () => {
       try {
         setRefreshing(true);
+
         await loadMutedUsers(false);
       } finally {
         setRefreshing(false);
       }
-    },
-    [loadMutedUsers]
-  );
+    }, [loadMutedUsers]);
 
-  const openProfile = useCallback(
-    (user) => {
-      const userId = getUserId(user);
+  const openProfile =
+    useCallback((user) => {
+      const userId =
+        getUserId(user);
 
       if (!userId) {
         Alert.alert(
           "Profile unavailable",
-          "This account does not have a valid profile ID."
+          "This account does not have a valid profile."
         );
+
         return;
       }
 
@@ -158,45 +193,47 @@ export default function Screen() {
           id: String(userId),
         },
       });
-    },
-    [getUserId]
-  );
+    }, []);
 
-  const unmuteUser = useCallback(
-    async (user) => {
-      const userId = getUserId(user);
+  const handleUnmute =
+    useCallback((user) => {
+      const userId =
+        getUserId(user);
 
       if (!userId) {
         Alert.alert(
           "Unable to unmute",
           "This account does not have a valid user ID."
         );
+
         return;
       }
 
       const username =
-        getUserName(user);
+        getUsername(user);
 
       Alert.alert(
         "Unmute account?",
-        `${username}'s content will no longer be muted.`,
+        `You will start seeing ${username}'s content again.`,
         [
           {
             text: "Cancel",
             style: "cancel",
           },
+
           {
             text: "Unmute",
             onPress: async () => {
               try {
-                setRemovingId(
-                  String(userId)
-                );
+                const id =
+                  String(userId);
+
+                setRemovingId(id);
                 setError("");
 
                 await removeRelationship(
                   userId,
-                  "muted"
+                  "mutedUsers"
                 );
 
                 setMutedUsers(
@@ -205,22 +242,26 @@ export default function Screen() {
                       (item) =>
                         String(
                           getUserId(item)
-                        ) !==
-                        String(userId)
+                        ) !== id
                     )
                 );
               } catch (err) {
                 console.error(
-                  "Failed to unmute account:",
+                  "UNMUTE ACCOUNT ERROR:",
                   err
                 );
 
-                Alert.alert(
-                  "Couldn't unmute",
+                const message =
                   err?.response?.data
                     ?.message ||
-                    err?.message ||
-                    "The account could not be unmuted."
+                  err?.message ||
+                  "The account could not be unmuted.";
+
+                setError(message);
+
+                Alert.alert(
+                  "Couldn't unmute",
+                  message
                 );
               } finally {
                 setRemovingId(null);
@@ -229,102 +270,164 @@ export default function Screen() {
           },
         ]
       );
-    },
-    [getUserId, getUserName]
-  );
+    }, []);
 
-  const renderItem = useCallback(
-    ({ item }) => {
-      const userId =
-        getUserId(item);
+  const renderItem =
+    useCallback(
+      ({ item }) => {
+        const userId =
+          getUserId(item);
 
-      const username =
-        getUserName(item);
+        const username =
+          getUsername(item);
 
-      const subtitle =
-        getUserSubtitle(item);
+        const fullName =
+          getFullName(item);
 
-      const isRemoving =
-        removingId &&
-        userId &&
-        String(removingId) ===
-          String(userId);
+        const avatar =
+          getAvatar(item);
 
-      return (
-        <SettingItem
-          title={username}
-          description={subtitle}
-          icon="person-outline"
-          onPress={() =>
-            openProfile(item)
-          }
-          right={
-            <PrimaryButton
-              title={
-                isRemoving
-                  ? "Unmuting..."
-                  : "Unmute"
+        const id =
+          userId
+            ? String(userId)
+            : null;
+
+        const isRemoving =
+          id &&
+          removingId === id;
+
+        return (
+          <View
+            style={
+              styles.userRow
+            }
+          >
+            {/* PROFILE AREA */}
+
+            <TouchableOpacity
+              activeOpacity={0.7}
+              style={
+                styles.profileButton
               }
-              text={
-                isRemoving
-                  ? "Unmuting..."
-                  : "Unmute"
+              onPress={() =>
+                openProfile(item)
               }
-              compact
               disabled={Boolean(
                 isRemoving
               )}
+            >
+              {/* AVATAR */}
+
+              {avatar ? (
+                <Image
+                  source={{
+                    uri: avatar,
+                  }}
+                  style={
+                    styles.avatar
+                  }
+                />
+              ) : (
+                <View
+                  style={
+                    styles.avatarPlaceholder
+                  }
+                >
+                  <Text
+                    style={
+                      styles.avatarText
+                    }
+                  >
+                    {getInitial(
+                      username
+                    )}
+                  </Text>
+                </View>
+              )}
+
+              {/* USER INFO */}
+
+              <View
+                style={
+                  styles.userInfo
+                }
+              >
+                <Text
+                  style={
+                    styles.username
+                  }
+                  numberOfLines={1}
+                >
+                  {username}
+                </Text>
+
+                {fullName ? (
+                  <Text
+                    style={
+                      styles.fullName
+                    }
+                    numberOfLines={1}
+                  >
+                    {fullName}
+                  </Text>
+                ) : null}
+              </View>
+            </TouchableOpacity>
+
+            {/* UNMUTE BUTTON */}
+
+            <TouchableOpacity
+              activeOpacity={0.8}
+              style={[
+                styles.unmuteButton,
+                isRemoving &&
+                  styles.unmuteButtonDisabled,
+              ]}
               onPress={() =>
-                unmuteUser(item)
+                handleUnmute(item)
               }
-            />
-          }
-        />
-      );
-    },
-    [
-      getUserId,
-      getUserName,
-      getUserSubtitle,
-      openProfile,
-      removingId,
-      unmuteUser,
-    ]
-  );
+              disabled={
+                Boolean(isRemoving)
+              }
+            >
+              {isRemoving ? (
+                <Text
+                  style={
+                    styles.unmuteText
+                  }
+                >
+                  ...
+                </Text>
+              ) : (
+                <Text
+                  style={
+                    styles.unmuteText
+                  }
+                >
+                  Unmute
+                </Text>
+              )}
+            </TouchableOpacity>
+          </View>
+        );
+      },
+      [
+        handleUnmute,
+        openProfile,
+        removingId,
+      ]
+    );
 
   if (loading) {
     return (
       <Page
         title="Muted accounts"
         icon="volume-mute-outline"
+        onBack={() =>
+          router.back()
+        }
       >
         <PageLoading />
-      </Page>
-    );
-  }
-
-  if (
-    error &&
-    mutedUsers.length === 0
-  ) {
-    return (
-      <Page
-        title="Muted accounts"
-        icon="volume-mute-outline"
-      >
-        <Notice
-          type="error"
-          title="Couldn't load muted accounts"
-          message={error}
-        />
-
-        <PrimaryButton
-          title="Try again"
-          text="Try again"
-          onPress={() =>
-            loadMutedUsers()
-          }
-        />
       </Page>
     );
   }
@@ -333,6 +436,9 @@ export default function Screen() {
     <Page
       title="Muted accounts"
       icon="volume-mute-outline"
+      onBack={() =>
+        router.back()
+      }
     >
       <FlatList
         data={mutedUsers}
@@ -342,76 +448,120 @@ export default function Screen() {
 
           return id
             ? String(id)
-            : `muted-user-${index}`;
+            : `muted-${index}`;
         }}
         renderItem={renderItem}
+        showsVerticalScrollIndicator={
+          false
+        }
         refreshControl={
           <RefreshControl
             refreshing={refreshing}
-            onRefresh={handleRefresh}
+            onRefresh={
+              handleRefresh
+            }
           />
         }
-        contentContainerStyle={
-          mutedUsers.length === 0
-            ? styles.emptyContent
-            : styles.listContent
-        }
+        contentContainerStyle={[
+          styles.listContent,
+          mutedUsers.length ===
+            0 &&
+            styles.emptyList,
+        ]}
         ListHeaderComponent={
           <View>
             <InfoCard
+              icon="volume-mute-outline"
               title="Muted accounts"
-              description="Manage accounts whose posts and other content you have muted."
+              text="When you mute someone, their posts and other content won't appear in places like your feed. They won't be notified that you've muted them."
             />
 
             {error ? (
-              <Notice
-                type="error"
-                title="Refresh issue"
-                message={error}
-              />
+              <View
+                style={
+                  styles.errorContainer
+                }
+              >
+                <Notice
+                  type="error"
+                  title="Settings issue"
+                  message={error}
+                />
+
+                <PrimaryButton
+                  title="Try again"
+                  text="Try again"
+                  onPress={() =>
+                    loadMutedUsers()
+                  }
+                  disabled={
+                    refreshing ||
+                    Boolean(
+                      removingId
+                    )
+                  }
+                />
+              </View>
             ) : null}
 
             {mutedUsers.length >
             0 ? (
-              <Text
-                style={styles.count}
+              <View
+                style={
+                  styles.headerRow
+                }
               >
-                {mutedUsers.length}{" "}
-                {mutedUsers.length ===
-                1
-                  ? "account"
-                  : "accounts"}
-              </Text>
+                <Text
+                  style={
+                    styles.count
+                  }
+                >
+                  {mutedUsers.length}{" "}
+                  {mutedUsers.length ===
+                  1
+                    ? "account"
+                    : "accounts"}
+                </Text>
+              </View>
             ) : null}
           </View>
         }
         ListEmptyComponent={
           <View
-            style={styles.empty}
+            style={
+              styles.empty
+            }
           >
-            <Text
-              style={styles.emptyIcon}
+            <View
+              style={
+                styles.emptyIconContainer
+              }
             >
-              🔇
-            </Text>
+              <Ionicons
+                name="volume-mute-outline"
+                size={34}
+              />
+            </View>
 
             <Text
-              style={styles.emptyTitle}
+              style={
+                styles.emptyTitle
+              }
             >
               No muted accounts
             </Text>
 
             <Text
-              style={styles.emptyText}
+              style={
+                styles.emptyText
+              }
             >
               Accounts you mute will
-              appear here. You can
-              unmute them at any time.
+              appear here. They won't
+              be notified when you mute
+              them.
             </Text>
           </View>
-        }
-        showsVerticalScrollIndicator={
-          false
         }
       />
     </Page>
@@ -423,30 +573,119 @@ const styles = StyleSheet.create({
     paddingBottom: 32,
   },
 
-  emptyContent: {
+  emptyList: {
     flexGrow: 1,
-    paddingBottom: 32,
+  },
+
+  errorContainer: {
+    marginTop: 12,
+  },
+
+  headerRow: {
+    marginTop: 18,
+    marginBottom: 8,
   },
 
   count: {
-    marginTop: 18,
-    marginBottom: 8,
     fontSize: 14,
     fontWeight: "600",
-    opacity: 0.65,
+    opacity: 0.6,
+  },
+
+  userRow: {
+    minHeight: 76,
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: 10,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor:
+      "rgba(128,128,128,0.22)",
+  },
+
+  profileButton: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    minWidth: 0,
+  },
+
+  avatar: {
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    backgroundColor:
+      "#e9e9e9",
+  },
+
+  avatarPlaceholder: {
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor:
+      "#e5e5e5",
+  },
+
+  avatarText: {
+    fontSize: 19,
+    fontWeight: "700",
+  },
+
+  userInfo: {
+    flex: 1,
+    marginLeft: 12,
+    paddingRight: 8,
+  },
+
+  username: {
+    fontSize: 15,
+    fontWeight: "700",
+  },
+
+  fullName: {
+    marginTop: 3,
+    fontSize: 13,
+    opacity: 0.55,
+  },
+
+  unmuteButton: {
+    minWidth: 82,
+    height: 34,
+    paddingHorizontal: 13,
+    borderRadius: 8,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor:
+      "#efefef",
+  },
+
+  unmuteButtonDisabled: {
+    opacity: 0.5,
+  },
+
+  unmuteText: {
+    fontSize: 13,
+    fontWeight: "700",
   },
 
   empty: {
     flex: 1,
-    minHeight: 280,
+    minHeight: 320,
     alignItems: "center",
     justifyContent: "center",
-    paddingHorizontal: 32,
+    paddingHorizontal: 30,
   },
 
-  emptyIcon: {
-    fontSize: 42,
-    marginBottom: 14,
+  emptyIconContainer: {
+    width: 72,
+    height: 72,
+    borderRadius: 36,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 18,
+    backgroundColor:
+      "#efefef",
   },
 
   emptyTitle: {
@@ -457,9 +696,10 @@ const styles = StyleSheet.create({
   },
 
   emptyText: {
+    maxWidth: 320,
     fontSize: 14,
     lineHeight: 21,
     textAlign: "center",
-    opacity: 0.65,
+    opacity: 0.6,
   },
 });

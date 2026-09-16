@@ -344,6 +344,36 @@ export async function likePost(id) {
   return response.data;
 }
 
+export async function getLikedPosts(
+  page = 1,
+  limit = 30
+) {
+  const response = await api.get(
+    "/posts/liked",
+    {
+      params: {
+        page,
+        limit,
+      },
+    }
+  );
+
+  return {
+    posts:
+      response.data?.posts || [],
+
+    pagination:
+      response.data?.pagination || {
+        page,
+        limit,
+        total:
+          response.data?.total || 0,
+        hasMore:
+          response.data?.hasMore || false,
+      },
+  };
+}
+
 export async function unlikePost(id) {
   const response = await api.delete(
     `/posts/${id}/like`

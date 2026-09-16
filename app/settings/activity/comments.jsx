@@ -1,4 +1,5 @@
 import React from "react";
+
 import SettingsDetailScreen from "../../../components/settings/SettingsDetailScreen";
 
 export default function CommentsScreen() {
@@ -11,11 +12,15 @@ export default function CommentsScreen() {
           title: "Your comments",
           subtitle: "View comments you've posted",
           icon: "chatbubble-outline",
+          onPress: () => {
+          },
         },
         {
           title: "Comment history",
           subtitle: "Review your recent comment activity",
           icon: "time-outline",
+          onPress: () => {
+          },
         },
       ]}
     />

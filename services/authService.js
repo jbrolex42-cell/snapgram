@@ -10,10 +10,6 @@ export const USER_KEY =
 export const ACCOUNTS_KEY =
   "snapgram_saved_accounts";
 
-/* =========================================================
-   HELPERS
-========================================================= */
-
 function getUserId(user) {
   return String(
     user?._id ||
@@ -67,10 +63,6 @@ function getLoginIdentifierType(
 
   return "username";
 }
-
-/* =========================================================
-   AUTH SESSION
-========================================================= */
 
 export async function saveAuthSession(
   user,
@@ -129,10 +121,6 @@ export async function saveAuthSession(
     user,
   };
 }
-
-/* =========================================================
-   SAVED ACCOUNTS
-========================================================= */
 
 async function getStoredAccounts() {
   try {
@@ -220,10 +208,6 @@ async function saveLoggedInAccount(
   );
 }
 
-/* =========================================================
-   REGISTER
-========================================================= */
-
 export async function registerUser(
   data = {}
 ) {
@@ -286,10 +270,6 @@ export async function registerUser(
 
   return response.data;
 }
-
-/* =========================================================
-   LOGIN
-========================================================= */
 
 export async function loginUser(
   data = {}
@@ -443,10 +423,6 @@ export async function loginUser(
   }
 }
 
-/* =========================================================
-   GOOGLE LOGIN
-========================================================= */
-
 export async function loginWithGoogle(
   idToken
 ) {
@@ -514,10 +490,6 @@ export async function loginWithGoogle(
     );
   }
 }
-
-/* =========================================================
-   FACEBOOK LOGIN
-========================================================= */
 
 export async function loginWithFacebook(
   accessToken
@@ -587,10 +559,6 @@ export async function loginWithFacebook(
   }
 }
 
-/* =========================================================
-   CURRENT USER
-========================================================= */
-
 export async function getCurrentUser() {
   try {
     const response =
@@ -643,10 +611,6 @@ export async function getCurrentUser() {
   }
 }
 
-/* =========================================================
-   TOKEN / USER STORAGE
-========================================================= */
-
 export async function getAuthToken() {
   return AsyncStorage.getItem(
     TOKEN_KEY
@@ -678,10 +642,6 @@ export async function getStoredUser() {
 export async function getSavedAccounts() {
   return getStoredAccounts();
 }
-
-/* =========================================================
-   SWITCH SAVED ACCOUNT
-========================================================= */
 
 export async function switchSavedAccount(
   accountId
@@ -775,10 +735,6 @@ export async function switchSavedAccount(
     throw error;
   }
 }
-
-/* =========================================================
-   REMOVE SAVED ACCOUNT
-========================================================= */
 
 export async function removeSavedAccount(
   accountId
@@ -911,10 +867,6 @@ export async function removeSavedAccount(
     throw error;
   }
 }
-
-/* =========================================================
-   LOGOUT
-========================================================= */
 
 export async function logoutUser() {
   await AsyncStorage.multiRemove([

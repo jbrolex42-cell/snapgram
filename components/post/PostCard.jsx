@@ -31,6 +31,10 @@ import {
 
 import { sharePost } from "../../services/shareService";
 
+import { getSettings } from "../../services/settingsApi";
+
+import TranslatableCaption from "./TranslatableCaption";
+
 const COLORS = {
   white: "#FFFFFF",
   black: "#000000",
@@ -42,10 +46,6 @@ const COLORS = {
   red: "#ED4956",
 };
 
-/* =========================================================
-   USER HELPERS
-========================================================= */
-
 function cleanText(value) {
   if (value === null || value === undefined) {
     return "";
@@ -53,15 +53,6 @@ function cleanText(value) {
 
   return String(value).trim();
 }
-
-/*
- * Snapgram User schema:
- *
- * user.fullName
- * user.username
- * user.avatar
- * user.isVerified
- */
 
 function getPostUser(post) {
   if (!post) {
@@ -82,35 +73,14 @@ function getUsername(user) {
   return cleanText(user?.username);
 }
 
-function getFullName(user, username) {
-  const fullName = cleanText(
-    user?.fullName
-  );
-
-  /*
-   * IMPORTANT:
-   * Never use username as the full-name fallback.
-   *
-   * This prevents:
-   *
-   * rolex
-   * @rolex
-   *
-   * from appearing when fullName is missing.
-   */
+function getFullName(user) {
+  const fullName = cleanText(user?.fullName);
 
   if (fullName) {
     return fullName;
   }
 
-  /*
-   * If an old account does not have a fullName,
-   * use a neutral fallback instead of duplicating
-   * the username.
-   */
-  return username
-    ? "User"
-    : "User";
+  return "User";
 }
 
 function getAvatar(user) {
@@ -121,10 +91,6 @@ function getUserVerified(user) {
   return user?.isVerified === true;
 }
 
-/* =========================================================
-   POST CARD
-========================================================= */
-
 export default function PostCard({
   post,
   currentUserId,
@@ -132,28 +98,12 @@ export default function PostCard({
   onShare,
   onMore,
 }) {
-  /* =======================================================
-     BASIC POST DATA
-  ======================================================= */
-
   const postId =
     post?._id ||
     post?.id ||
     post?.postId ||
     null;
 
-  /*
-   * IMPORTANT:
-   * The backend populates:
-   *
-   * post.user = {
-   *   _id,
-   *   username,
-   *   fullName,
-   *   avatar,
-   *   isVerified
-   * }
-   */
   const postUser = useMemo(
     () => getPostUser(post),
     [post]
@@ -165,12 +115,8 @@ export default function PostCard({
   );
 
   const fullName = useMemo(
-    () =>
-      getFullName(
-        postUser,
-        username
-      ),
-    [postUser, username]
+    () => getFullName(postUser),
+    [postUser]
   );
 
   const avatar = useMemo(
@@ -188,9 +134,68 @@ export default function PostCard({
     postUser?.id ||
     null;
 
-  /* =======================================================
-     MEDIA
-  ======================================================= */
+  /*
+   * ============================================================
+   * USER LANGUAGE
+   * ============================================================
+   *
+   * This comes from:
+   *
+   * UserSettings.preferences.language
+   *
+   * Example:
+   * English
+   * Swahili
+   * French
+   * Spanish
+   */
+
+  const [userLanguage, setUserLanguage] =
+    useState("English");
+
+  const [languageLoading, setLanguageLoading] =
+    useState(true);
+
+  const loadUserLanguage = useCallback(
+    async () => {
+      try {
+        const settings =
+          await getSettings();
+
+        const language =
+          settings?.preferences?.language;
+
+        if (
+          typeof language === "string" &&
+          language.trim()
+        ) {
+          setUserLanguage(
+            language.trim()
+          );
+        } else {
+          setUserLanguage("English");
+        }
+      } catch (error) {
+        console.error(
+          "POST LANGUAGE LOAD ERROR:",
+          error
+        );
+
+        /*
+         * Translation should never break
+         * the post if settings fail.
+         */
+        setUserLanguage("English");
+      } finally {
+        setLanguageLoading(false);
+      }
+    },
+    []
+  );
+
+  useEffect(() => {
+    loadUserLanguage();
+  }, [loadUserLanguage]);
 
   const mediaItem =
     Array.isArray(post?.media)
@@ -216,10 +221,6 @@ export default function PostCard({
     mediaItem?.mimeType?.startsWith?.(
       "video/"
     );
-
-  /* =======================================================
-     LIKE / SAVE STATE
-  ======================================================= */
 
   const initialLiked = Boolean(
     post?.isLiked ??
@@ -277,19 +278,11 @@ export default function PostCard({
   const [shareLoading, setShareLoading] =
     useState(false);
 
-  /* =======================================================
-     MEDIA STATE
-  ======================================================= */
-
   const [imageLoading, setImageLoading] =
     useState(Boolean(image));
 
   const [imageError, setImageError] =
     useState(false);
-
-  /* =======================================================
-     MENU STATE
-  ======================================================= */
 
   const [menuVisible, setMenuVisible] =
     useState(false);
@@ -299,10 +292,6 @@ export default function PostCard({
 
   const doubleTapTimeout =
     useRef(null);
-
-  /* =======================================================
-     CLEANUP
-  ======================================================= */
 
   useEffect(() => {
     return () => {
@@ -316,9 +305,11 @@ export default function PostCard({
     };
   }, []);
 
-  /* =======================================================
-     LIKE
-  ======================================================= */
+  /*
+   * ============================================================
+   * LIKE
+   * ============================================================
+   */
 
   const handleLike = useCallback(
     async () => {
@@ -410,9 +401,11 @@ export default function PostCard({
     ]
   );
 
-  /* =======================================================
-     MEDIA PRESS / DOUBLE TAP LIKE
-  ======================================================= */
+  /*
+   * ============================================================
+   * MEDIA PRESS / DOUBLE TAP LIKE
+   * ============================================================
+   */
 
   const handleMediaPress =
     useCallback(() => {
@@ -456,9 +449,11 @@ export default function PostCard({
       handleLike,
     ]);
 
-  /* =======================================================
-     SAVE
-  ======================================================= */
+  /*
+   * ============================================================
+   * SAVE
+   * ============================================================
+   */
 
   const handleSave = useCallback(
     async () => {
@@ -524,9 +519,11 @@ export default function PostCard({
     ]
   );
 
-  /* =======================================================
-     SHARE
-  ======================================================= */
+  /*
+   * ============================================================
+   * SHARE
+   * ============================================================
+   */
 
   const handleShare =
     useCallback(async () => {
@@ -563,9 +560,11 @@ export default function PostCard({
       post,
     ]);
 
-  /* =======================================================
-     COMMENTS
-  ======================================================= */
+  /*
+   * ============================================================
+   * COMMENTS
+   * ============================================================
+   */
 
   const handleComment =
     useCallback(() => {
@@ -594,9 +593,11 @@ export default function PostCard({
       post,
     ]);
 
-  /* =======================================================
-     PROFILE
-  ======================================================= */
+  /*
+   * ============================================================
+   * PROFILE
+   * ============================================================
+   */
 
   const openProfile =
     useCallback(() => {
@@ -615,9 +616,11 @@ export default function PostCard({
       });
     }, [username]);
 
-  /* =======================================================
-     MENU
-  ======================================================= */
+  /*
+   * ============================================================
+   * MENU
+   * ============================================================
+   */
 
   const openMenu =
     useCallback(() => {
@@ -747,10 +750,6 @@ export default function PostCard({
       openMenu,
     ]);
 
-  /* =======================================================
-     DISPLAY VALUES
-  ======================================================= */
-
   const formattedLikes =
     likesCount.toLocaleString();
 
@@ -761,10 +760,6 @@ export default function PostCard({
   )
     .charAt(0)
     .toUpperCase();
-
-  /* =======================================================
-     RENDER
-  ======================================================= */
 
   return (
     <>
@@ -780,10 +775,10 @@ export default function PostCard({
             activeOpacity={0.75}
             onPress={openProfile}
             accessibilityRole="button"
-            accessibilityLabel={`Open ${username || "user"}'s profile`}
+            accessibilityLabel={`Open ${
+              username || "user"
+            }'s profile`}
           >
-            {/* AVATAR */}
-
             <View style={styles.avatar}>
               {avatar ? (
                 <Image
@@ -805,13 +800,9 @@ export default function PostCard({
               )}
             </View>
 
-            {/* IDENTITY */}
-
             <View
               style={styles.identity}
             >
-              {/* FULL NAME + VERIFIED BADGE */}
-
               <View
                 style={styles.nameRow}
               >
@@ -838,8 +829,6 @@ export default function PostCard({
                 ) : null}
               </View>
 
-              {/* USERNAME */}
-
               {username ? (
                 <Text
                   style={
@@ -853,8 +842,6 @@ export default function PostCard({
               ) : null}
             </View>
           </TouchableOpacity>
-
-          {/* MORE */}
 
           <TouchableOpacity
             style={
@@ -984,8 +971,6 @@ export default function PostCard({
               styles.leftActions
             }
           >
-            {/* LIKE */}
-
             <TouchableOpacity
               style={
                 styles.actionButton
@@ -1013,8 +998,6 @@ export default function PostCard({
               />
             </TouchableOpacity>
 
-            {/* COMMENT */}
-
             <TouchableOpacity
               style={
                 styles.actionButton
@@ -1032,8 +1015,6 @@ export default function PostCard({
                 }
               />
             </TouchableOpacity>
-
-            {/* SHARE */}
 
             <TouchableOpacity
               style={
@@ -1065,8 +1046,6 @@ export default function PostCard({
               )}
             </TouchableOpacity>
           </View>
-
-          {/* SAVE */}
 
           <TouchableOpacity
             style={
@@ -1138,7 +1117,7 @@ export default function PostCard({
         ) : null}
 
         {/* =================================================
-            CAPTION
+            CAPTION + TRANSLATION
         ================================================= */}
 
         {post?.caption ? (
@@ -1147,27 +1126,38 @@ export default function PostCard({
               styles.captionContainer
             }
           >
-            <Text
-              style={
-                styles.captionText
-              }
-            >
-              {username ? (
-                <>
-                  <Text
-                    style={
-                      styles.captionUsername
-                    }
-                  >
-                    {username}
-                  </Text>
+            {/* Username stays outside translation */}
 
-                  {" "}
-                </>
-              ) : null}
+            {username ? (
+              <Text
+                style={
+                  styles.captionUsername
+                }
+              >
+                {username}{" "}
+              </Text>
+            ) : null}
 
-              {post.caption}
-            </Text>
+            {/* Translation component renders
+                the original caption and
+                "See translation" button. */}
+
+            {!languageLoading ? (
+              <TranslatableCaption
+                text={post.caption}
+                targetLanguage={
+                  userLanguage
+                }
+              />
+            ) : (
+              <Text
+                style={
+                  styles.captionText
+                }
+              >
+                {post.caption}
+              </Text>
+            )}
           </View>
         ) : null}
 
@@ -1290,8 +1280,6 @@ export default function PostCard({
               }
             />
 
-            {/* SAVE */}
-
             <TouchableOpacity
               style={
                 styles.menuOption
@@ -1326,8 +1314,6 @@ export default function PostCard({
               </Text>
             </TouchableOpacity>
 
-            {/* GO TO POST */}
-
             <TouchableOpacity
               style={
                 styles.menuOption
@@ -1352,8 +1338,6 @@ export default function PostCard({
                 Go to post
               </Text>
             </TouchableOpacity>
-
-            {/* SHARE */}
 
             <TouchableOpacity
               style={
@@ -1380,8 +1364,6 @@ export default function PostCard({
               </Text>
             </TouchableOpacity>
 
-            {/* NOT INTERESTED */}
-
             <TouchableOpacity
               style={
                 styles.menuOption
@@ -1407,8 +1389,6 @@ export default function PostCard({
               </Text>
             </TouchableOpacity>
 
-            {/* MUTE */}
-
             <TouchableOpacity
               style={
                 styles.menuOption
@@ -1433,8 +1413,6 @@ export default function PostCard({
                 Mute @{username}
               </Text>
             </TouchableOpacity>
-
-            {/* REPORT */}
 
             <TouchableOpacity
               style={[
@@ -1473,10 +1451,6 @@ export default function PostCard({
     </>
   );
 }
-
-/* =========================================================
-   DATE FORMATTER
-========================================================= */
 
 function formatPostDate(date) {
   const timestamp =
@@ -1557,10 +1531,6 @@ function formatPostDate(date) {
   );
 }
 
-/* =========================================================
-   STYLES
-========================================================= */
-
 const styles = StyleSheet.create({
   card: {
     backgroundColor:
@@ -1573,7 +1543,6 @@ const styles = StyleSheet.create({
 
   header: {
     minHeight: 60,
-
     paddingHorizontal: 12,
 
     flexDirection: "row",
@@ -1593,7 +1562,6 @@ const styles = StyleSheet.create({
   avatar: {
     width: 38,
     height: 38,
-
     borderRadius: 19,
 
     overflow: "hidden",
@@ -1624,20 +1592,14 @@ const styles = StyleSheet.create({
   identity: {
     flex: 1,
     minWidth: 0,
-
     marginLeft: 9,
   },
 
-  /*
-   * Full name and blue verification badge
-   * live together in this row.
-   */
   nameRow: {
     flexDirection: "row",
     alignItems: "center",
 
     minWidth: 0,
-
     flexShrink: 1,
   },
 
@@ -1654,11 +1616,6 @@ const styles = StyleSheet.create({
       COLORS.black,
   },
 
-  /*
-   * BLUE TICK IS HERE.
-   * It is intentionally inside nameRow,
-   * directly after the full name.
-   */
   verifiedContainer: {
     marginLeft: 4,
 
@@ -1693,7 +1650,6 @@ const styles = StyleSheet.create({
 
   mediaContainer: {
     width: "100%",
-
     aspectRatio: 1,
 
     overflow: "hidden",
@@ -1806,6 +1762,11 @@ const styles = StyleSheet.create({
     marginTop: 5,
 
     paddingBottom: 1,
+
+    flexDirection: "row",
+    flexWrap: "wrap",
+
+    alignItems: "flex-start",
   },
 
   captionText: {
@@ -1818,6 +1779,9 @@ const styles = StyleSheet.create({
   },
 
   captionUsername: {
+    fontSize: 14,
+    lineHeight: 19,
+
     fontWeight: "700",
 
     color:
@@ -1855,10 +1819,6 @@ const styles = StyleSheet.create({
       Colors.secondaryText ||
       "#8E8E8E",
   },
-
-  /* =======================================================
-     MODAL
-  ======================================================= */
 
   modalRoot: {
     flex: 1,
