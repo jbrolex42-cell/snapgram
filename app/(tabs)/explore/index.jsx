@@ -22,7 +22,10 @@ import {
 
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
-import { useFocusEffect, useRouter } from "expo-router";
+import {
+  useFocusEffect,
+  useRouter,
+} from "expo-router";
 
 import {
   getExplorePosts,
@@ -32,39 +35,40 @@ import {
 import VerifiedBadge from "../../../components/common/VerifiedBadge";
 
 const COLORS = {
-  black: "#000",
-  white: "#fff",
+  black: "#000000",
+  white: "#FFFFFF",
   text: "#262626",
   secondary: "#737373",
-  border: "#dbdbdb",
-  background: "#fff",
-  searchBackground: "#efefef",
-  placeholder: "#8e8e8e",
-  tileBackground: "#efefef",
-  danger: "#ed4956",
+  border: "#DBDBDB",
+  background: "#FFFFFF",
+  searchBackground: "#EFEFEF",
+  placeholder: "#8E8E8E",
+  tileBackground: "#EFEFEF",
+  danger: "#ED4956",
 };
 
 const GRID_COLUMNS = 3;
 const GRID_GAP = 2;
 const PAGE_LIMIT = 30;
+const GRID_BLOCK_SIZE = 6;
 
-const { width: SCREEN_WIDTH } = Dimensions.get("window");
+const { width: SCREEN_WIDTH } =
+  Dimensions.get("window");
 
 const TILE_SIZE =
-  (SCREEN_WIDTH - GRID_GAP * (GRID_COLUMNS - 1)) /
+  (SCREEN_WIDTH -
+    GRID_GAP * (GRID_COLUMNS - 1)) /
   GRID_COLUMNS;
 
 const BIG_TILE_SIZE =
   TILE_SIZE * 2 + GRID_GAP;
 
-const GRID_BLOCK_SIZE = 6;
-
-function getPostId(post, index = 0) {
+function getPostId(post, fallback = "") {
   return String(
     post?._id ||
       post?.id ||
       post?.postId ||
-      `explore-post-${index}`
+      fallback
   );
 }
 
@@ -236,16 +240,16 @@ function getMediaCount(post) {
   return 1;
 }
 
-function chunkPosts(items) {
+function chunkPosts(posts) {
   const blocks = [];
 
   for (
     let index = 0;
-    index < items.length;
+    index < posts.length;
     index += GRID_BLOCK_SIZE
   ) {
     blocks.push(
-      items.slice(
+      posts.slice(
         index,
         index + GRID_BLOCK_SIZE
       )
@@ -253,6 +257,28 @@ function chunkPosts(items) {
   }
 
   return blocks;
+}
+
+function mergeUniquePosts(
+  current,
+  incoming
+) {
+  const map = new Map();
+
+  [...current, ...incoming].forEach(
+    (post, index) => {
+      const id = getPostId(
+        post,
+        `fallback-${index}`
+      );
+
+      if (!map.has(id)) {
+        map.set(id, post);
+      }
+    }
+  );
+
+  return Array.from(map.values());
 }
 
 function ExploreSkeleton() {
@@ -272,26 +298,25 @@ function ExploreSkeleton() {
 
 function ExploreTile({
   post,
-  size,
+  size = TILE_SIZE,
   onPress,
   style,
 }) {
   const media = getPostMedia(post);
 
-  const width = size || TILE_SIZE;
-  const height = size || TILE_SIZE;
-
   const video = isVideoMedia(media);
-  const mediaCount = getMediaCount(post);
+
+  const mediaCount =
+    getMediaCount(post);
 
   return (
     <Pressable
       style={[
-        {
-          width,
-          height,
-        },
         styles.tile,
+        {
+          width: size,
+          height: size,
+        },
         style,
       ]}
       onPress={() => onPress?.(post)}
@@ -310,13 +335,11 @@ function ExploreTile({
           resizeMode="cover"
         />
       ) : (
-        <View
-          style={styles.emptyTile}
-        >
+        <View style={styles.emptyTile}>
           <Ionicons
             name="image-outline"
             size={27}
-            color="#a0a0a0"
+            color="#A0A0A0"
           />
         </View>
       )}
@@ -352,25 +375,23 @@ function ExploreGridBlock({
   if (items.length < 6) {
     return (
       <View style={styles.plainRow}>
-        {items.map(
-          (post, index) => (
-            <ExploreTile
-              key={getPostId(
-                post,
-                index
-              )}
-              post={post}
-              size={TILE_SIZE}
-              onPress={onPress}
-              style={
-                index !==
-                items.length - 1
-                  ? styles.rightGap
-                  : null
-              }
-            />
-          )
-        )}
+        {items.map((post, index) => (
+          <ExploreTile
+            key={getPostId(
+              post,
+              `post-${index}`
+            )}
+            post={post}
+            size={TILE_SIZE}
+            onPress={onPress}
+            style={
+              index <
+              items.length - 1
+                ? styles.rightGap
+                : undefined
+            }
+          />
+        ))}
       </View>
     );
   }
@@ -402,9 +423,7 @@ function ExploreGridBlock({
                 post={first}
                 size={TILE_SIZE}
                 onPress={onPress}
-                style={
-                  styles.bottomGap
-                }
+                style={styles.bottomGap}
               />
 
               <ExploreTile
@@ -429,16 +448,12 @@ function ExploreGridBlock({
               style={styles.rightGap}
             />
 
-            <View
-              style={styles.stackColumn}
-            >
+            <View style={styles.stackColumn}>
               <ExploreTile
                 post={first}
                 size={TILE_SIZE}
                 onPress={onPress}
-                style={
-                  styles.bottomGap
-                }
+                style={styles.bottomGap}
               />
 
               <ExploreTile
@@ -491,8 +506,7 @@ function SearchUserRow({
       }
       style={({ pressed }) => [
         styles.userRow,
-        pressed &&
-          styles.pressed,
+        pressed && styles.pressed,
       ]}
     >
       {avatar ? (
@@ -514,12 +528,8 @@ function SearchUserRow({
         </View>
       )}
 
-      <View
-        style={styles.userInfo}
-      >
-        <View
-          style={styles.nameRow}
-        >
+      <View style={styles.userInfo}>
+        <View style={styles.nameRow}>
           <Text
             style={styles.name}
             numberOfLines={1}
@@ -530,23 +540,19 @@ function SearchUserRow({
           {isVerified(user) && (
             <VerifiedBadge
               size={16}
-              style={
-                styles.verifiedBadge
-              }
+              style={styles.verifiedBadge}
             />
           )}
         </View>
 
-        {username ? (
+        {!!username && (
           <Text
-            style={
-              styles.searchUsername
-            }
+            style={styles.searchUsername}
             numberOfLines={1}
           >
             @{username}
           </Text>
-        ) : null}
+        )}
       </View>
 
       <Ionicons
@@ -559,48 +565,35 @@ function SearchUserRow({
 }
 
 function EmptyState({
-  icon,
+  icon = "images-outline",
   title,
   message,
   actionLabel,
   onAction,
 }) {
   return (
-    <View
-      style={styles.emptyState}
-    >
+    <View style={styles.emptyState}>
       <View
-        style={
-          styles.emptyIconCircle
-        }
+        style={styles.emptyIconCircle}
       >
         <Ionicons
-          name={
-            icon ||
-            "images-outline"
-          }
+          name={icon}
           size={31}
           color={COLORS.text}
         />
       </View>
 
-      <Text
-        style={styles.emptyTitle}
-      >
+      <Text style={styles.emptyTitle}>
         {title}
       </Text>
 
-      {message ? (
-        <Text
-          style={
-            styles.emptyMessage
-          }
-        >
+      {!!message && (
+        <Text style={styles.emptyMessage}>
           {message}
         </Text>
-      ) : null}
+      )}
 
-      {actionLabel ? (
+      {!!actionLabel && (
         <Pressable
           onPress={onAction}
           style={({ pressed }) => [
@@ -610,14 +603,12 @@ function EmptyState({
           ]}
         >
           <Text
-            style={
-              styles.emptyButtonText
-            }
+            style={styles.emptyButtonText}
           >
             {actionLabel}
           </Text>
         </Pressable>
-      ) : null}
+      )}
     </View>
   );
 }
@@ -626,16 +617,8 @@ function SearchSectionTitle({
   children,
 }) {
   return (
-    <View
-      style={
-        styles.sectionHeader
-      }
-    >
-      <Text
-        style={
-          styles.sectionTitle
-        }
-      >
+    <View style={styles.sectionHeader}>
+      <Text style={styles.sectionTitle}>
         {children}
       </Text>
     </View>
@@ -678,13 +661,10 @@ export default function ExploreScreen() {
   const [hasMore, setHasMore] =
     useState(false);
 
-  const [
-    searchHasMore,
-    setSearchHasMore,
-  ] = useState(false);
+  const [searchHasMore, setSearchHasMore] =
+    useState(false);
 
-  const pageRef =
-    useRef(1);
+  const pageRef = useRef(1);
 
   const searchPageRef =
     useRef(1);
@@ -694,6 +674,12 @@ export default function ExploreScreen() {
 
   const searchTimerRef =
     useRef(null);
+
+  const exploreRequestRef =
+    useRef(false);
+
+  const searchRequestRef =
+    useRef(false);
 
   const loadingMoreRef =
     useRef(false);
@@ -710,9 +696,7 @@ export default function ExploreScreen() {
     return () => {
       mountedRef.current = false;
 
-      if (
-        searchTimerRef.current
-      ) {
+      if (searchTimerRef.current) {
         clearTimeout(
           searchTimerRef.current
         );
@@ -720,106 +704,108 @@ export default function ExploreScreen() {
     };
   }, []);
 
-  const loadExplore =
-    useCallback(
-      async (
-        requestedPage = 1,
-        append = false
-      ) => {
-        if (
-          append &&
-          loadingMoreRef.current
-        ) {
+  const loadExplore = useCallback(
+    async (
+      requestedPage = 1,
+      append = false
+    ) => {
+      if (
+        exploreRequestRef.current
+      ) {
+        return;
+      }
+
+      if (
+        append &&
+        loadingMoreRef.current
+      ) {
+        return;
+      }
+
+      exploreRequestRef.current = true;
+
+      if (append) {
+        loadingMoreRef.current = true;
+        setLoadingMore(true);
+      } else {
+        setLoading(true);
+        setError("");
+      }
+
+      try {
+        const result =
+          await getExplorePosts(
+            requestedPage,
+            PAGE_LIMIT
+          );
+
+        if (!mountedRef.current) {
           return;
         }
 
-        if (append) {
-          loadingMoreRef.current = true;
-          setLoadingMore(true);
-        } else {
-          setLoading(true);
-          setError("");
+        const incoming =
+          Array.isArray(
+            result?.posts
+          )
+            ? result.posts.filter(Boolean)
+            : [];
+
+        const pagination =
+          result?.pagination || {};
+
+        const more = Boolean(
+          pagination?.hasMore ??
+            pagination?.has_more ??
+            false
+        );
+
+        setPosts((current) =>
+          append
+            ? mergeUniquePosts(
+                current,
+                incoming
+              )
+            : incoming
+        );
+
+        setHasMore(more);
+
+        pageRef.current =
+          requestedPage;
+      } catch (err) {
+        console.error(
+          "[EXPLORE] LOAD ERROR:",
+          err?.response?.data ||
+            err
+        );
+
+        if (
+          mountedRef.current &&
+          !append
+        ) {
+          setPosts([]);
+
+          setError(
+            err?.response?.data
+              ?.message ||
+              "Unable to load Explore right now."
+          );
         }
+      } finally {
+        exploreRequestRef.current =
+          false;
 
-        try {
-          const result =
-            await getExplorePosts(
-              requestedPage,
-              PAGE_LIMIT
-            );
+        loadingMoreRef.current =
+          false;
 
-          if (
-            !mountedRef.current
-          ) {
-            return;
-          }
-
-          const incoming =
-            Array.isArray(
-              result?.posts
-            )
-              ? result.posts.filter(
-                  Boolean
-                )
-              : [];
-
-          const pagination =
-            result?.pagination ||
-            {};
-
-          const more = Boolean(
-            pagination?.hasMore ??
-              pagination?.has_more ??
-              false
-          );
-
-          setPosts(
-            (current) =>
-              append
-                ? [
-                    ...current,
-                    ...incoming,
-                  ]
-                : incoming
-          );
-
-          setHasMore(more);
-
-          pageRef.current =
-            requestedPage;
-        } catch (err) {
-          console.error(
-            "EXPLORE LOAD ERROR:",
-            err?.response?.data ||
-              err
-          );
-
-          if (
-            mountedRef.current &&
-            !append
-          ) {
-            setPosts([]);
-            setError(
-              err?.response?.data
-                ?.message ||
-                "Unable to load Explore right now."
-            );
-          }
-        } finally {
-          if (
-            !mountedRef.current
-          ) {
-            return;
-          }
-
+        if (mountedRef.current) {
           setLoading(false);
           setLoadingMore(false);
-          loadingMoreRef.current =
-            false;
         }
-      },
-      []
-    );
+      }
+    },
+    []
+  );
 
   const executeSearch =
     useCallback(
@@ -841,11 +827,20 @@ export default function ExploreScreen() {
         }
 
         if (
+          searchRequestRef.current
+        ) {
+          return;
+        }
+
+        if (
           append &&
           searchLoadingMoreRef.current
         ) {
           return;
         }
+
+        searchRequestRef.current =
+          true;
 
         if (append) {
           searchLoadingMoreRef.current =
@@ -869,9 +864,7 @@ export default function ExploreScreen() {
               PAGE_LIMIT
             );
 
-          if (
-            !mountedRef.current
-          ) {
+          if (!mountedRef.current) {
             return;
           }
 
@@ -893,14 +886,11 @@ export default function ExploreScreen() {
             Array.isArray(
               result?.posts
             )
-              ? result.posts.filter(
-                  Boolean
-                )
+              ? result.posts.filter(Boolean)
               : [];
 
           const pagination =
-            result?.pagination ||
-            {};
+            result?.pagination || {};
 
           const more = Boolean(
             pagination?.hasMore ??
@@ -908,34 +898,31 @@ export default function ExploreScreen() {
               false
           );
 
-          setUsers(
-            (current) =>
-              append
-                ? [
-                    ...current,
-                    ...incomingUsers,
-                  ]
-                : incomingUsers
+          setUsers((current) =>
+            append
+              ? [
+                  ...current,
+                  ...incomingUsers,
+                ]
+              : incomingUsers
           );
 
-          setHashtags(
-            (current) =>
-              append
-                ? [
-                    ...current,
-                    ...incomingHashtags,
-                  ]
-                : incomingHashtags
+          setHashtags((current) =>
+            append
+              ? [
+                  ...current,
+                  ...incomingHashtags,
+                ]
+              : incomingHashtags
           );
 
-          setSearchPosts(
-            (current) =>
-              append
-                ? [
-                    ...current,
-                    ...incomingPosts,
-                  ]
-                : incomingPosts
+          setSearchPosts((current) =>
+            append
+              ? mergeUniquePosts(
+                  current,
+                  incomingPosts
+                )
+              : incomingPosts
           );
 
           setSearchHasMore(more);
@@ -944,7 +931,7 @@ export default function ExploreScreen() {
             requestedPage;
         } catch (err) {
           console.error(
-            "EXPLORE SEARCH ERROR:",
+            "[EXPLORE] SEARCH ERROR:",
             err?.response?.data ||
               err
           );
@@ -964,16 +951,16 @@ export default function ExploreScreen() {
             );
           }
         } finally {
-          if (
-            !mountedRef.current
-          ) {
-            return;
-          }
+          searchRequestRef.current =
+            false;
 
-          setSearching(false);
-          setLoadingMore(false);
           searchLoadingMoreRef.current =
             false;
+
+          if (mountedRef.current) {
+            setSearching(false);
+            setLoadingMore(false);
+          }
         }
       },
       []
@@ -985,9 +972,7 @@ export default function ExploreScreen() {
         setQuery(value);
         setError("");
 
-        if (
-          searchTimerRef.current
-        ) {
+        if (searchTimerRef.current) {
           clearTimeout(
             searchTimerRef.current
           );
@@ -1002,7 +987,9 @@ export default function ExploreScreen() {
           setSearchPosts([]);
           setSearchHasMore(false);
           setSearching(false);
+
           searchPageRef.current = 1;
+
           return;
         }
 
@@ -1031,9 +1018,7 @@ export default function ExploreScreen() {
 
       Keyboard.dismiss();
 
-      if (
-        searchTimerRef.current
-      ) {
+      if (searchTimerRef.current) {
         clearTimeout(
           searchTimerRef.current
         );
@@ -1053,9 +1038,7 @@ export default function ExploreScreen() {
 
   const clearSearch =
     useCallback(() => {
-      if (
-        searchTimerRef.current
-      ) {
+      if (searchTimerRef.current) {
         clearTimeout(
           searchTimerRef.current
         );
@@ -1076,6 +1059,10 @@ export default function ExploreScreen() {
 
   const refresh =
     useCallback(async () => {
+      if (refreshing) {
+        return;
+      }
+
       setRefreshing(true);
 
       try {
@@ -1096,9 +1083,7 @@ export default function ExploreScreen() {
           );
         }
       } finally {
-        if (
-          mountedRef.current
-        ) {
+        if (mountedRef.current) {
           setRefreshing(false);
         }
       }
@@ -1107,10 +1092,15 @@ export default function ExploreScreen() {
       isSearching,
       loadExplore,
       query,
+      refreshing,
     ]);
 
   const loadMore =
     useCallback(() => {
+      if (loadingMore) {
+        return;
+      }
+
       if (isSearching) {
         if (
           !searchHasMore ||
@@ -1147,6 +1137,7 @@ export default function ExploreScreen() {
       isSearching,
       loadExplore,
       loading,
+      loadingMore,
       query,
       searchHasMore,
       searching,
@@ -1154,21 +1145,20 @@ export default function ExploreScreen() {
 
   useFocusEffect(
     useCallback(() => {
-      if (
-        !isSearching &&
-        posts.length === 0
-      ) {
-        pageRef.current = 1;
 
-        loadExplore(
-          1,
-          false
-        );
+      if (isSearching) {
+        return;
       }
+
+      pageRef.current = 1;
+
+      loadExplore(
+        1,
+        false
+      );
     }, [
       isSearching,
       loadExplore,
-      posts.length,
     ])
   );
 
@@ -1185,7 +1175,7 @@ export default function ExploreScreen() {
           )
         ) {
           console.warn(
-            "Cannot open Explore post: missing real post ID.",
+            "[EXPLORE] Missing real post ID:",
             post
           );
 
@@ -1193,8 +1183,7 @@ export default function ExploreScreen() {
         }
 
         router.push({
-          pathname:
-            "/post/[id]",
+          pathname: "/post/[id]",
           params: {
             id,
           },
@@ -1211,7 +1200,7 @@ export default function ExploreScreen() {
 
         if (!username) {
           console.warn(
-            "Cannot open profile: missing username.",
+            "[EXPLORE] Missing username:",
             user
           );
 
@@ -1307,15 +1296,14 @@ export default function ExploreScreen() {
             title="No results found"
             message={`We couldn't find anything for "${query.trim()}".`}
             actionLabel="Clear search"
-            onAction={
-              clearSearch
-            }
+            onAction={clearSearch}
           />
         );
       }
 
       return (
         <View>
+          {/* PEOPLE */}
           {users.length > 0 && (
             <View>
               <SearchSectionTitle>
@@ -1326,24 +1314,19 @@ export default function ExploreScreen() {
                 (user, index) => (
                   <SearchUserRow
                     key={
-                      getUserId(
-                        user
-                      ) ||
-                      getUsername(
-                        user
-                      ) ||
+                      getUserId(user) ||
+                      getUsername(user) ||
                       `user-${index}`
                     }
                     user={user}
-                    onPress={
-                      openUser
-                    }
+                    onPress={openUser}
                   />
                 )
               )}
             </View>
           )}
 
+          {/* HASHTAGS */}
           {hashtags.length > 0 && (
             <View>
               <SearchSectionTitle>
@@ -1384,16 +1367,18 @@ export default function ExploreScreen() {
                   return (
                     <Pressable
                       key={`${display}-${index}`}
-                      style={({ pressed }) => [
+                      style={({
+                        pressed,
+                      }) => [
                         styles.hashtagRow,
                         pressed &&
                           styles.pressed,
                       ]}
-                      onPress={() => {
+                      onPress={() =>
                         handleQueryChange(
                           display
-                        );
-                      }}
+                        )
+                      }
                     >
                       <View
                         style={
@@ -1452,6 +1437,7 @@ export default function ExploreScreen() {
             </View>
           )}
 
+          {/* POSTS */}
           {searchPosts.length > 0 && (
             <SearchSectionTitle>
               Posts
@@ -1473,18 +1459,61 @@ export default function ExploreScreen() {
   const footer =
     loadingMore ? (
       <View
-        style={
-          styles.footerLoader
-        }
+        style={styles.footerLoader}
       >
         <ActivityIndicator
           size="small"
-          color={
-            COLORS.secondary
-          }
+          color={COLORS.secondary}
         />
       </View>
     ) : null;
+
+  const renderSearchBar = () => (
+    <View
+      style={styles.searchContainer}
+    >
+      <View style={styles.searchBox}>
+        <Ionicons
+          name="search-outline"
+          size={20}
+          color={COLORS.secondary}
+        />
+
+        <TextInput
+          value={query}
+          onChangeText={
+            handleQueryChange
+          }
+          onSubmitEditing={
+            submitSearch
+          }
+          placeholder="Search"
+          placeholderTextColor={
+            COLORS.placeholder
+          }
+          style={styles.searchInput}
+          returnKeyType="search"
+          autoCorrect={false}
+          autoCapitalize="none"
+        />
+
+        {query.length > 0 && (
+          <Pressable
+            onPress={clearSearch}
+            hitSlop={10}
+          >
+            <Ionicons
+              name="close-circle"
+              size={19}
+              color={
+                COLORS.secondary
+              }
+            />
+          </Pressable>
+        )}
+      </View>
+    </View>
+  );
 
   if (
     loading &&
@@ -1495,55 +1524,15 @@ export default function ExploreScreen() {
         style={styles.safeArea}
         edges={["top"]}
       >
-        <View
-          style={styles.header}
-        >
+        <View style={styles.header}>
           <Text
-            style={
-              styles.headerTitle
-            }
+            style={styles.headerTitle}
           >
             Explore
           </Text>
         </View>
 
-        <View
-          style={
-            styles.searchContainer
-          }
-        >
-          <View
-            style={styles.searchBox}
-          >
-            <Ionicons
-              name="search-outline"
-              size={20}
-              color={
-                COLORS.secondary
-              }
-            />
-
-            <TextInput
-              value={query}
-              onChangeText={
-                handleQueryChange
-              }
-              onSubmitEditing={
-                submitSearch
-              }
-              placeholder="Search"
-              placeholderTextColor={
-                COLORS.placeholder
-              }
-              style={
-                styles.searchInput
-              }
-              returnKeyType="search"
-              autoCorrect={false}
-              autoCapitalize="none"
-            />
-          </View>
-        </View>
+        {renderSearchBar()}
 
         <ExploreSkeleton />
       </SafeAreaView>
@@ -1555,119 +1544,56 @@ export default function ExploreScreen() {
       style={styles.safeArea}
       edges={["top"]}
     >
-      <View
-        style={styles.header}
-      >
+      <View style={styles.header}>
         <Text
-          style={
-            styles.headerTitle
-          }
+          style={styles.headerTitle}
         >
           Explore
         </Text>
       </View>
 
-      <View
-        style={
-          styles.searchContainer
-        }
-      >
+      {renderSearchBar()}
+
+      {!!error && (
         <View
-          style={styles.searchBox}
-        >
-          <Ionicons
-            name="search-outline"
-            size={20}
-            color={
-              COLORS.secondary
-            }
-          />
-
-          <TextInput
-            value={query}
-            onChangeText={
-              handleQueryChange
-            }
-            onSubmitEditing={
-              submitSearch
-            }
-            placeholder="Search"
-            placeholderTextColor={
-              COLORS.placeholder
-            }
-            style={
-              styles.searchInput
-            }
-            returnKeyType="search"
-            autoCorrect={false}
-            autoCapitalize="none"
-          />
-
-          {query.length > 0 && (
-            <Pressable
-              onPress={
-                clearSearch
-              }
-              hitSlop={10}
-            >
-              <Ionicons
-                name="close-circle"
-                size={19}
-                color={
-                  COLORS.secondary
-                }
-              />
-            </Pressable>
-          )}
-        </View>
-      </View>
-
-      {error ? (
-        <View
-          style={
-            styles.errorBanner
-          }
+          style={styles.errorBanner}
         >
           <Ionicons
             name="alert-circle-outline"
             size={19}
-            color={
-              COLORS.danger
-            }
+            color={COLORS.danger}
           />
 
           <Text
-            style={
-              styles.errorText
-            }
+            style={styles.errorText}
           >
             {error}
           </Text>
 
           <Pressable
-            onPress={() =>
-              isSearching
-                ? executeSearch(
-                    query.trim(),
-                    1,
-                    false
-                  )
-                : loadExplore(
-                    1,
-                    false
-                  )
-            }
+            onPress={() => {
+              if (isSearching) {
+                executeSearch(
+                  query.trim(),
+                  1,
+                  false
+                );
+              } else {
+                loadExplore(
+                  1,
+                  false
+                );
+              }
+            }}
           >
             <Text
-              style={
-                styles.retryText
-              }
+              style={styles.retryText}
             >
               Retry
             </Text>
           </Pressable>
         </View>
-      ) : null}
+      )}
 
       {isSearching ? (
         <FlatList
@@ -1682,7 +1608,7 @@ export default function ExploreScreen() {
           ) =>
             getPostId(
               item,
-              index
+              `search-${index}`
             )
           }
           ListHeaderComponent={
@@ -1712,9 +1638,13 @@ export default function ExploreScreen() {
               refreshing={
                 refreshing
               }
-              onRefresh={
-                refresh
+              onRefresh={refresh}
+              tintColor={
+                COLORS.text
               }
+              colors={[
+                COLORS.text,
+              ]}
             />
           }
           onEndReached={
@@ -1773,9 +1703,13 @@ export default function ExploreScreen() {
               refreshing={
                 refreshing
               }
-              onRefresh={
-                refresh
+              onRefresh={refresh}
+              tintColor={
+                COLORS.text
               }
+              colors={[
+                COLORS.text,
+              ]}
             />
           }
           onEndReached={
@@ -1913,8 +1847,7 @@ const styles = StyleSheet.create({
     marginBottom: 6,
     paddingHorizontal: 12,
     borderRadius: 10,
-    backgroundColor:
-      "#fff2f2",
+    backgroundColor: "#FFF2F2",
     flexDirection: "row",
     alignItems: "center",
     gap: 8,
@@ -2080,8 +2013,7 @@ const styles = StyleSheet.create({
     height: 70,
     borderRadius: 35,
     borderWidth: 1.5,
-    borderColor:
-      COLORS.text,
+    borderColor: COLORS.text,
     alignItems: "center",
     justifyContent: "center",
     marginBottom: 16,
@@ -2144,7 +2076,6 @@ const styles = StyleSheet.create({
         GRID_GAP * 2) /
       3,
     aspectRatio: 1,
-    backgroundColor:
-      "#eeeeee",
+    backgroundColor: "#EEEEEE",
   },
 });

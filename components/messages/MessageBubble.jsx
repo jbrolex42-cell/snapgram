@@ -1,10 +1,10 @@
-import React from "react";
+import React, { memo } from "react";
 
 import {
   Image,
+  Pressable,
   StyleSheet,
   Text,
-  TouchableOpacity,
   View,
 } from "react-native";
 
@@ -12,7 +12,7 @@ import { Ionicons } from "@expo/vector-icons";
 
 import VoiceMessageBubble from "./VoiceMessageBubble";
 
-export default function MessageBubble({
+function MessageBubble({
   message,
   onLongPress,
   isMine = true,
@@ -21,16 +21,22 @@ export default function MessageBubble({
     return null;
   }
 
+  /**
+   * ---------------------------------------------------------
+   * UNSENT / DELETED MESSAGE
+   * ---------------------------------------------------------
+   */
+
   if (message.deleted) {
     return (
-      <TouchableOpacity
+      <Pressable
         onLongPress={onLongPress}
-        activeOpacity={0.8}
-        style={[
+        style={({ pressed }) => [
           styles.deletedBubble,
           isMine
             ? styles.deletedMine
             : styles.deletedOther,
+          pressed && styles.pressed,
         ]}
       >
         <Ionicons
@@ -42,20 +48,26 @@ export default function MessageBubble({
         <Text style={styles.deletedText}>
           Message unsent
         </Text>
-      </TouchableOpacity>
+      </Pressable>
     );
   }
 
+  /**
+   * ---------------------------------------------------------
+   * VOICE MESSAGE
+   * ---------------------------------------------------------
+   */
+
   if (message.type === "voice") {
     return (
-      <TouchableOpacity
+      <Pressable
         onLongPress={onLongPress}
-        activeOpacity={0.85}
-        style={[
+        style={({ pressed }) => [
           styles.voiceWrapper,
           isMine
             ? styles.alignRight
             : styles.alignLeft,
+          pressed && styles.pressed,
         ]}
       >
         <View
@@ -66,11 +78,36 @@ export default function MessageBubble({
               : styles.otherVoiceBubble,
           ]}
         >
-          <VoiceMessageBubble
-            url={message.mediaUrl}
-            duration={message.mediaDuration}
-            isMine={isMine}
-          />
+          {message.mediaUrl ? (
+            <VoiceMessageBubble
+              url={message.mediaUrl}
+              duration={message.mediaDuration}
+              isMine={isMine}
+            />
+          ) : (
+            <View style={styles.voiceUnavailable}>
+              <Ionicons
+                name="mic-off-outline"
+                size={20}
+                color={
+                  isMine
+                    ? "#FFFFFF"
+                    : "#8E8E93"
+                }
+              />
+
+              <Text
+                style={[
+                  styles.voiceUnavailableText,
+                  isMine
+                    ? styles.mineText
+                    : styles.otherText,
+                ]}
+              >
+                Voice message unavailable
+              </Text>
+            </View>
+          )}
 
           {message.text ? (
             <Text
@@ -90,20 +127,26 @@ export default function MessageBubble({
           reactions={message.reactions}
           isMine={isMine}
         />
-      </TouchableOpacity>
+      </Pressable>
     );
   }
 
+  /**
+   * ---------------------------------------------------------
+   * IMAGE MESSAGE
+   * ---------------------------------------------------------
+   */
+
   if (message.type === "image") {
     return (
-      <TouchableOpacity
+      <Pressable
         onLongPress={onLongPress}
-        activeOpacity={0.9}
-        style={[
+        style={({ pressed }) => [
           styles.mediaWrapper,
           isMine
             ? styles.alignRight
             : styles.alignLeft,
+          pressed && styles.pressed,
         ]}
       >
         <View style={styles.imageBubble}>
@@ -130,7 +173,14 @@ export default function MessageBubble({
           )}
 
           {message.text ? (
-            <View style={styles.captionContainer}>
+            <View
+              style={[
+                styles.captionContainer,
+                isMine
+                  ? styles.mineCaptionContainer
+                  : styles.otherCaptionContainer,
+              ]}
+            >
               <Text
                 style={[
                   styles.caption,
@@ -149,20 +199,26 @@ export default function MessageBubble({
           reactions={message.reactions}
           isMine={isMine}
         />
-      </TouchableOpacity>
+      </Pressable>
     );
   }
 
+  /**
+   * ---------------------------------------------------------
+   * VIDEO MESSAGE
+   * ---------------------------------------------------------
+   */
+
   if (message.type === "video") {
     return (
-      <TouchableOpacity
+      <Pressable
         onLongPress={onLongPress}
-        activeOpacity={0.9}
-        style={[
+        style={({ pressed }) => [
           styles.mediaWrapper,
           isMine
             ? styles.alignRight
             : styles.alignLeft,
+          pressed && styles.pressed,
         ]}
       >
         <View style={styles.videoBubble}>
@@ -171,7 +227,7 @@ export default function MessageBubble({
               <Ionicons
                 name="play"
                 size={25}
-                color="#fff"
+                color="#FFFFFF"
               />
             </View>
 
@@ -181,7 +237,14 @@ export default function MessageBubble({
           </View>
 
           {message.text ? (
-            <View style={styles.captionContainer}>
+            <View
+              style={[
+                styles.captionContainer,
+                isMine
+                  ? styles.mineCaptionContainer
+                  : styles.otherCaptionContainer,
+              ]}
+            >
               <Text
                 style={[
                   styles.caption,
@@ -200,19 +263,25 @@ export default function MessageBubble({
           reactions={message.reactions}
           isMine={isMine}
         />
-      </TouchableOpacity>
+      </Pressable>
     );
   }
 
+  /**
+   * ---------------------------------------------------------
+   * TEXT MESSAGE
+   * ---------------------------------------------------------
+   */
+
   return (
-    <TouchableOpacity
+    <Pressable
       onLongPress={onLongPress}
-      activeOpacity={0.8}
-      style={[
+      style={({ pressed }) => [
         styles.textWrapper,
         isMine
           ? styles.alignRight
           : styles.alignLeft,
+        pressed && styles.pressed,
       ]}
     >
       <View
@@ -224,39 +293,10 @@ export default function MessageBubble({
         ]}
       >
         {message.replyTo ? (
-          <View
-            style={[
-              styles.replyReference,
-              isMine
-                ? styles.mineReplyReference
-                : styles.otherReplyReference,
-            ]}
-          >
-            <View style={styles.replyIconContainer}>
-              <Ionicons
-                name="return-down-forward-outline"
-                size={14}
-                color={
-                  isMine
-                    ? "rgba(255,255,255,0.85)"
-                    : "#8E8E93"
-                }
-              />
-            </View>
-
-            <Text
-              style={[
-                styles.replyReferenceText,
-                isMine
-                  ? styles.mineReplyText
-                  : styles.otherReplyText,
-              ]}
-              numberOfLines={2}
-            >
-              {message.replyTo.text ||
-                getReplyMediaLabel(message.replyTo)}
-            </Text>
-          </View>
+          <ReplyReference
+            replyTo={message.replyTo}
+            isMine={isMine}
+          />
         ) : null}
 
         {message.text ? (
@@ -270,16 +310,83 @@ export default function MessageBubble({
           >
             {message.text}
           </Text>
-        ) : null}
+        ) : (
+          <Text
+            style={[
+              styles.emptyMessageText,
+              isMine
+                ? styles.mineText
+                : styles.otherText,
+            ]}
+          >
+            Message
+          </Text>
+        )}
       </View>
 
       <ReactionDisplay
         reactions={message.reactions}
         isMine={isMine}
       />
-    </TouchableOpacity>
+    </Pressable>
   );
 }
+
+/**
+ * ---------------------------------------------------------
+ * REPLY REFERENCE
+ * ---------------------------------------------------------
+ */
+
+function ReplyReference({
+  replyTo,
+  isMine,
+}) {
+  const replyText =
+    replyTo?.text ||
+    getReplyMediaLabel(replyTo);
+
+  return (
+    <View
+      style={[
+        styles.replyReference,
+        isMine
+          ? styles.mineReplyReference
+          : styles.otherReplyReference,
+      ]}
+    >
+      <View style={styles.replyIconContainer}>
+        <Ionicons
+          name="return-down-forward-outline"
+          size={14}
+          color={
+            isMine
+              ? "rgba(255,255,255,0.85)"
+              : "#8E8E93"
+          }
+        />
+      </View>
+
+      <Text
+        style={[
+          styles.replyReferenceText,
+          isMine
+            ? styles.mineReplyText
+            : styles.otherReplyText,
+        ]}
+        numberOfLines={2}
+      >
+        {replyText}
+      </Text>
+    </View>
+  );
+}
+
+/**
+ * ---------------------------------------------------------
+ * REACTIONS
+ * ---------------------------------------------------------
+ */
 
 function ReactionDisplay({
   reactions,
@@ -294,23 +401,34 @@ function ReactionDisplay({
 
   const uniqueReactions = [];
 
-  reactions.forEach((reaction) => {
+  for (const reaction of reactions) {
     if (!reaction?.emoji) {
-      return;
+      continue;
     }
 
-    if (
-      !uniqueReactions.some(
-        (item) => item.emoji === reaction.emoji
-      )
-    ) {
+    const alreadyExists =
+      uniqueReactions.some(
+        (item) =>
+          item.emoji === reaction.emoji
+      );
+
+    if (!alreadyExists) {
       uniqueReactions.push(reaction);
     }
-  });
+  }
 
   if (uniqueReactions.length === 0) {
     return null;
   }
+
+  const visibleReactions =
+    uniqueReactions.slice(0, 4);
+
+  const remainingCount =
+    Math.max(
+      0,
+      uniqueReactions.length - 4
+    );
 
   return (
     <View
@@ -321,28 +439,31 @@ function ReactionDisplay({
           : styles.reactionsOther,
       ]}
     >
-      {uniqueReactions
-        .slice(0, 4)
-        .map((reaction, index) => (
+      {visibleReactions.map(
+        (reaction, index) => (
           <Text
-            key={
-              reaction.user?._id ||
-              `${reaction.emoji}-${index}`
-            }
+            key={`${reaction.emoji}-${index}`}
             style={styles.reaction}
           >
             {reaction.emoji}
           </Text>
-        ))}
+        )
+      )}
 
-      {uniqueReactions.length > 4 ? (
+      {remainingCount > 0 ? (
         <Text style={styles.moreReactions}>
-          +{uniqueReactions.length - 4}
+          +{remainingCount}
         </Text>
       ) : null}
     </View>
   );
 }
+
+/**
+ * ---------------------------------------------------------
+ * REPLY MEDIA LABEL
+ * ---------------------------------------------------------
+ */
 
 function getReplyMediaLabel(message) {
   if (!message) {
@@ -364,7 +485,16 @@ function getReplyMediaLabel(message) {
   }
 }
 
+/**
+ * ---------------------------------------------------------
+ * STYLES
+ * ---------------------------------------------------------
+ */
+
 const styles = StyleSheet.create({
+  pressed: {
+    opacity: 0.88,
+  },
 
   alignRight: {
     alignSelf: "flex-end",
@@ -374,6 +504,10 @@ const styles = StyleSheet.create({
     alignSelf: "flex-start",
   },
 
+  /**
+   * TEXT
+   */
+
   textWrapper: {
     position: "relative",
     maxWidth: "78%",
@@ -382,10 +516,10 @@ const styles = StyleSheet.create({
   },
 
   textBubble: {
-    borderRadius: 22,
+    minHeight: 40,
     paddingHorizontal: 15,
     paddingVertical: 10,
-    minHeight: 40,
+    borderRadius: 22,
     justifyContent: "center",
   },
 
@@ -405,6 +539,11 @@ const styles = StyleSheet.create({
     letterSpacing: -0.1,
   },
 
+  emptyMessageText: {
+    fontSize: 14,
+    fontStyle: "italic",
+  },
+
   mineText: {
     color: "#FFFFFF",
   },
@@ -412,6 +551,10 @@ const styles = StyleSheet.create({
   otherText: {
     color: "#111111",
   },
+
+  /**
+   * REPLY
+   */
 
   replyReference: {
     flexDirection: "row",
@@ -424,7 +567,8 @@ const styles = StyleSheet.create({
   },
 
   mineReplyReference: {
-    borderLeftColor: "rgba(255,255,255,0.85)",
+    borderLeftColor:
+      "rgba(255,255,255,0.85)",
   },
 
   otherReplyReference: {
@@ -433,9 +577,9 @@ const styles = StyleSheet.create({
 
   replyIconContainer: {
     width: 20,
+    marginRight: 5,
     alignItems: "center",
     justifyContent: "center",
-    marginRight: 5,
   },
 
   replyReferenceText: {
@@ -451,6 +595,10 @@ const styles = StyleSheet.create({
   otherReplyText: {
     color: "#777777",
   },
+
+  /**
+   * MEDIA
+   */
 
   mediaWrapper: {
     position: "relative",
@@ -475,6 +623,13 @@ const styles = StyleSheet.create({
   captionContainer: {
     paddingHorizontal: 12,
     paddingVertical: 9,
+  },
+
+  mineCaptionContainer: {
+    backgroundColor: "#0095F6",
+  },
+
+  otherCaptionContainer: {
     backgroundColor: "#EFEFEF",
   },
 
@@ -497,6 +652,10 @@ const styles = StyleSheet.create({
     fontSize: 13,
   },
 
+  /**
+   * VIDEO
+   */
+
   videoBubble: {
     width: 240,
     borderRadius: 19,
@@ -518,9 +677,11 @@ const styles = StyleSheet.create({
     borderRadius: 31,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "rgba(255,255,255,0.20)",
+    backgroundColor:
+      "rgba(255,255,255,0.20)",
     borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.35)",
+    borderColor:
+      "rgba(255,255,255,0.35)",
   },
 
   videoText: {
@@ -529,6 +690,10 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: "600",
   },
+
+  /**
+   * VOICE
+   */
 
   voiceWrapper: {
     position: "relative",
@@ -540,9 +705,9 @@ const styles = StyleSheet.create({
   voiceBubble: {
     minWidth: 210,
     maxWidth: 280,
-    borderRadius: 22,
     paddingHorizontal: 12,
     paddingVertical: 9,
+    borderRadius: 22,
   },
 
   mineVoiceBubble: {
@@ -562,14 +727,29 @@ const styles = StyleSheet.create({
     lineHeight: 19,
   },
 
+  voiceUnavailable: {
+    minHeight: 40,
+    flexDirection: "row",
+    alignItems: "center",
+  },
+
+  voiceUnavailableText: {
+    marginLeft: 8,
+    fontSize: 13,
+  },
+
+  /**
+   * DELETED
+   */
+
   deletedBubble: {
     flexDirection: "row",
     alignItems: "center",
     maxWidth: "78%",
-    borderRadius: 20,
+    marginVertical: 4,
     paddingHorizontal: 13,
     paddingVertical: 10,
-    marginVertical: 4,
+    borderRadius: 20,
     borderWidth: 1,
     borderColor: "#E5E5EA",
     backgroundColor: "#F7F7F7",
@@ -590,6 +770,10 @@ const styles = StyleSheet.create({
     fontStyle: "italic",
   },
 
+  /**
+   * REACTIONS
+   */
+
   reactions: {
     position: "absolute",
     bottom: -4,
@@ -605,7 +789,7 @@ const styles = StyleSheet.create({
 
     elevation: 3,
 
-    shadowColor: "#000",
+    shadowColor: "#000000",
     shadowOffset: {
       width: 0,
       height: 1,
@@ -623,9 +807,9 @@ const styles = StyleSheet.create({
   },
 
   reaction: {
+    marginHorizontal: 1,
     fontSize: 15,
     lineHeight: 18,
-    marginHorizontal: 1,
   },
 
   moreReactions: {
@@ -635,3 +819,5 @@ const styles = StyleSheet.create({
     fontWeight: "600",
   },
 });
+
+export default memo(MessageBubble);

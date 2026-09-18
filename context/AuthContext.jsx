@@ -1,5 +1,6 @@
 import React, {
   createContext,
+  useCallback,
   useContext,
   useEffect,
   useState,
@@ -12,8 +13,8 @@ import {
   loginUser,
   logoutUser,
   registerUser,
-  switchSavedAccount,
   saveAuthSession,
+  switchSavedAccount,
 } from "../services/authService";
 
 import {
@@ -30,9 +31,128 @@ export function AuthProvider({ children }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
-  useEffect(() => {
-    restoreSession();
+  /**
+   * ---------------------------------------------------------
+   * RESTORE SESSION
+   * ---------------------------------------------------------
+   */
+
+  const restoreSession = useCallback(async () => {
+    try {
+      setLoading(true);
+      setError(null);
+
+      const token = await AsyncStorage.getItem(TOKEN_KEY);
+
+      console.log(
+        "[AUTH] RESTORING SESSION — TOKEN:",
+        Boolean(token)
+      );
+
+      if (!token) {
+        console.log(
+          "[AUTH] NO SAVED AUTH TOKEN."
+        );
+
+        disconnectSocket();
+        setUser(null);
+
+        return null;
+      }
+
+      const currentUser = await getCurrentUser();
+
+      if (!currentUser) {
+        throw new Error(
+          "Unable to restore authenticated user."
+        );
+      }
+
+      setUser(currentUser);
+
+      console.log(
+        "[AUTH] SESSION RESTORED:",
+        currentUser?.username ||
+          currentUser?.email ||
+          currentUser?._id ||
+          currentUser?.id
+      );
+
+      return currentUser;
+    } catch (restoreError) {
+      const status =
+        restoreError?.response?.status;
+
+      const message =
+        restoreError?.response?.data?.message ||
+        restoreError?.message ||
+        "Unable to restore your session.";
+
+      if (status === 401 || status === 403) {
+        console.log(
+          "[AUTH] SAVED AUTH TOKEN IS INVALID."
+        );
+
+        try {
+          await AsyncStorage.removeItem(TOKEN_KEY);
+        } catch (storageError) {
+          console.error(
+            "[AUTH] TOKEN CLEANUP ERROR:",
+            storageError?.message ||
+              storageError
+          );
+        }
+      } else {
+        console.error(
+          "[AUTH] RESTORE SESSION ERROR:",
+          restoreError?.response?.data ||
+            restoreError?.message ||
+            restoreError
+        );
+      }
+
+      disconnectSocket();
+      setUser(null);
+      setError(message);
+
+      return null;
+    } finally {
+      setLoading(false);
+    }
   }, []);
+
+  /**
+   * ---------------------------------------------------------
+   * INITIAL SESSION RESTORE
+   * ---------------------------------------------------------
+   */
+
+  useEffect(() => {
+    let mounted = true;
+
+    async function initializeAuth() {
+      if (!mounted) {
+        return;
+      }
+
+      await restoreSession();
+    }
+
+    initializeAuth();
+
+    return () => {
+      mounted = false;
+    };
+  }, [restoreSession]);
+
+  /**
+   * ---------------------------------------------------------
+   * SOCKET INITIALIZATION
+   * ---------------------------------------------------------
+   *
+   * Socket.IO is connected only after authentication
+   * has finished restoring and a valid user exists.
+   */
 
   useEffect(() => {
     if (loading) {
@@ -55,14 +175,13 @@ export function AuthProvider({ children }) {
           userId
         );
 
-        const connectedSocket =
-          await connectSocket(userId);
+        const socket = await connectSocket(userId);
 
         if (cancelled) {
           return;
         }
 
-        if (!connectedSocket) {
+        if (!socket) {
           console.warn(
             "[AUTH] Socket connection was not created."
           );
@@ -72,7 +191,7 @@ export function AuthProvider({ children }) {
 
         console.log(
           "[AUTH] SOCKET READY:",
-          connectedSocket.id
+          socket.id
         );
       } catch (socketError) {
         if (cancelled) {
@@ -94,335 +213,348 @@ export function AuthProvider({ children }) {
     };
   }, [user, loading]);
 
-  async function restoreSession() {
-    try {
-      setLoading(true);
-      setError(null);
+  /**
+   * ---------------------------------------------------------
+   * LOGIN
+   * ---------------------------------------------------------
+   */
 
-      const token =
-        await AsyncStorage.getItem(
-          TOKEN_KEY
-        );
+  const login = useCallback(
+    async (identifier, password) => {
+      try {
+        setError(null);
 
-      console.log(
-        "[AUTH] RESTORING SESSION — TOKEN:",
-        Boolean(token)
-      );
+        const cleanIdentifier =
+          identifier?.trim() || "";
 
-      if (!token) {
+        if (!cleanIdentifier) {
+          throw new Error(
+            "Enter your email, username, or phone number."
+          );
+        }
+
+        if (!password) {
+          throw new Error(
+            "Enter your password."
+          );
+        }
+
+        const loginData = {
+          password,
+        };
+
+        /**
+         * Email
+         */
+        if (cleanIdentifier.includes("@")) {
+          loginData.email =
+            cleanIdentifier.toLowerCase();
+        }
+
+        /**
+         * Phone number
+         */
+        else if (
+          /^[+0-9()\-\s]+$/.test(
+            cleanIdentifier
+          )
+        ) {
+          loginData.phone =
+            cleanIdentifier;
+        }
+
+        /**
+         * Username
+         */
+        else {
+          loginData.username =
+            cleanIdentifier.toLowerCase();
+        }
+
         console.log(
-          "[AUTH] NO SAVED AUTH TOKEN."
+          "[AUTH] LOGIN REQUEST:",
+          Object.keys(loginData).filter(
+            (key) => key !== "password"
+          )
         );
 
+        const result =
+          await loginUser(loginData);
+
+        if (!result?.token) {
+          throw new Error(
+            "Login succeeded but no authentication token was returned."
+          );
+        }
+
+        if (!result?.user) {
+          throw new Error(
+            "Login succeeded but no user information was returned."
+          );
+        }
+
+        /**
+         * Store authentication token.
+         */
+        await AsyncStorage.setItem(
+          TOKEN_KEY,
+          result.token
+        );
+
+        /**
+         * Update authenticated user.
+         *
+         * The socket effect above will automatically
+         * connect the user after state updates.
+         */
+        setUser(result.user);
+
+        console.log(
+          "[AUTH] LOGIN SUCCESS:",
+          result.user?.username ||
+            result.user?.email ||
+            result.user?._id ||
+            result.user?.id
+        );
+
+        console.log(
+          "[AUTH] TOKEN SAVED: true"
+        );
+
+        return result;
+      } catch (loginError) {
+        const message =
+          loginError?.response?.data?.message ||
+          loginError?.message ||
+          "Unable to login.";
+
+        setError(message);
+
+        throw new Error(message);
+      }
+    },
+    []
+  );
+
+  /**
+   * ---------------------------------------------------------
+   * SOCIAL LOGIN
+   * ---------------------------------------------------------
+   */
+
+  const loginWithSocial = useCallback(
+    async (result) => {
+      try {
+        setError(null);
+
+        if (!result?.token) {
+          throw new Error(
+            "Social login did not return an authentication token."
+          );
+        }
+
+        if (!result?.user) {
+          throw new Error(
+            "Social login did not return user information."
+          );
+        }
+
+        /**
+         * Keep authService responsible for persisting
+         * the complete authentication session.
+         */
+        await saveAuthSession(
+          result.user,
+          result.token
+        );
+
+        /**
+         * Keep the main token key synchronized.
+         */
+        await AsyncStorage.setItem(
+          TOKEN_KEY,
+          result.token
+        );
+
+        setUser(result.user);
+
+        console.log(
+          "[AUTH] SOCIAL LOGIN SUCCESS:",
+          result.user?.username ||
+            result.user?.email ||
+            result.user?._id ||
+            result.user?.id
+        );
+
+        console.log(
+          "[AUTH] TOKEN SAVED: true"
+        );
+
+        return result;
+      } catch (socialError) {
+        const message =
+          socialError?.response?.data?.message ||
+          socialError?.message ||
+          "Unable to complete social login.";
+
+        setError(message);
+
+        throw new Error(message);
+      }
+    },
+    []
+  );
+
+  /**
+   * ---------------------------------------------------------
+   * REGISTER
+   * ---------------------------------------------------------
+   */
+
+  const register = useCallback(
+    async (data) => {
+      try {
+        setError(null);
+
+        const result =
+          await registerUser({
+            fullName:
+              data?.fullName?.trim() ||
+              data?.name?.trim() ||
+              "",
+
+            username:
+              data?.username
+                ?.trim()
+                .toLowerCase() || "",
+
+            email:
+              data?.email
+                ?.trim()
+                .toLowerCase() || "",
+
+            phone:
+              data?.phone?.trim() || "",
+
+            password:
+              data?.password || "",
+          });
+
+        return result;
+      } catch (registerError) {
+        const message =
+          registerError?.response?.data?.message ||
+          registerError?.message ||
+          "Unable to create account.";
+
+        setError(message);
+
+        throw new Error(message);
+      }
+    },
+    []
+  );
+
+  /**
+   * ---------------------------------------------------------
+   * SWITCH SAVED ACCOUNT
+   * ---------------------------------------------------------
+   */
+
+  const switchAccount = useCallback(
+    async (accountId) => {
+      try {
+        setError(null);
+
+        if (!accountId) {
+          throw new Error(
+            "Account ID is required."
+          );
+        }
+
+        /**
+         * Disconnect the previous account before
+         * activating the new one.
+         */
         disconnectSocket();
-        setUser(null);
 
-        return;
-      }
+        const switchedUser =
+          await switchSavedAccount(
+            accountId
+          );
 
-      const currentUser =
-        await getCurrentUser();
+        if (!switchedUser) {
+          throw new Error(
+            "The selected account could not be activated."
+          );
+        }
 
-      if (!currentUser) {
-        throw new Error(
-          "Unable to restore authenticated user."
-        );
-      }
+        setUser(switchedUser);
 
-      setUser(currentUser);
-
-      console.log(
-        "[AUTH] SESSION RESTORED:",
-        currentUser?.username ||
-          currentUser?.email ||
-          currentUser?._id ||
-          currentUser?.id
-      );
-    } catch (restoreError) {
-      const status =
-        restoreError?.response?.status;
-
-      if (
-        status === 401 ||
-        status === 403
-      ) {
         console.log(
-          "[AUTH] SAVED AUTH TOKEN IS INVALID."
+          "[AUTH] ACCOUNT SWITCHED:",
+          switchedUser?.username ||
+            switchedUser?.email ||
+            switchedUser?._id ||
+            switchedUser?.id
         );
 
-        await AsyncStorage.removeItem(
-          TOKEN_KEY
-        );
-      } else {
-        console.error(
-          "[AUTH] RESTORE SESSION ERROR:",
-          restoreError?.response?.data ||
-            restoreError?.message ||
-            restoreError
-        );
+        return switchedUser;
+      } catch (switchError) {
+        const message =
+          switchError?.response?.data?.message ||
+          switchError?.message ||
+          "Unable to switch account.";
+
+        setError(message);
+
+        throw new Error(message);
       }
+    },
+    []
+  );
 
-      disconnectSocket();
-      setUser(null);
-    } finally {
-      setLoading(false);
-    }
-  }
+  /**
+   * ---------------------------------------------------------
+   * LOGOUT
+   * ---------------------------------------------------------
+   */
 
-  async function login(
-    identifier,
-    password
-  ) {
+  const logout = useCallback(async () => {
     try {
       setError(null);
 
-      const cleanIdentifier =
-        identifier?.trim() || "";
-
-      if (!cleanIdentifier) {
-        throw new Error(
-          "Enter your email, username, or phone number."
-        );
-      }
-
-      if (!password) {
-        throw new Error(
-          "Enter your password."
-        );
-      }
-
-      const loginData = {
-        password,
-      };
-
-      if (
-        cleanIdentifier.includes("@")
-      ) {
-        loginData.email =
-          cleanIdentifier.toLowerCase();
-      } else if (
-        /^[+0-9()\-\s]+$/.test(
-          cleanIdentifier
-        )
-      ) {
-        loginData.phone =
-          cleanIdentifier;
-      } else {
-        loginData.username =
-          cleanIdentifier.toLowerCase();
-      }
-
-      console.log(
-        "[AUTH] LOGIN REQUEST:",
-        Object.keys(loginData).filter(
-          (key) => key !== "password"
-        )
-      );
-
-      const result =
-        await loginUser(loginData);
-
-      if (!result?.token) {
-        throw new Error(
-          "Login succeeded but no authentication token was returned."
-        );
-      }
-
-      if (!result?.user) {
-        throw new Error(
-          "Login succeeded but no user information was returned."
-        );
-      }
-
-      await AsyncStorage.setItem(
-        TOKEN_KEY,
-        result.token
-      );
-
-      setUser(result.user);
-
-      console.log(
-        "[AUTH] LOGIN SUCCESS:",
-        result.user?.username ||
-          result.user?.email ||
-          result.user?._id ||
-          result.user?.id
-      );
-
-      console.log(
-        "[AUTH] TOKEN SAVED: true"
-      );
-
-      return result;
-    } catch (loginError) {
-      const message =
-        loginError?.response?.data
-          ?.message ||
-        loginError?.message ||
-        "Unable to login.";
-
-      setError(message);
-
-      throw new Error(message);
-    }
-  }
-
-  async function loginWithSocial(
-    result
-  ) {
-    try {
-      setError(null);
-
-      if (!result?.token) {
-        throw new Error(
-          "Social login did not return an authentication token."
-        );
-      }
-
-      if (!result?.user) {
-        throw new Error(
-          "Social login did not return user information."
-        );
-      }
-
-      await saveAuthSession(
-        result.user,
-        result.token
-      );
-
-      await AsyncStorage.setItem(
-        TOKEN_KEY,
-        result.token
-      );
-
-      setUser(result.user);
-
-      console.log(
-        "[AUTH] SOCIAL LOGIN SUCCESS:",
-        result.user?.username ||
-          result.user?.email ||
-          result.user?._id ||
-          result.user?.id
-      );
-
-      return result;
-    } catch (socialError) {
-      const message =
-        socialError?.response?.data
-          ?.message ||
-        socialError?.message ||
-        "Unable to complete social login.";
-
-      setError(message);
-
-      throw new Error(message);
-    }
-  }
-
-  async function register(data) {
-    try {
-      setError(null);
-
-      const result =
-        await registerUser({
-          fullName:
-            data?.fullName?.trim() ||
-            data?.name?.trim() ||
-            "",
-
-          username:
-            data?.username
-              ?.trim()
-              .toLowerCase() || "",
-
-          email:
-            data?.email
-              ?.trim()
-              .toLowerCase() || "",
-
-          phone:
-            data?.phone?.trim() || "",
-
-          password:
-            data?.password || "",
-        });
-
-      return result;
-    } catch (registerError) {
-      const message =
-        registerError?.response?.data
-          ?.message ||
-        registerError?.message ||
-        "Unable to create account.";
-
-      setError(message);
-
-      throw new Error(message);
-    }
-  }
-
-  async function switchAccount(
-    accountId
-  ) {
-    try {
-      setError(null);
-
-      if (!accountId) {
-        throw new Error(
-          "Account ID is required."
-        );
-      }
-
+      /**
+       * Disconnect realtime services immediately.
+       */
       disconnectSocket();
 
-      const switchedUser =
-        await switchSavedAccount(
-          accountId
-        );
+      /**
+       * Tell backend about logout.
+       */
+      let result = null;
 
-      if (!switchedUser) {
-        throw new Error(
-          "The selected account could not be activated."
+      try {
+        result = await logoutUser();
+      } catch (logoutRequestError) {
+        console.warn(
+          "[AUTH] SERVER LOGOUT REQUEST FAILED:",
+          logoutRequestError?.response?.data ||
+            logoutRequestError?.message ||
+            logoutRequestError
         );
       }
 
-      setUser(switchedUser);
-
-      console.log(
-        "[AUTH] ACCOUNT SWITCHED:",
-        switchedUser?.username ||
-          switchedUser?.email ||
-          switchedUser?._id ||
-          switchedUser?.id
-      );
-
-      return switchedUser;
-    } catch (switchError) {
-      const message =
-        switchError?.response?.data
-          ?.message ||
-        switchError?.message ||
-        "Unable to switch account.";
-
-      setError(message);
-
-      throw new Error(message);
-    }
-  }
-
-  async function logout() {
-    try {
-      setError(null);
-
-      disconnectSocket();
-
+      /**
+       * Remove local authentication token.
+       */
       await AsyncStorage.removeItem(
         TOKEN_KEY
       );
 
-      const result =
-        await logoutUser();
-
+      /**
+       * Clear authenticated user.
+       */
       setUser(null);
 
       console.log(
@@ -438,16 +570,34 @@ export function AuthProvider({ children }) {
           logoutError
       );
 
-      await AsyncStorage.removeItem(
-        TOKEN_KEY
-      );
+      /**
+       * Always clean local authentication state,
+       * even if the backend request fails.
+       */
+      try {
+        await AsyncStorage.removeItem(
+          TOKEN_KEY
+        );
+      } catch (storageError) {
+        console.error(
+          "[AUTH] LOGOUT TOKEN CLEANUP ERROR:",
+          storageError?.message ||
+            storageError
+        );
+      }
 
       disconnectSocket();
       setUser(null);
 
       throw logoutError;
     }
-  }
+  }, []);
+
+  /**
+   * ---------------------------------------------------------
+   * CONTEXT VALUE
+   * ---------------------------------------------------------
+   */
 
   const contextValue = {
     user,
@@ -457,10 +607,14 @@ export function AuthProvider({ children }) {
     login,
     loginWithSocial,
     register,
+
     switchAccount,
     logout,
 
     restoreSession,
+
+    setUser,
+    setError,
   };
 
   return (
@@ -471,6 +625,12 @@ export function AuthProvider({ children }) {
     </AuthContext.Provider>
   );
 }
+
+/**
+ * ---------------------------------------------------------
+ * useAuth HOOK
+ * ---------------------------------------------------------
+ */
 
 export function useAuth() {
   const context =

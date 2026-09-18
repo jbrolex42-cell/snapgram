@@ -1,295 +1,269 @@
 import api from "./api";
 
+import {
+  encryptMessage,
+  decryptMessage,
+  establishSession,
+  hasSession,
+} from "./e2ee/e2eeService";
+
+/**
+ * ============================================================
+ * CONVERSATIONS
+ * ============================================================
+ */
+
 export async function getConversations() {
   const response = await api.get("/messages/conversations");
 
-  return Array.isArray(response.data?.conversations)
-    ? response.data.conversations
-    : [];
+  return response.data?.conversations || [];
 }
 
 export async function getOrCreateConversation(userId) {
   if (!userId) {
-    throw new Error("User ID is required");
+    throw new Error("userId is required");
   }
 
   const response = await api.post(
     `/messages/conversations/${encodeURIComponent(userId)}`
   );
 
-  return response.data?.conversation || null;
+  return response.data?.conversation || response.data;
 }
 
 export async function getMessages(conversationId) {
   if (!conversationId) {
-    throw new Error("Conversation ID is required");
+    throw new Error("conversationId is required");
   }
 
   const response = await api.get(
     `/messages/${encodeURIComponent(conversationId)}`
   );
 
-  return {
-    conversation: response.data?.conversation || null,
-    messages: Array.isArray(response.data?.messages)
-      ? response.data.messages
-      : [],
-  };
+  const messages = response.data?.messages || [];
+
+  return Promise.all(
+    messages.map(async (message) => {
+      try {
+        return await decryptIncomingMessage(message);
+      } catch (error) {
+        console.warn(
+          "[E2EE] Failed to decrypt message:",
+          message?.id || message?._id,
+          error?.message || error
+        );
+
+        return {
+          ...message,
+
+          text: null,
+
+          decryptionFailed: true,
+        };
+      }
+    })
+  );
 }
 
 export async function sendMessage({
   conversationId,
   receiverId,
+  receiverDeviceId = 1,
   text,
   replyTo = null,
 }) {
   if (!conversationId) {
-    throw new Error("Conversation ID is required");
+    throw new Error("conversationId is required");
   }
 
   if (!receiverId) {
-    throw new Error("Receiver ID is required");
+    throw new Error("receiverId is required");
   }
 
-  const cleanText = String(text || "").trim();
+  if (typeof text !== "string") {
+    throw new Error("Message text must be a string");
+  }
+
+  const cleanText = text.trim();
 
   if (!cleanText) {
     throw new Error("Message cannot be empty");
   }
 
-  const response = await api.post("/messages", {
-    conversationId,
-    receiverId,
+  const normalizedReceiverId = String(receiverId);
+  const normalizedDeviceId = Number(receiverDeviceId) || 1;
+
+  /**
+   * Make sure a Signal session exists before encryption.
+   */
+  const sessionExists = await hasSession({
+    userId: normalizedReceiverId,
+    deviceId: normalizedDeviceId,
+  });
+
+  if (!sessionExists) {
+    await establishSession({
+      userId: normalizedReceiverId,
+      deviceId: normalizedDeviceId,
+    });
+  }
+
+  /**
+   * Encrypt locally.
+   */
+  const encrypted = await encryptMessage({
+    recipientUserId: normalizedReceiverId,
+    recipientDeviceId: normalizedDeviceId,
     text: cleanText,
-    replyTo: replyTo || null,
   });
 
-  return response.data?.message || null;
-}
+  const response = await api.post("/messages", {
+    conversationId: String(conversationId),
 
-export async function markMessagesRead(conversationId) {
-  if (!conversationId) {
-    throw new Error("Conversation ID is required");
-  }
+    receiverId: normalizedReceiverId,
 
-  const response = await api.patch(
-    `/messages/${encodeURIComponent(conversationId)}/read`
-  );
+    receiverDeviceId: normalizedDeviceId,
 
-  return response.data || {};
-}
+    ciphertext: encrypted.ciphertext,
 
-export async function reactToMessage(messageId, emoji) {
-  if (!messageId) {
-    throw new Error("Message ID is required");
-  }
+    envelopeType: encrypted.envelopeType,
 
-  const cleanEmoji = String(emoji || "").trim();
+    encryptionVersion: encrypted.encryptionVersion,
 
-  if (!cleanEmoji) {
-    throw new Error("Reaction is required");
-  }
+    senderDeviceId: encrypted.senderDeviceId,
 
-  const response = await api.post(
-    `/messages/${encodeURIComponent(messageId)}/reaction`,
-    {
-      emoji: cleanEmoji,
-    }
-  );
-
-  return response.data || {};
-}
-
-export async function unsendMessage(messageId) {
-  if (!messageId) {
-    throw new Error("Message ID is required");
-  }
-
-  const response = await api.patch(
-    `/messages/${encodeURIComponent(messageId)}/unsend`
-  );
-
-  return response.data || {};
-}
-
-export async function deleteMessage(messageId) {
-  if (!messageId) {
-    throw new Error("Message ID is required");
-  }
-
-  const response = await api.delete(
-    `/messages/${encodeURIComponent(messageId)}`
-  );
-
-  return response.data || {};
-}
-
-export async function sendMediaMessage({
-  conversationId,
-  receiverId,
-  type,
-  uri,
-  mimeType,
-  text = "",
-  replyTo = null,
-}) {
-  if (!conversationId) {
-    throw new Error("Conversation ID is required");
-  }
-
-  if (!receiverId) {
-    throw new Error("Receiver ID is required");
-  }
-
-  if (!uri) {
-    throw new Error("Media URI is required");
-  }
-
-  if (!type) {
-    throw new Error("Media type is required");
-  }
-
-  const formData = new FormData();
-
-  formData.append("conversationId", String(conversationId));
-  formData.append("receiverId", String(receiverId));
-  formData.append("type", String(type));
-
-  const cleanText = String(text || "").trim();
-
-  if (cleanText) {
-    formData.append("text", cleanText);
-  }
-
-  if (replyTo) {
-    formData.append("replyTo", String(replyTo));
-  }
-
-  const isVideo = type === "video";
-
-  formData.append("media", {
-    uri,
-    name: isVideo
-      ? `snapgram-video-${Date.now()}.mp4`
-      : `snapgram-image-${Date.now()}.jpg`,
-    type:
-      mimeType ||
-      (isVideo ? "video/mp4" : "image/jpeg"),
+    replyTo: replyTo ? String(replyTo) : null,
   });
 
-  const response = await api.post(
-    "/messages/media",
-    formData,
-    {
-      headers: {
-        "Content-Type": "multipart/form-data",
-      },
-    }
-  );
+  const message =
+    response.data?.message ||
+    response.data;
 
-  return response.data?.message || null;
+  /**
+   * The server response normally contains ciphertext.
+   *
+   * Return a locally usable message object so the sender
+   * immediately sees the plaintext they just wrote.
+   */
+  return {
+    ...message,
+
+    text: cleanText,
+
+    ciphertext: message?.ciphertext || encrypted.ciphertext,
+
+    envelopeType:
+      message?.envelopeType ||
+      encrypted.envelopeType,
+
+    encryptionVersion:
+      message?.encryptionVersion ||
+      encrypted.encryptionVersion,
+
+    senderDeviceId:
+      message?.senderDeviceId ??
+      encrypted.senderDeviceId,
+
+    replyTo:
+      message?.replyTo ||
+      replyTo ||
+      null,
+
+    decryptionFailed: false,
+  };
 }
 
-export async function sendVoiceMessage({
-  conversationId,
-  receiverId,
-  uri,
-  duration,
-  replyTo = null,
-}) {
-  if (!conversationId) {
-    throw new Error("Conversation ID is required");
+/**
+ * ============================================================
+ * DECRYPT INCOMING MESSAGE
+ * ============================================================
+ *
+ * Used for messages received from:
+ * - REST API
+ * - Socket.IO
+ * - message history
+ *
+ * The backend must never provide plaintext message content.
+ */
+
+export async function decryptIncomingMessage(message) {
+  if (!message) {
+    throw new Error("Message is required");
   }
 
-  if (!receiverId) {
-    throw new Error("Receiver ID is required");
-  }
-
-  if (!uri) {
-    throw new Error("Voice URI is required");
-  }
-
-  const formData = new FormData();
-
-  formData.append(
-    "conversationId",
-    String(conversationId)
-  );
-
-  formData.append(
-    "receiverId",
-    String(receiverId)
-  );
-
-  formData.append(
-    "duration",
-    String(Number(duration) || 0)
-  );
-
-  if (replyTo) {
-    formData.append(
-      "replyTo",
-      String(replyTo)
+  if (!message.ciphertext) {
+    throw new Error(
+      "Encrypted message is missing ciphertext"
     );
   }
 
-  formData.append("voice", {
-    uri,
-    name: `snapgram-voice-${Date.now()}.m4a`,
-    type: "audio/m4a",
+  if (!message.sender) {
+    throw new Error(
+      "Encrypted message is missing sender"
+    );
+  }
+
+  const decrypted = await decryptMessage({
+    senderUserId: String(message.sender),
+
+    senderDeviceId:
+      Number(message.senderDeviceId) || 1,
+
+    ciphertext: message.ciphertext,
+
+    envelopeType: message.envelopeType,
   });
 
-  console.log("SENDING VOICE:", {
-    conversationId,
-    receiverId,
-    uri,
-    duration,
-  });
+  return {
+    ...message,
 
-  const response = await api.post(
-    "/messages/voice",
-    formData,
-    {
-      headers: {
-        "Content-Type": "multipart/form-data",
-      },
-    }
-  );
+    text: decrypted.text,
 
-  console.log(
-    "VOICE MESSAGE RESPONSE:",
-    response.data
-  );
-
-  return response.data?.message || null;
+    decryptionFailed: false,
+  };
 }
 
-export async function searchMessages(
-  conversationId,
-  query = ""
-) {
-  if (!conversationId) {
-    throw new Error("Conversation ID is required");
+/**
+ * ============================================================
+ * DECRYPT SOCKET MESSAGE
+ * ============================================================
+ *
+ * Alias kept separate so the socket/message layer can make
+ * the intent explicit without duplicating crypto logic.
+ */
+
+export async function decryptSocketMessage(message) {
+  return decryptIncomingMessage(message);
+}
+
+/**
+ * ============================================================
+ * LOCAL MESSAGE NORMALIZATION
+ * ============================================================
+ *
+ * Useful when Socket.IO sends a message that may already have
+ * been decrypted by another part of the application.
+ */
+
+export async function normalizeIncomingMessage(message) {
+  if (!message) {
+    return null;
   }
 
-  const cleanQuery = String(query || "").trim();
-
-  if (!cleanQuery) {
-    return [];
+  if (message.text && !message.ciphertext) {
+    return {
+      ...message,
+      decryptionFailed: false,
+    };
   }
 
-  const response = await api.get(
-    `/messages/${encodeURIComponent(
-      conversationId
-    )}/search`,
-    {
-      params: {
-        q: cleanQuery,
-      },
-    }
-  );
+  if (message.ciphertext) {
+    return decryptIncomingMessage(message);
+  }
 
-  return Array.isArray(response.data?.messages)
-    ? response.data.messages
-    : [];
+  return {
+    ...message,
+    text: null,
+    decryptionFailed: true,
+  };
 }

@@ -26,7 +26,9 @@ import {
 
 import Colors from "../../../constants/Colors";
 
-import TranslatableComment from "../../../components/posts/TranslatableComment";
+import VerifiedBadge from "../../../components/common/VerifiedBadge";
+
+import TranslatableComment from "../../../components/post/TranslatableComment";
 
 import {
   createComment,
@@ -39,43 +41,81 @@ import {
   getSettings,
 } from "../../../services/settingsApi";
 
-/* ============================================================
-   COMMENT ITEM
-============================================================ */
+function getUsername(user) {
+  return (
+    user?.username ||
+    user?.handle ||
+    "user"
+  );
+}
+
+function isUserVerified(user) {
+  return user?.isVerified === true;
+}
+
+function getAvatarLetter(username) {
+  return (
+    String(username || "S")
+      .charAt(0)
+      .toUpperCase() || "S"
+  );
+}
+
+function UsernameWithBadge({
+  username,
+  verified = false,
+  size = 14,
+}) {
+  return (
+    <View style={styles.usernameRow}>
+      <Text style={styles.username}>
+        {username}
+      </Text>
+
+      {verified ? (
+        <VerifiedBadge size={size} />
+      ) : null}
+    </View>
+  );
+}
 
 function CommentItem({
   comment,
   onReply,
   userLanguage,
 }) {
-  const [liked, setLiked] =
-    useState(
-      Boolean(
-        comment?.isLiked ??
+  const [liked, setLiked] = useState(
+    Boolean(
+      comment?.isLiked ??
         comment?.liked ??
         false
-      )
-    );
+    )
+  );
 
-  const [likes, setLikes] =
-    useState(
-      Number(
-        comment?.likesCount ??
+  const [likes, setLikes] = useState(
+    Number(
+      comment?.likesCount ??
         comment?.likeCount ??
         comment?.likes?.length ??
         0
-      )
-    );
+    )
+  );
 
   const [likeLoading, setLikeLoading] =
     useState(false);
 
-  /* ==========================================================
-     LIKE COMMENT
-  ========================================================== */
+  const username = getUsername(
+    comment?.user
+  );
 
-  const toggleLike =
-    useCallback(async () => {
+  const avatarLetter =
+    getAvatarLetter(username);
+
+  const verified =
+    isUserVerified(comment?.user);
+
+  const toggleLike = useCallback(
+    async () => {
       if (
         !comment?._id ||
         likeLoading
@@ -86,7 +126,8 @@ function CommentItem({
       const previousLiked = liked;
       const previousLikes = likes;
 
-      const nextLiked = !previousLiked;
+      const nextLiked =
+        !previousLiked;
 
       setLiked(nextLiked);
 
@@ -160,53 +201,35 @@ function CommentItem({
       } finally {
         setLikeLoading(false);
       }
-    }, [
+    },
+    [
       comment?._id,
       likeLoading,
       liked,
       likes,
-    ]);
+    ]
+  );
 
-  const username =
-    comment?.user?.username ||
-    "user";
-
-  const avatarLetter =
-    username
-      .charAt(0)
-      .toUpperCase() || "S";
+  const replies = Array.isArray(
+    comment?.replies
+  )
+    ? comment.replies
+    : [];
 
   return (
     <View style={styles.comment}>
-
       {/* ======================================================
           AVATAR
       ====================================================== */}
 
       <View style={styles.avatar}>
-        {comment?.user?.avatar ? (
-          <View
-            style={
-              styles.avatarImage
-            }
-          >
-            <Text
-              style={
-                styles.avatarFallback
-              }
-            >
-              {avatarLetter}
-            </Text>
-          </View>
-        ) : (
-          <Text
-            style={
-              styles.avatarFallback
-            }
-          >
-            {avatarLetter}
-          </Text>
-        )}
+        <Text
+          style={
+            styles.avatarFallback
+          }
+        >
+          {avatarLetter}
+        </Text>
       </View>
 
       {/* ======================================================
@@ -214,21 +237,15 @@ function CommentItem({
       ====================================================== */}
 
       <View style={styles.commentBody}>
+        {/* USERNAME + VERIFIED BADGE */}
 
-        {/* USERNAME */}
+        <UsernameWithBadge
+          username={username}
+          verified={verified}
+          size={14}
+        />
 
-        <Text style={styles.username}>
-          {username}
-        </Text>
-
-        {/* ====================================================
-            TRANSLATABLE COMMENT
-
-            IMPORTANT:
-            Do NOT also render {comment.text}
-            here. TranslatableComment handles
-            the original text and translation.
-        ==================================================== */}
+        {/* COMMENT TEXT */}
 
         {comment?.text ? (
           <TranslatableComment
@@ -239,9 +256,7 @@ function CommentItem({
           />
         ) : null}
 
-        {/* ====================================================
-            COMMENT ACTIONS
-        ==================================================== */}
+        {/* COMMENT ACTIONS */}
 
         <View
           style={
@@ -264,13 +279,10 @@ function CommentItem({
           </TouchableOpacity>
 
           <TouchableOpacity
-            onPress={
-              toggleLike
-            }
-            disabled={
-              likeLoading
-            }
+            onPress={toggleLike}
+            disabled={likeLoading}
             activeOpacity={0.7}
+            style={styles.likeButton}
           >
             {likeLoading ? (
               <ActivityIndicator
@@ -309,34 +321,39 @@ function CommentItem({
             REPLIES
         ==================================================== */}
 
-        {Array.isArray(
-          comment?.replies
-        ) &&
-        comment.replies.length > 0
-          ? comment.replies.map(
-              (reply) => {
+        {replies.length > 0 ? (
+          <View style={styles.replies}>
+            {replies.map(
+              (reply, index) => {
                 const replyUsername =
-                  reply?.user
-                    ?.username ||
-                  "user";
+                  getUsername(
+                    reply?.user
+                  );
+
+                const replyVerified =
+                  isUserVerified(
+                    reply?.user
+                  );
 
                 return (
                   <View
                     key={
                       reply?._id ||
-                      `${comment._id}-${replyUsername}`
+                      `${comment?._id}-reply-${index}`
                     }
                     style={
                       styles.replyItem
                     }
                   >
-                    <Text
-                      style={
-                        styles.username
+                    <UsernameWithBadge
+                      username={
+                        replyUsername
                       }
-                    >
-                      {replyUsername}
-                    </Text>
+                      verified={
+                        replyVerified
+                      }
+                      size={13}
+                    />
 
                     {reply?.text ? (
                       <TranslatableComment
@@ -351,15 +368,16 @@ function CommentItem({
                   </View>
                 );
               }
-            )
-          : null}
+            )}
+          </View>
+        ) : null}
       </View>
     </View>
   );
 }
 
 /* ============================================================
-   COMMENTS SCREEN
+   MAIN COMMENTS SCREEN
 ============================================================ */
 
 export default function CommentsScreen() {
@@ -385,23 +403,15 @@ export default function CommentsScreen() {
   const [sending, setSending] =
     useState(false);
 
-  /* ==========================================================
-     USER LANGUAGE
+  const [
+    userLanguage,
+    setUserLanguage,
+  ] = useState("English");
 
-     Comes from:
-
-     UserSettings.preferences.language
-  ========================================================== */
-
-  const [userLanguage, setUserLanguage] =
-    useState("English");
-
-  const [languageLoading, setLanguageLoading] =
-    useState(true);
-
-  /* ==========================================================
-     LOAD USER LANGUAGE
-  ========================================================== */
+  const [
+    languageLoading,
+    setLanguageLoading,
+  ] = useState(true);
 
   const loadUserLanguage =
     useCallback(async () => {
@@ -432,10 +442,6 @@ export default function CommentsScreen() {
           error
         );
 
-        /*
-         * Translation should never
-         * break the comments screen.
-         */
         setUserLanguage(
           "English"
         );
@@ -445,10 +451,6 @@ export default function CommentsScreen() {
         );
       }
     }, []);
-
-  /* ==========================================================
-     LOAD COMMENTS
-  ========================================================== */
 
   const loadComments =
     useCallback(async () => {
@@ -483,10 +485,6 @@ export default function CommentsScreen() {
       }
     }, [postId]);
 
-  /* ==========================================================
-     INITIAL LOAD
-  ========================================================== */
-
   useEffect(() => {
     loadUserLanguage();
   }, [loadUserLanguage]);
@@ -494,10 +492,6 @@ export default function CommentsScreen() {
   useEffect(() => {
     loadComments();
   }, [loadComments]);
-
-  /* ==========================================================
-     SEND COMMENT
-  ========================================================== */
 
   const sendComment =
     useCallback(async () => {
@@ -534,8 +528,8 @@ export default function CommentsScreen() {
               current.map(
                 (item) => {
                   if (
-                    item._id !==
-                    replyTo._id
+                    item?._id !==
+                    replyTo?._id
                   ) {
                     return item;
                   }
@@ -544,8 +538,11 @@ export default function CommentsScreen() {
                     ...item,
 
                     replies: [
-                      ...(item.replies ||
-                        []),
+                      ...(Array.isArray(
+                        item.replies
+                      )
+                        ? item.replies
+                        : []),
                       comment,
                     ],
                   };
@@ -581,15 +578,9 @@ export default function CommentsScreen() {
       replyTo,
     ]);
 
-  /* ==========================================================
-     LOADING
-  ========================================================== */
-
   if (loading) {
     return (
-      <View
-        style={styles.center}
-      >
+      <View style={styles.center}>
         <ActivityIndicator
           size="large"
           color={Colors.primary}
@@ -597,10 +588,6 @@ export default function CommentsScreen() {
       </View>
     );
   }
-
-  /* ==========================================================
-     SCREEN
-  ========================================================== */
 
   return (
     <SafeAreaView
@@ -614,7 +601,6 @@ export default function CommentsScreen() {
             : undefined
         }
       >
-
         {/* ====================================================
             HEADER
         ==================================================== */}
@@ -633,9 +619,7 @@ export default function CommentsScreen() {
             <Ionicons
               name="arrow-back"
               size={25}
-              color={
-                Colors.black
-              }
+              color={Colors.black}
             />
           </TouchableOpacity>
 
@@ -648,9 +632,7 @@ export default function CommentsScreen() {
           </Text>
 
           <View
-            style={{
-              width: 25,
-            }}
+            style={styles.headerSpacer}
           />
         </View>
 
@@ -662,37 +644,44 @@ export default function CommentsScreen() {
           <View
             style={styles.replyBar}
           >
-            <Text
+            <View
               style={
-                styles.replyingText
+                styles.replyingContainer
               }
             >
-              Replying to{" "}
               <Text
                 style={
-                  styles.username
+                  styles.replyingText
                 }
               >
-                @
-                {
-                  replyTo?.user
-                    ?.username
-                }
+                Replying to{" "}
               </Text>
-            </Text>
+
+              <UsernameWithBadge
+                username={
+                  getUsername(
+                    replyTo?.user
+                  )
+                }
+                verified={isUserVerified(
+                  replyTo?.user
+                )}
+                size={13}
+              />
+            </View>
 
             <TouchableOpacity
               onPress={() =>
                 setReplyTo(null)
               }
               activeOpacity={0.7}
+              accessibilityRole="button"
+              accessibilityLabel="Cancel reply"
             >
               <Ionicons
                 name="close"
                 size={20}
-                color={
-                  Colors.black
-                }
+                color={Colors.black}
               />
             </TouchableOpacity>
           </View>
@@ -735,7 +724,7 @@ export default function CommentsScreen() {
           contentContainerStyle={
             comments.length === 0
               ? styles.emptyList
-              : undefined
+              : styles.listContent
           }
           ListEmptyComponent={
             <View
@@ -812,13 +801,17 @@ export default function CommentsScreen() {
             style={
               styles.sendButton
             }
+            accessibilityRole="button"
+            accessibilityLabel={
+              replyTo
+                ? "Send reply"
+                : "Send comment"
+            }
           >
             {sending ? (
               <ActivityIndicator
                 size="small"
-                color={
-                  Colors.primary
-                }
+                color={Colors.primary}
               />
             ) : (
               <Ionicons
@@ -838,14 +831,9 @@ export default function CommentsScreen() {
   );
 }
 
-/* ============================================================
-   STYLES
-============================================================ */
-
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-
     backgroundColor:
       Colors.white,
   },
@@ -857,12 +845,6 @@ const styles = StyleSheet.create({
   header: {
     height: 55,
 
-    borderBottomWidth:
-      StyleSheet.hairlineWidth,
-
-    borderBottomColor:
-      Colors.border,
-
     flexDirection: "row",
 
     alignItems: "center",
@@ -871,6 +853,12 @@ const styles = StyleSheet.create({
       "space-between",
 
     paddingHorizontal: 15,
+
+    borderBottomWidth:
+      StyleSheet.hairlineWidth,
+
+    borderBottomColor:
+      Colors.border,
   },
 
   headerTitle: {
@@ -878,17 +866,19 @@ const styles = StyleSheet.create({
 
     fontWeight: "800",
 
-    color:
-      Colors.black,
+    color: Colors.black,
+  },
+
+  headerSpacer: {
+    width: 25,
   },
 
   replyBar: {
+    minHeight: 45,
+
     paddingHorizontal: 15,
 
-    paddingVertical: 10,
-
-    backgroundColor:
-      Colors.surface,
+    paddingVertical: 9,
 
     flexDirection: "row",
 
@@ -896,13 +886,29 @@ const styles = StyleSheet.create({
 
     justifyContent:
       "space-between",
+
+    backgroundColor:
+      Colors.surface,
+
+    borderBottomWidth:
+      StyleSheet.hairlineWidth,
+
+    borderBottomColor:
+      Colors.border,
+  },
+
+  replyingContainer: {
+    flexDirection: "row",
+
+    alignItems: "center",
+
+    flex: 1,
   },
 
   replyingText: {
     fontSize: 13,
 
-    color:
-      Colors.black,
+    color: Colors.black,
   },
 
   comment: {
@@ -915,6 +921,7 @@ const styles = StyleSheet.create({
 
   avatar: {
     width: 35,
+
     height: 35,
 
     borderRadius: 18,
@@ -924,21 +931,11 @@ const styles = StyleSheet.create({
 
     alignItems: "center",
 
-    justifyContent:
-      "center",
+    justifyContent: "center",
 
     marginRight: 10,
 
     overflow: "hidden",
-  },
-
-  avatarImage: {
-    width: "100%",
-    height: "100%",
-
-    alignItems: "center",
-    justifyContent:
-      "center",
   },
 
   avatarFallback: {
@@ -946,8 +943,7 @@ const styles = StyleSheet.create({
 
     fontWeight: "700",
 
-    color:
-      Colors.black,
+    color: Colors.black,
   },
 
   commentBody: {
@@ -956,13 +952,24 @@ const styles = StyleSheet.create({
     minWidth: 0,
   },
 
+  usernameRow: {
+    flexDirection: "row",
+
+    alignItems: "center",
+
+    flexWrap: "wrap",
+
+    gap: 4,
+
+    minHeight: 18,
+  },
+
   username: {
     fontSize: 14,
 
     fontWeight: "800",
 
-    color:
-      Colors.black,
+    color: Colors.black,
   },
 
   commentActions: {
@@ -987,8 +994,17 @@ const styles = StyleSheet.create({
 
     fontWeight: "700",
 
-    color:
-      Colors.black,
+    color: Colors.black,
+  },
+
+  likeButton: {
+    minWidth: 18,
+
+    minHeight: 18,
+
+    alignItems: "center",
+
+    justifyContent: "center",
   },
 
   likes: {
@@ -996,6 +1012,10 @@ const styles = StyleSheet.create({
 
     color:
       Colors.secondaryText,
+  },
+
+  replies: {
+    marginTop: 4,
   },
 
   replyItem: {
@@ -1014,12 +1034,6 @@ const styles = StyleSheet.create({
   inputBar: {
     minHeight: 60,
 
-    borderTopWidth:
-      StyleSheet.hairlineWidth,
-
-    borderTopColor:
-      Colors.border,
-
     flexDirection: "row",
 
     alignItems: "center",
@@ -1027,6 +1041,15 @@ const styles = StyleSheet.create({
     paddingHorizontal: 15,
 
     gap: 10,
+
+    borderTopWidth:
+      StyleSheet.hairlineWidth,
+
+    borderTopColor:
+      Colors.border,
+
+    backgroundColor:
+      Colors.white,
   },
 
   input: {
@@ -1036,8 +1059,7 @@ const styles = StyleSheet.create({
 
     fontSize: 15,
 
-    color:
-      Colors.black,
+    color: Colors.black,
 
     paddingTop: 8,
 
@@ -1046,12 +1068,16 @@ const styles = StyleSheet.create({
 
   sendButton: {
     width: 35,
+
     height: 35,
 
     alignItems: "center",
 
-    justifyContent:
-      "center",
+    justifyContent: "center",
+  },
+
+  listContent: {
+    paddingBottom: 10,
   },
 
   emptyList: {
@@ -1063,14 +1089,14 @@ const styles = StyleSheet.create({
 
     alignItems: "center",
 
-    justifyContent:
-      "center",
+    justifyContent: "center",
 
     paddingHorizontal: 30,
   },
 
   emptyIcon: {
     width: 64,
+
     height: 64,
 
     borderRadius: 32,
@@ -1082,8 +1108,7 @@ const styles = StyleSheet.create({
 
     alignItems: "center",
 
-    justifyContent:
-      "center",
+    justifyContent: "center",
 
     marginBottom: 15,
   },
@@ -1093,8 +1118,7 @@ const styles = StyleSheet.create({
 
     fontWeight: "800",
 
-    color:
-      Colors.black,
+    color: Colors.black,
   },
 
   emptyText: {
@@ -1109,10 +1133,9 @@ const styles = StyleSheet.create({
   center: {
     flex: 1,
 
-    justifyContent:
-      "center",
-
     alignItems: "center",
+
+    justifyContent: "center",
 
     backgroundColor:
       Colors.white,

@@ -134,22 +134,6 @@ export default function PostCard({
     postUser?.id ||
     null;
 
-  /*
-   * ============================================================
-   * USER LANGUAGE
-   * ============================================================
-   *
-   * This comes from:
-   *
-   * UserSettings.preferences.language
-   *
-   * Example:
-   * English
-   * Swahili
-   * French
-   * Spanish
-   */
-
   const [userLanguage, setUserLanguage] =
     useState("English");
 
@@ -181,10 +165,6 @@ export default function PostCard({
           error
         );
 
-        /*
-         * Translation should never break
-         * the post if settings fail.
-         */
         setUserLanguage("English");
       } finally {
         setLanguageLoading(false);
@@ -305,12 +285,6 @@ export default function PostCard({
     };
   }, []);
 
-  /*
-   * ============================================================
-   * LIKE
-   * ============================================================
-   */
-
   const handleLike = useCallback(
     async () => {
       if (
@@ -401,12 +375,6 @@ export default function PostCard({
     ]
   );
 
-  /*
-   * ============================================================
-   * MEDIA PRESS / DOUBLE TAP LIKE
-   * ============================================================
-   */
-
   const handleMediaPress =
     useCallback(() => {
       if (!postId) {
@@ -448,12 +416,6 @@ export default function PostCard({
       liked,
       handleLike,
     ]);
-
-  /*
-   * ============================================================
-   * SAVE
-   * ============================================================
-   */
 
   const handleSave = useCallback(
     async () => {
@@ -519,12 +481,6 @@ export default function PostCard({
     ]
   );
 
-  /*
-   * ============================================================
-   * SHARE
-   * ============================================================
-   */
-
   const handleShare =
     useCallback(async () => {
       if (
@@ -560,12 +516,6 @@ export default function PostCard({
       post,
     ]);
 
-  /*
-   * ============================================================
-   * COMMENTS
-   * ============================================================
-   */
-
   const handleComment =
     useCallback(() => {
       if (!postId) {
@@ -593,12 +543,6 @@ export default function PostCard({
       post,
     ]);
 
-  /*
-   * ============================================================
-   * PROFILE
-   * ============================================================
-   */
-
   const openProfile =
     useCallback(() => {
       if (!username) {
@@ -615,12 +559,6 @@ export default function PostCard({
         },
       });
     }, [username]);
-
-  /*
-   * ============================================================
-   * MENU
-   * ============================================================
-   */
 
   const openMenu =
     useCallback(() => {
@@ -1116,17 +1054,12 @@ export default function PostCard({
           </TouchableOpacity>
         ) : null}
 
-        {/* =================================================
-            CAPTION + TRANSLATION
-        ================================================= */}
-
         {post?.caption ? (
           <View
             style={
               styles.captionContainer
             }
           >
-            {/* Username stays outside translation */}
 
             {username ? (
               <Text
@@ -1137,10 +1070,6 @@ export default function PostCard({
                 {username}{" "}
               </Text>
             ) : null}
-
-            {/* Translation component renders
-                the original caption and
-                "See translation" button. */}
 
             {!languageLoading ? (
               <TranslatableCaption
@@ -1160,10 +1089,6 @@ export default function PostCard({
             )}
           </View>
         ) : null}
-
-        {/* =================================================
-            COMMENTS
-        ================================================= */}
 
         {commentsCount > 0 ? (
           <TouchableOpacity
@@ -1188,10 +1113,6 @@ export default function PostCard({
             </Text>
           </TouchableOpacity>
         ) : null}
-
-        {/* =================================================
-            DATE
-        ================================================= */}
 
         {post?.createdAt ? (
           <Text

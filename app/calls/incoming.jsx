@@ -32,35 +32,41 @@ import CallAvatar from "../../components/calls/CallAvatar";
 
 import { useAuth } from "../../context/AuthContext";
 
-import { updateCall } from "../../services/callService";
-
 import {
   waitForSocket,
-  acceptCall as sendAcceptCall,
-  rejectCall as sendRejectCall,
+  acceptCall,
+  rejectCall,
+  missedCall,
 } from "../../services/socket";
 
-const RING_TIMEOUT = 30000;
+const RING_TIMEOUT = 90000;
 
 export default function IncomingCall() {
   const { user } = useAuth();
 
-  const insets = useSafeAreaInsets();
+  const insets =
+    useSafeAreaInsets();
 
-  const params = useLocalSearchParams();
+  const params =
+    useLocalSearchParams();
 
-  const callId = String(params?.callId || "");
+  const callId = String(
+    params?.callId || ""
+  );
 
-  const callerId = String(params?.callerId || "");
+  const callerId = String(
+    params?.callerId || ""
+  );
 
-  const displayName =
+  const callerName =
     String(
       params?.callerName ||
         params?.username ||
         "Snapgram User"
-    ).trim() || "Snapgram User";
+    ).trim() ||
+    "Snapgram User";
 
-  const avatar =
+  const callerAvatar =
     String(
       params?.callerAvatar ||
         params?.avatar ||
@@ -68,135 +74,147 @@ export default function IncomingCall() {
     ).trim();
 
   const callType =
-    String(params?.type || "voice").toLowerCase() ===
-    "video"
+    String(
+      params?.type || "voice"
+    ).toLowerCase() === "video"
       ? "video"
       : "voice";
 
-  const isVideo = callType === "video";
+  const isVideo =
+    callType === "video";
 
-  const currentUserId = String(
-    user?._id ||
-      user?.id ||
-      ""
-  );
+  const currentUserId =
+    String(
+      user?._id ||
+        user?.id ||
+        ""
+    );
 
-  const [action, setAction] = useState(null);
+  const [action, setAction] =
+    useState(null);
 
-  const [error, setError] = useState("");
+  const [error, setError] =
+    useState("");
 
-  const mountedRef = useRef(true);
+  const mountedRef =
+    useRef(true);
 
-  const handledRef = useRef(false);
+  const handledRef =
+    useRef(false);
 
-  const socketRef = useRef(null);
+  const socketRef =
+    useRef(null);
 
-  const timeoutRef = useRef(null);
+  const timeoutRef =
+    useRef(null);
 
-  const clearTimer = useCallback(() => {
-    if (timeoutRef.current) {
-      clearTimeout(timeoutRef.current);
-      timeoutRef.current = null;
-    }
-  }, []);
+  const clearTimer =
+    useCallback(() => {
+      if (timeoutRef.current) {
+        clearTimeout(
+          timeoutRef.current
+        );
 
-  const cleanupSocket = useCallback(() => {
-    const socket = socketRef.current;
+        timeoutRef.current = null;
+      }
+    }, []);
 
-    if (!socket) {
-      return;
-    }
+  const cleanupSocket =
+    useCallback(() => {
+      const socket =
+        socketRef.current;
 
-    socket.off("call:ended");
-    socket.off("call:cancelled");
-    socket.off("call:rejected");
-    socket.off("call:missed");
-    socket.off("call:accepted");
+      if (!socket) {
+        return;
+      }
 
-    socketRef.current = null;
-  }, []);
+      socket.off(
+        "call:cancelled"
+      );
 
-  const leaveScreen = useCallback(() => {
-    if (!mountedRef.current) {
-      return;
-    }
+      socket.off(
+        "call:rejected"
+      );
 
-    router.back();
-  }, []);
+      socket.off(
+        "call:ended"
+      );
 
-  const handleRemoteEnd = useCallback(
-    (data) => {
+      socket.off(
+        "call:missed"
+      );
+
+      socketRef.current = null;
+    }, []);
+
+  const leaveScreen =
+    useCallback(() => {
       if (
-        !mountedRef.current ||
+        mountedRef.current
+      ) {
+        router.back();
+      }
+    }, []);
+
+  const handleRemoteEnd =
+    useCallback(
+      (data) => {
+        if (
+          !mountedRef.current ||
+          handledRef.current
+        ) {
+          return;
+        }
+
+        if (
+          data?.callId &&
+          String(data.callId) !==
+            callId
+        ) {
+          return;
+        }
+
+        handledRef.current =
+          true;
+
+        clearTimer();
+        cleanupSocket();
+        leaveScreen();
+      },
+      [
+        callId,
+        clearTimer,
+        cleanupSocket,
+        leaveScreen,
+      ]
+    );
+
+  const handleMissed =
+    useCallback(() => {
+      if (
         handledRef.current
       ) {
         return;
       }
 
-      if (
-        data?.callId &&
-        String(data.callId) !== callId
-      ) {
-        return;
-      }
-
-      handledRef.current = true;
+      handledRef.current =
+        true;
 
       clearTimer();
 
-      cleanupSocket();
-
-      leaveScreen();
-    },
-    [
-      callId,
-      clearTimer,
-      cleanupSocket,
-      leaveScreen,
-    ]
-  );
-
-  const handleMissedCall = useCallback(
-    async () => {
-      if (handledRef.current) {
-        return;
-      }
-
-      handledRef.current = true;
-
-      clearTimer();
-
-      if (mountedRef.current) {
-        setAction("missed");
-        setError("");
-      }
+      setAction("missed");
 
       try {
-        if (callId) {
-          await updateCall(
+        if (
+          socketRef.current?.connected
+        ) {
+          missedCall({
             callId,
-            "missed"
-          );
-        }
-      } catch (error) {
-        console.warn(
-          "MISSED CALL UPDATE ERROR:",
-          error?.message || error
-        );
-      }
-
-      try {
-        const socket = socketRef.current;
-
-        if (socket?.connected) {
-          socket.emit("call:missed", {
-            callId,
-            callerId,
           });
         }
       } catch (error) {
         console.warn(
-          "MISSED CALL EMIT ERROR:",
+          "[CALL] Missed call:",
           error?.message || error
         );
       }
@@ -205,109 +223,96 @@ export default function IncomingCall() {
 
       setTimeout(() => {
         leaveScreen();
-      }, 250);
-    },
-    [
+      }, 300);
+    }, [
       callId,
-      callerId,
       clearTimer,
       cleanupSocket,
       leaveScreen,
-    ]
-  );
+    ]);
 
-  const acceptIncomingCall = useCallback(
-    async () => {
-      if (handledRef.current) {
+  const handleAccept =
+    useCallback(async () => {
+      if (
+        handledRef.current
+      ) {
         return;
       }
 
       if (!callId) {
         setError(
-          "This call is missing its call ID."
-        );
-        return;
-      }
-
-      if (!callerId) {
-        setError(
-          "The caller could not be identified."
+          "This call is invalid."
         );
         return;
       }
 
       if (!currentUserId) {
         setError(
-          "Your Snapgram account could not be identified."
+          "Your account could not be identified."
         );
         return;
       }
 
-      handledRef.current = true;
+      handledRef.current =
+        true;
 
       clearTimer();
 
       setAction("accepting");
-
       setError("");
 
       try {
-        const socket = await waitForSocket(
-          currentUserId,
-          10000
-        );
+        const socket =
+          await waitForSocket(
+            currentUserId,
+            10000
+          );
 
         if (
-          !socket ||
-          !socket.connected
+          !socket?.connected
         ) {
           throw new Error(
-            "Snapgram connection is not available."
+            "Snapgram connection is unavailable."
           );
         }
 
-        socketRef.current = socket;
+        socketRef.current =
+          socket;
 
-        await updateCall(
+        acceptCall({
           callId,
-          "accepted"
-        );
-
-        await sendAcceptCall({
-          callId,
-          callerId,
         });
 
-        console.log(
-          "INCOMING CALL ACCEPTED:",
-          callId
-        );
-
-        if (!mountedRef.current) {
-          return;
-        }
-
         router.replace({
-          pathname: "/calls/[callId]",
+          pathname:
+            "/calls/[callId]",
           params: {
             callId,
-            username: displayName,
-            avatar,
-            type: callType,
+            username:
+              callerName,
+            avatar:
+              callerAvatar,
+            type:
+              callType,
             callerId,
-            otherUserId: callerId,
-            isCaller: "false",
+            otherUserId:
+              callerId,
+            isCaller:
+              "false",
           },
         });
       } catch (error) {
         console.error(
-          "ACCEPT CALL ERROR:",
+          "[CALL] Accept error:",
           error
         );
 
-        handledRef.current = false;
+        handledRef.current =
+          false;
 
-        if (mountedRef.current) {
+        if (
+          mountedRef.current
+        ) {
           setAction(null);
 
           setError(
@@ -316,91 +321,68 @@ export default function IncomingCall() {
           );
         }
       }
-    },
-    [
-      avatar,
+    }, [
       callId,
       callType,
+      callerAvatar,
       callerId,
+      callerName,
       clearTimer,
       currentUserId,
-      displayName,
-    ]
-  );
+    ]);
 
-  const rejectIncomingCall = useCallback(
-    async () => {
-      if (handledRef.current) {
+  const handleReject =
+    useCallback(async () => {
+      if (
+        handledRef.current
+      ) {
         return;
       }
 
-      handledRef.current = true;
+      handledRef.current =
+        true;
 
       clearTimer();
 
       setAction("rejecting");
-
       setError("");
 
       try {
-        if (callId) {
-          await updateCall(
-            callId,
-            "rejected"
-          );
-        }
-      } catch (error) {
-        console.warn(
-          "REJECT CALL UPDATE ERROR:",
-          error?.message || error
-        );
-      }
-
-      try {
-        let socket = socketRef.current;
-
-        if (
-          !socket?.connected &&
-          currentUserId
-        ) {
-          socket = await waitForSocket(
+        const socket =
+          await waitForSocket(
             currentUserId,
             5000
           );
 
-          socketRef.current = socket;
-        }
+        socketRef.current =
+          socket;
 
-        if (socket?.connected) {
-          await sendRejectCall({
-            callId,
-            callerId,
-          });
-        }
+        rejectCall({
+          callId,
+        });
       } catch (error) {
         console.warn(
-          "REJECT CALL SOCKET ERROR:",
+          "[CALL] Reject error:",
           error?.message || error
         );
       }
 
       cleanupSocket();
-
       leaveScreen();
-    },
-    [
+    }, [
       callId,
-      callerId,
       cleanupSocket,
       clearTimer,
       currentUserId,
       leaveScreen,
-    ]
-  );
+    ]);
 
   useEffect(() => {
-    mountedRef.current = true;
-    handledRef.current = false;
+    mountedRef.current =
+      true;
+
+    handledRef.current =
+      false;
 
     if (!currentUserId) {
       setError(
@@ -420,12 +402,13 @@ export default function IncomingCall() {
 
     let cancelled = false;
 
-    const setup = async () => {
+    async function setup() {
       try {
-        const socket = await waitForSocket(
-          currentUserId,
-          10000
-        );
+        const socket =
+          await waitForSocket(
+            currentUserId,
+            10000
+          );
 
         if (
           cancelled ||
@@ -434,41 +417,8 @@ export default function IncomingCall() {
           return;
         }
 
-        if (
-          !socket ||
-          !socket.connected
-        ) {
-          throw new Error(
-            "Unable to connect to Snapgram."
-          );
-        }
-
-        socketRef.current = socket;
-
-        socket.off(
-          "call:ended",
-          handleRemoteEnd
-        );
-
-        socket.off(
-          "call:cancelled",
-          handleRemoteEnd
-        );
-
-        socket.off(
-          "call:rejected",
-          handleRemoteEnd
-        );
-
-        socket.off(
-          "call:missed",
-          handleRemoteEnd
-        );
-
-        socket.on(
-          "call:ended",
-          handleRemoteEnd
-        );
+        socketRef.current =
+          socket;
 
         socket.on(
           "call:cancelled",
@@ -481,41 +431,39 @@ export default function IncomingCall() {
         );
 
         socket.on(
-          "call:missed",
+          "call:ended",
           handleRemoteEnd
         );
 
-        console.log(
-          "INCOMING CALL SOCKET READY:",
-          socket.id
+        socket.on(
+          "call:missed",
+          handleRemoteEnd
         );
       } catch (error) {
-        console.warn(
-          "INCOMING SOCKET ERROR:",
-          error?.message || error
-        );
-
-        if (mountedRef.current) {
+        if (
+          mountedRef.current
+        ) {
           setError(
             "Unable to connect to Snapgram."
           );
         }
       }
-    };
+    }
 
     setup();
 
-    timeoutRef.current = setTimeout(() => {
-      handleMissedCall();
-    }, RING_TIMEOUT);
+    timeoutRef.current =
+      setTimeout(
+        handleMissed,
+        RING_TIMEOUT
+      );
 
     return () => {
       cancelled = true;
-
-      mountedRef.current = false;
+      mountedRef.current =
+        false;
 
       clearTimer();
-
       cleanupSocket();
     };
   }, [
@@ -523,7 +471,7 @@ export default function IncomingCall() {
     currentUserId,
     clearTimer,
     cleanupSocket,
-    handleMissedCall,
+    handleMissed,
     handleRemoteEnd,
   ]);
 
@@ -532,19 +480,11 @@ export default function IncomingCall() {
     action === "rejecting" ||
     action === "missed";
 
-  const title = isVideo
-    ? "Incoming video call"
-    : "Incoming voice call";
-
-  const subtitle = isVideo
-    ? "Video call"
-    : "Voice call";
-
   return (
     <View style={styles.container}>
       <StatusBar
         style="light"
-        backgroundColor="#000000"
+        backgroundColor="#000"
       />
 
       <View
@@ -559,9 +499,12 @@ export default function IncomingCall() {
           },
         ]}
       >
-        {/* HEADER */}
-        <View style={styles.topSection}>
-          <View style={styles.iconCircle}>
+        <View
+          style={styles.topSection}
+        >
+          <View
+            style={styles.iconCircle}
+          >
             <MaterialCommunityIcons
               name={
                 isVideo
@@ -569,25 +512,36 @@ export default function IncomingCall() {
                   : "phone"
               }
               size={22}
-              color="#ffffff"
+              color="#fff"
             />
           </View>
 
-          <Text style={styles.incomingTitle}>
-            {title}
+          <Text
+            style={styles.title}
+          >
+            {isVideo
+              ? "Incoming video call"
+              : "Incoming voice call"}
           </Text>
 
-          <Text style={styles.ringing}>
+          <Text
+            style={styles.ringing}
+          >
             Ringing...
           </Text>
         </View>
 
-        {/* CALLER */}
-        <View style={styles.callerSection}>
-          <View style={styles.avatarOuter}>
+        <View
+          style={
+            styles.callerSection
+          }
+        >
+          <View
+            style={styles.avatarOuter}
+          >
             <CallAvatar
-              username={displayName}
-              avatar={avatar}
+              username={callerName}
+              avatar={callerAvatar}
             />
           </View>
 
@@ -595,77 +549,88 @@ export default function IncomingCall() {
             numberOfLines={1}
             style={styles.callerName}
           >
-            {displayName}
+            {callerName}
           </Text>
 
-          <Text style={styles.callSubtitle}>
-            {subtitle}
+          <Text
+            style={styles.subtitle}
+          >
+            {isVideo
+              ? "Video call"
+              : "Voice call"}
           </Text>
 
           {error ? (
-            <Text style={styles.errorText}>
+            <Text
+              style={styles.error}
+            >
               {error}
             </Text>
           ) : null}
         </View>
 
-        {/* ACTIONS */}
-        <View style={styles.actions}>
-          {/* DECLINE */}
-          <View style={styles.actionWrapper}>
+        <View
+          style={styles.actions}
+        >
+          <View
+            style={
+              styles.actionWrapper
+            }
+          >
             <Pressable
               disabled={busy}
-              onPress={rejectIncomingCall}
-              accessibilityRole="button"
-              accessibilityLabel="Decline call"
-              style={({ pressed }) => [
-                styles.actionButton,
+              onPress={
+                handleReject
+              }
+              style={[
+                styles.button,
                 styles.decline,
-                pressed &&
-                  !busy &&
-                  styles.pressed,
-                busy && styles.disabled,
+                busy &&
+                  styles.disabled,
               ]}
             >
-              {action === "rejecting" ? (
+              {action ===
+              "rejecting" ? (
                 <ActivityIndicator
-                  size="small"
-                  color="#ffffff"
+                  color="#fff"
                 />
               ) : (
                 <MaterialCommunityIcons
                   name="phone-hangup"
                   size={31}
-                  color="#ffffff"
+                  color="#fff"
                 />
               )}
             </Pressable>
 
-            <Text style={styles.actionLabel}>
+            <Text
+              style={styles.label}
+            >
               Decline
             </Text>
           </View>
 
-          {/* ANSWER */}
-          <View style={styles.actionWrapper}>
+          <View
+            style={
+              styles.actionWrapper
+            }
+          >
             <Pressable
               disabled={busy}
-              onPress={acceptIncomingCall}
-              accessibilityRole="button"
-              accessibilityLabel="Answer call"
-              style={({ pressed }) => [
-                styles.actionButton,
+              onPress={
+                handleAccept
+              }
+              style={[
+                styles.button,
                 styles.answer,
-                pressed &&
-                  !busy &&
-                  styles.pressed,
-                busy && styles.disabled,
+                busy &&
+                  styles.disabled,
               ]}
             >
-              {action === "accepting" ? (
+              {action ===
+              "accepting" ? (
                 <ActivityIndicator
-                  size="small"
-                  color="#ffffff"
+                  color="#fff"
                 />
               ) : (
                 <MaterialCommunityIcons
@@ -675,12 +640,14 @@ export default function IncomingCall() {
                       : "phone"
                   }
                   size={30}
-                  color="#ffffff"
+                  color="#fff"
                 />
               )}
             </Pressable>
 
-            <Text style={styles.actionLabel}>
+            <Text
+              style={styles.label}
+            >
               Answer
             </Text>
           </View>
@@ -693,14 +660,15 @@ export default function IncomingCall() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#000000",
+    backgroundColor: "#000",
   },
 
   content: {
     flex: 1,
     paddingHorizontal: 24,
     alignItems: "center",
-    justifyContent: "space-between",
+    justifyContent:
+      "space-between",
   },
 
   topSection: {
@@ -717,8 +685,8 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
 
-  incomingTitle: {
-    color: "#ffffff",
+  title: {
+    color: "#fff",
     fontSize: 17,
     fontWeight: "600",
   },
@@ -732,7 +700,6 @@ const styles = StyleSheet.create({
   callerSection: {
     width: "100%",
     alignItems: "center",
-    justifyContent: "center",
   },
 
   avatarOuter: {
@@ -740,7 +707,7 @@ const styles = StyleSheet.create({
     height: 158,
     borderRadius: 79,
     borderWidth: 2,
-    borderColor: "#ffffff",
+    borderColor: "#fff",
     alignItems: "center",
     justifyContent: "center",
     padding: 5,
@@ -748,41 +715,38 @@ const styles = StyleSheet.create({
 
   callerName: {
     maxWidth: "90%",
-    color: "#ffffff",
+    color: "#fff",
     fontSize: 27,
     fontWeight: "700",
     marginTop: 24,
-    letterSpacing: -0.5,
   },
 
-  callSubtitle: {
+  subtitle: {
     color: "#a8a8a8",
     fontSize: 15,
     marginTop: 7,
   },
 
-  errorText: {
+  error: {
     color: "#ff6b6b",
     fontSize: 13,
-    lineHeight: 19,
     textAlign: "center",
-    maxWidth: "85%",
     marginTop: 15,
+    maxWidth: "85%",
   },
 
   actions: {
     width: "100%",
     flexDirection: "row",
-    justifyContent: "space-evenly",
-    alignItems: "center",
+    justifyContent:
+      "space-evenly",
   },
 
   actionWrapper: {
     alignItems: "center",
-    justifyContent: "center",
   },
 
-  actionButton: {
+  button: {
     width: 72,
     height: 72,
     borderRadius: 36,
@@ -798,20 +762,12 @@ const styles = StyleSheet.create({
     backgroundColor: "#30d158",
   },
 
-  pressed: {
-    transform: [
-      {
-        scale: 0.94,
-      },
-    ],
-  },
-
   disabled: {
     opacity: 0.55,
   },
 
-  actionLabel: {
-    color: "#ffffff",
+  label: {
+    color: "#fff",
     fontSize: 13,
     fontWeight: "600",
     marginTop: 10,

@@ -12,20 +12,115 @@ import {
   Image,
   KeyboardAvoidingView,
   Platform,
+  Pressable,
   StyleSheet,
   Text,
   TextInput,
-  TouchableOpacity,
   View,
 } from "react-native";
 
 import { SafeAreaView } from "react-native-safe-area-context";
 import { router } from "expo-router";
+import { Ionicons } from "@expo/vector-icons";
 
 import { searchExplore } from "../../services/exploreService";
 import { getOrCreateConversation } from "../../services/messageService";
 
 import VerifiedBadge from "../../components/common/VerifiedBadge";
+
+function getUserId(user) {
+  return (
+    user?._id ||
+    user?.id ||
+    user?.userId ||
+    null
+  );
+}
+
+function getUsername(user) {
+  return (
+    user?.username ||
+    user?.userName ||
+    user?.handle ||
+    ""
+  );
+}
+
+function getFullName(user) {
+  return (
+    user?.fullName?.trim() ||
+    user?.name?.trim() ||
+    user?.displayName?.trim() ||
+    ""
+  );
+}
+
+function getAvatar(user) {
+  return (
+    user?.avatar ||
+    user?.avatarUrl ||
+    user?.profilePicture ||
+    user?.profileImage ||
+    null
+  );
+}
+
+function getInitial(user) {
+  const fullName = getFullName(user);
+  const username = getUsername(user);
+
+  return (
+    fullName?.charAt(0) ||
+    username?.charAt(0) ||
+    "U"
+  ).toUpperCase();
+}
+
+function getConversationId(user) {
+  return (
+    user?.conversationId ||
+    user?.conversation?._id ||
+    user?.conversation?.id ||
+    null
+  );
+}
+
+function UserIdentity({ user }) {
+  const fullName = getFullName(user);
+  const username = getUsername(user);
+  const isVerified = Boolean(user?.isVerified);
+
+  const displayName =
+    fullName ||
+    username ||
+    "Unknown user";
+
+  return (
+    <View style={styles.identityContainer}>
+      <View style={styles.nameRow}>
+        <Text
+          style={styles.fullName}
+          numberOfLines={1}
+        >
+          {displayName}
+        </Text>
+
+        {isVerified ? (
+          <VerifiedBadge size={14} />
+        ) : null}
+      </View>
+
+      {!isVerified && username ? (
+        <Text
+          style={styles.username}
+          numberOfLines={1}
+        >
+          @{username}
+        </Text>
+      ) : null}
+    </View>
+  );
+}
 
 export default function NewMessageScreen() {
   const [query, setQuery] = useState("");
@@ -33,36 +128,60 @@ export default function NewMessageScreen() {
   const [loading, setLoading] = useState(false);
   const [starting, setStarting] = useState(false);
 
-  const handleSearch = useCallback(async (value) => {
-    const trimmed = value.trim();
+  /**
+   * ---------------------------------------------------------
+   * SEARCH USERS
+   * ---------------------------------------------------------
+   */
 
-    if (!trimmed) {
-      setUsers([]);
-      setLoading(false);
-      return;
-    }
+  const handleSearch = useCallback(
+    async (value) => {
+      const trimmed = value.trim();
 
-    try {
-      setLoading(true);
+      if (!trimmed) {
+        setUsers([]);
+        setLoading(false);
+        return;
+      }
 
-      const response = await searchExplore(trimmed, 1, 20);
+      try {
+        setLoading(true);
 
-      setUsers(
-        Array.isArray(response?.users)
+        const response =
+          await searchExplore(
+            trimmed,
+            1,
+            20
+          );
+
+        const results = Array.isArray(
+          response?.users
+        )
           ? response.users
-          : []
-      );
-    } catch (error) {
-      console.error(
-        "New message user search error:",
-        error
-      );
+          : [];
 
-      setUsers([]);
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+        setUsers(results);
+      } catch (error) {
+        console.error(
+          "[NEW MESSAGE] USER SEARCH ERROR:",
+          error?.response?.data ||
+            error?.message ||
+            error
+        );
+
+        setUsers([]);
+      } finally {
+        setLoading(false);
+      }
+    },
+    []
+  );
+
+  /**
+   * ---------------------------------------------------------
+   * DEBOUNCED SEARCH
+   * ---------------------------------------------------------
+   */
 
   useEffect(() => {
     const trimmed = query.trim();
@@ -77,37 +196,52 @@ export default function NewMessageScreen() {
       handleSearch(trimmed);
     }, 300);
 
-    return () => clearTimeout(timer);
+    return () => {
+      clearTimeout(timer);
+    };
   }, [query, handleSearch]);
 
+  /**
+   * ---------------------------------------------------------
+   * OPEN / CREATE CONVERSATION
+   * ---------------------------------------------------------
+   */
+
   const handleUserPress = useCallback(
-    async (user) => {
+    async (selectedUser) => {
       if (starting) {
         return;
       }
 
       const userId =
-        user?._id ||
-        user?.id ||
-        user?.userId;
+        getUserId(selectedUser);
 
       const existingConversationId =
-        user?.conversationId ||
-        user?.conversation?._id ||
-        user?.conversation?.id;
+        getConversationId(selectedUser);
 
+      /**
+       * If the search result already contains
+       * a conversation, open it immediately.
+       */
       if (existingConversationId) {
         router.push(
           `/messages/${existingConversationId}`
         );
+
         return;
       }
 
       if (!userId) {
         console.warn(
-          "Cannot start conversation: missing user ID.",
-          user
+          "[NEW MESSAGE] MISSING USER ID:",
+          selectedUser
         );
+
+        Alert.alert(
+          "Unable to start conversation",
+          "This user could not be identified."
+        );
+
         return;
       }
 
@@ -115,21 +249,24 @@ export default function NewMessageScreen() {
         setStarting(true);
 
         const conversation =
-          await getOrCreateConversation(userId);
+          await getOrCreateConversation(
+            userId
+          );
 
         const conversationId =
           conversation?._id ||
-          conversation?.id;
+          conversation?.id ||
+          conversation?.conversationId;
 
         if (!conversationId) {
           console.warn(
-            "No conversation ID returned from server.",
+            "[NEW MESSAGE] MISSING CONVERSATION ID:",
             conversation
           );
 
           Alert.alert(
-            "Error",
-            "Unable to start this conversation. Please try again."
+            "Unable to start conversation",
+            "The conversation could not be created. Please try again."
           );
 
           return;
@@ -140,14 +277,16 @@ export default function NewMessageScreen() {
         );
       } catch (error) {
         console.error(
-          "START CONVERSATION ERROR:",
-          error
+          "[NEW MESSAGE] START CONVERSATION ERROR:",
+          error?.response?.data ||
+            error?.message ||
+            error
         );
 
         Alert.alert(
-          "Error",
+          "Unable to start conversation",
           error?.response?.data?.message ||
-            "Unable to start this conversation. Please try again."
+            "Something went wrong. Please try again."
         );
       } finally {
         setStarting(false);
@@ -156,36 +295,29 @@ export default function NewMessageScreen() {
     [starting]
   );
 
+  /**
+   * ---------------------------------------------------------
+   * RENDER USER
+   * ---------------------------------------------------------
+   */
+
   const renderUser = useCallback(
     ({ item }) => {
-      const avatar =
-        item?.avatar ||
-        item?.avatarUrl ||
-        item?.profilePicture ||
-        item?.profileImage;
-
-      const username =
-        item?.username ||
-        item?.userName ||
-        item?.handle ||
-        "Unknown user";
-
-      const name =
-        item?.name ||
-        item?.fullName ||
-        item?.displayName ||
-        "";
-
-      const isVerified =
-        Boolean(item?.isVerified);
+      const avatar = getAvatar(item);
+      const initial = getInitial(item);
 
       return (
-        <TouchableOpacity
-          activeOpacity={0.7}
+        <Pressable
           onPress={() =>
             handleUserPress(item)
           }
-          style={styles.userRow}
+          disabled={starting}
+          style={({ pressed }) => [
+            styles.userRow,
+            pressed && styles.userRowPressed,
+            starting &&
+              styles.userRowDisabled,
+          ]}
         >
           {avatar ? (
             <Image
@@ -199,53 +331,65 @@ export default function NewMessageScreen() {
               <Text
                 style={styles.avatarLetter}
               >
-                {username
-                  .charAt(0)
-                  .toUpperCase()}
+                {initial}
               </Text>
             </View>
           )}
 
-          <View style={styles.userInfo}>
-            <Text
-              style={styles.username}
-              numberOfLines={1}
-            >
-              {username}
-            </Text>
+          <UserIdentity user={item} />
 
-            {!!name && (
-              <View style={styles.nameRow}>
-                <Text
-                  style={styles.name}
-                  numberOfLines={1}
-                >
-                  {name}
-                </Text>
-
-                {isVerified && (
-                  <VerifiedBadge size={14} />
-                )}
-              </View>
-            )}
-          </View>
-        </TouchableOpacity>
+          {starting ? (
+            <ActivityIndicator
+              size="small"
+              style={styles.rowLoader}
+            />
+          ) : null}
+        </Pressable>
       );
     },
-    [handleUserPress]
+    [handleUserPress, starting]
   );
+
+  /**
+   * ---------------------------------------------------------
+   * LIST KEY
+   * ---------------------------------------------------------
+   */
+
+  const keyExtractor = useCallback(
+    (item, index) => {
+      return String(
+        getUserId(item) ||
+          getUsername(item) ||
+          index
+      );
+    },
+    []
+  );
+
+  /**
+   * ---------------------------------------------------------
+   * EMPTY STATE
+   * ---------------------------------------------------------
+   */
 
   const emptyMessage = useMemo(() => {
     if (loading) {
-      return null;
+      return "";
     }
 
     if (!query.trim()) {
-      return "Search for someone to start a conversation";
+      return "Search for someone to start a conversation.";
     }
 
-    return "No users found";
+    return "No users found.";
   }, [loading, query]);
+
+  /**
+   * ---------------------------------------------------------
+   * SCREEN
+   * ---------------------------------------------------------
+   */
 
   return (
     <SafeAreaView
@@ -260,29 +404,41 @@ export default function NewMessageScreen() {
             : undefined
         }
       >
+        {/* HEADER */}
 
         <View style={styles.header}>
-          <TouchableOpacity
-            activeOpacity={0.7}
+          <Pressable
             onPress={() => router.back()}
-            style={styles.backButton}
+            style={({ pressed }) => [
+              styles.backButton,
+              pressed &&
+                styles.iconButtonPressed,
+            ]}
+            hitSlop={8}
           >
-            <Text style={styles.backText}>
-              ‹
-            </Text>
-          </TouchableOpacity>
+            <Ionicons
+              name="chevron-back"
+              size={27}
+              color="#111111"
+            />
+          </Pressable>
 
           <Text style={styles.title}>
             New message
           </Text>
 
-          <View style={styles.headerSpacer} />
+          <View style={styles.headerRight} />
         </View>
 
+        {/* SEARCH */}
+
         <View style={styles.searchContainer}>
-          <Text style={styles.searchIcon}>
-            ⌕
-          </Text>
+          <Ionicons
+            name="search-outline"
+            size={19}
+            color="#737373"
+            style={styles.searchIcon}
+          />
 
           <TextInput
             value={query}
@@ -291,48 +447,65 @@ export default function NewMessageScreen() {
             placeholderTextColor="#8E8E8E"
             autoCapitalize="none"
             autoCorrect={false}
+            autoComplete="off"
             returnKeyType="search"
+            selectionColor="#0095F6"
             style={styles.searchInput}
           />
 
-          {!!query && (
-            <TouchableOpacity
-              activeOpacity={0.7}
+          {query.length > 0 ? (
+            <Pressable
               onPress={() => setQuery("")}
               style={styles.clearButton}
+              hitSlop={8}
             >
-              <Text style={styles.clearText}>
-                ×
-              </Text>
-            </TouchableOpacity>
-          )}
+              <Ionicons
+                name="close-circle"
+                size={19}
+                color="#8E8E8E"
+              />
+            </Pressable>
+          ) : null}
         </View>
+
+        {/* CONTENT */}
 
         {loading ? (
           <View style={styles.center}>
-            <ActivityIndicator size="small" />
+            <ActivityIndicator
+              size="small"
+              color="#111111"
+            />
           </View>
         ) : users.length > 0 ? (
           <FlatList
             data={users}
-            keyExtractor={(item, index) =>
-              String(
-                item?._id ||
-                  item?.id ||
-                  item?.userId ||
-                  item?.username ||
-                  index
-              )
-            }
+            keyExtractor={keyExtractor}
             renderItem={renderUser}
             keyboardShouldPersistTaps="handled"
+            keyboardDismissMode={
+              Platform.OS === "ios"
+                ? "interactive"
+                : "on-drag"
+            }
             showsVerticalScrollIndicator={false}
             contentContainerStyle={
               styles.listContent
             }
+            removeClippedSubviews={
+              Platform.OS === "android"
+            }
           />
         ) : (
           <View style={styles.empty}>
+            <View style={styles.emptyIcon}>
+              <Ionicons
+                name="chatbubble-outline"
+                size={30}
+                color="#111111"
+              />
+            </View>
+
             <Text style={styles.emptyTitle}>
               New message
             </Text>
@@ -342,6 +515,28 @@ export default function NewMessageScreen() {
             </Text>
           </View>
         )}
+
+        {/* STARTING OVERLAY */}
+
+        {starting ? (
+          <View
+            pointerEvents="auto"
+            style={styles.startingOverlay}
+          >
+            <View style={styles.startingCard}>
+              <ActivityIndicator
+                size="small"
+                color="#111111"
+              />
+
+              <Text
+                style={styles.startingText}
+              >
+                Opening conversation…
+              </Text>
+            </View>
+          </View>
+        ) : null}
       </KeyboardAvoidingView>
     </SafeAreaView>
   );
@@ -358,6 +553,10 @@ const styles = StyleSheet.create({
     backgroundColor: "#FFFFFF",
   },
 
+  /**
+   * HEADER
+   */
+
   header: {
     height: 56,
     flexDirection: "row",
@@ -370,29 +569,33 @@ const styles = StyleSheet.create({
 
   backButton: {
     position: "absolute",
-    left: 12,
-    width: 40,
-    height: 40,
+    left: 8,
+    width: 44,
+    height: 44,
     alignItems: "center",
     justifyContent: "center",
   },
 
-  backText: {
-    fontSize: 36,
-    lineHeight: 36,
-    fontWeight: "300",
-    color: "#111111",
+  headerRight: {
+    position: "absolute",
+    right: 8,
+    width: 44,
+    height: 44,
+  },
+
+  iconButtonPressed: {
+    opacity: 0.55,
   },
 
   title: {
-    fontSize: 16,
+    fontSize: 17,
     fontWeight: "700",
     color: "#111111",
   },
 
-  headerSpacer: {
-    width: 40,
-  },
+  /**
+   * SEARCH
+   */
 
   searchContainer: {
     height: 44,
@@ -407,13 +610,12 @@ const styles = StyleSheet.create({
 
   searchIcon: {
     marginRight: 8,
-    fontSize: 22,
-    color: "#777777",
   },
 
   searchInput: {
     flex: 1,
     height: "100%",
+    paddingVertical: 0,
     fontSize: 15,
     color: "#111111",
   },
@@ -425,37 +627,43 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
 
-  clearText: {
-    fontSize: 24,
-    lineHeight: 24,
-    color: "#777777",
-  },
+  /**
+   * USER LIST
+   */
 
   listContent: {
-    paddingBottom: 20,
+    paddingBottom: 24,
   },
 
   userRow: {
-    minHeight: 68,
+    minHeight: 70,
     paddingHorizontal: 16,
     flexDirection: "row",
     alignItems: "center",
   },
 
+  userRowPressed: {
+    backgroundColor: "#F7F7F7",
+  },
+
+  userRowDisabled: {
+    opacity: 0.65,
+  },
+
   avatar: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
+    width: 50,
+    height: 50,
+    borderRadius: 25,
     backgroundColor: "#EFEFEF",
   },
 
   avatarPlaceholder: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
+    width: 50,
+    height: 50,
+    borderRadius: 25,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "#DBDBDB",
+    backgroundColor: "#E1E1E1",
   },
 
   avatarLetter: {
@@ -464,29 +672,40 @@ const styles = StyleSheet.create({
     color: "#555555",
   },
 
-  userInfo: {
+  identityContainer: {
     flex: 1,
     marginLeft: 12,
+    minWidth: 0,
   },
 
-  username: {
+  nameRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    minWidth: 0,
+  },
+
+  fullName: {
+    flexShrink: 1,
     fontSize: 14,
+    lineHeight: 19,
     fontWeight: "700",
     color: "#111111",
   },
 
-  nameRow: {
-    marginTop: 3,
-    flexDirection: "row",
-    alignItems: "center",
-    maxWidth: "100%",
+  username: {
+    marginTop: 2,
+    fontSize: 13,
+    lineHeight: 18,
+    color: "#777777",
   },
 
-  name: {
-    fontSize: 13,
-    color: "#777777",
-    flexShrink: 1,
+  rowLoader: {
+    marginLeft: 10,
   },
+
+  /**
+   * EMPTY STATE
+   */
 
   center: {
     flex: 1,
@@ -499,6 +718,18 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     paddingHorizontal: 40,
+    paddingBottom: 80,
+  },
+
+  emptyIcon: {
+    width: 62,
+    height: 62,
+    marginBottom: 16,
+    borderRadius: 31,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1.5,
+    borderColor: "#111111",
   },
 
   emptyTitle: {
@@ -509,9 +740,46 @@ const styles = StyleSheet.create({
 
   emptyText: {
     marginTop: 8,
+    maxWidth: 300,
     fontSize: 14,
     lineHeight: 20,
     textAlign: "center",
     color: "#777777",
+  },
+
+  /**
+   * STARTING OVERLAY
+   */
+
+  startingOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(255,255,255,0.35)",
+  },
+
+  startingCard: {
+    minWidth: 170,
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+    borderRadius: 14,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#FFFFFF",
+    shadowColor: "#000000",
+    shadowOffset: {
+      width: 0,
+      height: 3,
+    },
+    shadowOpacity: 0.12,
+    shadowRadius: 12,
+    elevation: 5,
+  },
+
+  startingText: {
+    marginTop: 10,
+    fontSize: 13,
+    fontWeight: "600",
+    color: "#333333",
   },
 });

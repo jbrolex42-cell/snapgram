@@ -578,7 +578,6 @@ export default function MonetizationPayoutsScreen() {
           }
           icon="card-outline"
           onPress={() => {
-            // Connect this to your payout-method route.
           }}
         />
       </InfoCard>

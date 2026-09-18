@@ -30,7 +30,7 @@ import {
 import {
   getArchivedPosts,
   restoreArchivedPost,
-} from "../../../services/postsApi";
+} from "../../../services/postService";
 
 export default function ArchivedScreen() {
   const { colors } = useSettingsTheme();

@@ -16,10 +16,6 @@ import {
 
 import { translateComment } from "../../services/translationApi";
 
-/**
- * Convert the language saved in Settings into
- * the language code expected by the translation API.
- */
 function normalizeLanguage(language) {
   if (!language) {
     return "en";
@@ -107,10 +103,6 @@ export default function TranslatableComment({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
-  /**
-   * Prevent an old translation request from updating
-   * the component after the comment/target language changes.
-   */
   const requestIdRef = useRef(0);
 
   const normalizedTarget = useMemo(
@@ -131,10 +123,6 @@ export default function TranslatableComment({
     [text]
   );
 
-  /**
-   * Reset translation whenever the comment text
-   * or selected language changes.
-   */
   useEffect(() => {
     requestIdRef.current += 1;
 
@@ -150,10 +138,6 @@ export default function TranslatableComment({
       return;
     }
 
-    /**
-     * If we already translated this exact comment,
-     * simply switch between original and translation.
-     */
     if (translatedText) {
       setShowTranslated((current) => !current);
       return;
@@ -171,9 +155,6 @@ export default function TranslatableComment({
         sourceLanguage: normalizedSource || undefined,
       });
 
-      /**
-       * Ignore a response belonging to an older request.
-       */
       if (requestId !== requestIdRef.current) {
         return;
       }
@@ -231,10 +212,6 @@ export default function TranslatableComment({
     return null;
   }
 
-  /**
-   * If the detected source language is already the
-   * selected language, translation is unnecessary.
-   */
   const sameLanguage =
     detectedLanguage &&
     normalizeLanguage(detectedLanguage) ===

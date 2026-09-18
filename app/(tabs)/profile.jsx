@@ -51,6 +51,8 @@ import {
 
 import VerifiedBadge from "../../components/common/VerifiedBadge";
 import ProfileGrid from "../../components/profile/ProfileGrid";
+import QRCode from "react-native-qrcode-svg";
+import { CameraView, useCameraPermissions } from "expo-camera";
 
 const COLORS = {
   black: "#000000",
@@ -341,6 +343,12 @@ export default function ProfileScreen() {
     useState(null);
 
   const [savingProfile, setSavingProfile] =
+    useState(false);
+
+  const [showProfileQR, setShowProfileQR] =
+    useState(false);
+
+  const [showQRScanner, setShowQRScanner] =
     useState(false);
 
   useEffect(() => {
@@ -839,26 +847,47 @@ export default function ProfileScreen() {
     });
   };
 
-  const openShareProfile =
-    async () => {
-      try {
-        const currentUsername =
-          getUsername(user);
+  const openShareProfile = async () => {
+    try {
+      const currentUsername = getUsername(user);
 
-        const profileUrl =
-          `https://snapgram.app/${currentUsername}`;
-
-        await Share.share({
-          message:
-            `Check out @${currentUsername} on Snapgram\n${profileUrl}`,
-        });
-      } catch (error) {
-        console.error(
-          "[PROFILE] SHARE ERROR:",
-          error
+      if (!currentUsername || currentUsername === "username") {
+        Alert.alert(
+          "Unable to share",
+          "Your username is not available."
         );
+        return;
       }
-    };
+
+      const profileUrl = `https://snapgram.app/${currentUsername}`;
+
+      await Share.share({
+        message:
+          `Check out @${currentUsername} on Snapgram\\n${profileUrl}`,
+      });
+    } catch (error) {
+      console.error("[PROFILE] SHARE ERROR:", error);
+    }
+  };
+
+  const openProfileQR = () => {
+    const currentUsername = getUsername(user);
+
+    if (!currentUsername || currentUsername === "username") {
+      Alert.alert(
+        "Unable to create QR code",
+        "Your username is not available."
+      );
+      return;
+    }
+
+    setShowProfileQR(true);
+  };
+
+  const openQRScanner = () => {
+    setShowProfileQR(false);
+    setShowQRScanner(true);
+  };
 
   const websiteValue =
     user?.website ||
@@ -1686,6 +1715,20 @@ export default function ProfileScreen() {
               </TouchableOpacity>
 
               <TouchableOpacity
+                style={styles.profileButton}
+                onPress={openProfileQR}
+                activeOpacity={0.8}
+                accessibilityRole="button"
+                accessibilityLabel="QR code"
+              >
+                <Ionicons
+                  name="qr-code-outline"
+                  size={18}
+                  color={COLORS.black}
+                />
+              </TouchableOpacity>
+
+              <TouchableOpacity
                 style={
                   styles.addPersonButton
                 }
@@ -1915,6 +1958,102 @@ export default function ProfileScreen() {
             }
           />
         </ScrollView>
+
+        <Modal
+          visible={showProfileQR}
+          transparent
+          animationType="fade"
+          onRequestClose={() => setShowProfileQR(false)}
+        >
+          <View style={styles.qrOverlay}>
+            <View style={styles.qrModal}>
+              <View style={styles.qrHeader}>
+                <Text style={styles.qrTitle}>Share your profile</Text>
+
+                <Pressable
+                  onPress={() => setShowProfileQR(false)}
+                  style={styles.qrCloseButton}
+                  accessibilityRole="button"
+                  accessibilityLabel="Close QR code"
+                >
+                  <Ionicons
+                    name="close"
+                    size={24}
+                    color={COLORS.black}
+                  />
+                </Pressable>
+              </View>
+
+              <Text style={styles.qrSubtitle}>
+                Scan this QR code to view my Snapgram profile.
+              </Text>
+
+              <View style={styles.qrCodeContainer}>
+                <QRCode
+                  value={`https://snapgram.app/${getUsername(user)}`}
+                  size={220}
+                  backgroundColor={COLORS.white}
+                  color={COLORS.black}
+                />
+              </View>
+
+              <Text style={styles.qrUsername}>
+                @{getUsername(user)}
+              </Text>
+
+              <Pressable
+                style={styles.qrShareButton}
+                onPress={openShareProfile}
+                accessibilityRole="button"
+              >
+                <Ionicons
+                  name="share-outline"
+                  size={20}
+                  color={COLORS.white}
+                />
+                <Text style={styles.qrShareButtonText}>
+                  Share profile
+                </Text>
+              </Pressable>
+
+              <Pressable
+                style={styles.qrScanButton}
+                onPress={openQRScanner}
+                accessibilityRole="button"
+              >
+                <Ionicons
+                  name="scan-outline"
+                  size={20}
+                  color={COLORS.black}
+                />
+                <Text style={styles.qrScanButtonText}>
+                  Scan a QR code
+                </Text>
+              </Pressable>
+            </View>
+          </View>
+        </Modal>
+
+        <Modal
+          visible={showQRScanner}
+          animationType="slide"
+          presentationStyle="fullScreen"
+          onRequestClose={() => setShowQRScanner(false)}
+        >
+          <QRScanner
+            onClose={() => setShowQRScanner(false)}
+            onProfileFound={(scannedUsername) => {
+              setShowQRScanner(false);
+
+              router.push({
+                pathname: "/[username]",
+                params: {
+                  username: scannedUsername,
+                },
+              });
+            }}
+          />
+        </Modal>
 
         <Modal
           visible={
@@ -2600,6 +2739,182 @@ function EditField({
           COLORS.muted
         }
       />
+    </View>
+  );
+}
+
+function QRScanner({ onClose, onProfileFound }) {
+  const [permission, requestPermission] =
+    useCameraPermissions();
+  const [scanned, setScanned] = useState(false);
+
+  useEffect(() => {
+    if (permission && !permission.granted && permission.canAskAgain) {
+      requestPermission();
+    }
+  }, [permission, requestPermission]);
+
+  const handleBarcodeScanned = ({ data }) => {
+    if (scanned || !data) {
+      return;
+    }
+
+    try {
+      const value = String(data).trim();
+      
+      const match = value.match(
+        /^https?:\/\/(?:www\.)?snapgram\.app\/([^/?#]+)\/?$/i
+      );
+      if (!match?.[1]) {
+        Alert.alert(
+          "Invalid QR code",
+          "This QR code is not a Snapgram profile."
+        );
+        return;
+      }
+
+      const scannedUsername = decodeURIComponent(match[1])
+        .trim()
+        .replace(/^@/, "")
+        .toLowerCase();
+
+      if (!scannedUsername) {
+        return;
+      }
+
+      setScanned(true);
+      onProfileFound?.(scannedUsername);
+    } catch (error) {
+      console.error("[PROFILE] QR SCAN ERROR:", error);
+      Alert.alert(
+        "Invalid QR code",
+        "This QR code could not be read."
+      );
+    }
+  };
+
+  if (!permission) {
+    return (
+      <SafeAreaView style={styles.scannerScreen} edges={["top"]}>
+        <View style={styles.scannerCenter}>
+          <Text style={styles.scannerMessage}>
+            Preparing camera...
+          </Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  if (!permission.granted) {
+    return (
+      <SafeAreaView style={styles.scannerScreen} edges={["top"]}>
+        <View style={styles.scannerHeader}>
+          <Pressable
+            onPress={onClose}
+            style={styles.scannerCloseButton}
+            accessibilityRole="button"
+            accessibilityLabel="Close scanner"
+          >
+            <Ionicons
+              name="close"
+              size={28}
+              color={COLORS.white}
+            />
+          </Pressable>
+
+          <Text style={styles.scannerTitle}>
+            Scan QR code
+          </Text>
+
+          <View style={styles.scannerHeaderSpacer} />
+        </View>
+
+        <View style={styles.scannerCenter}>
+          <Ionicons
+            name="camera-outline"
+            size={56}
+            color={COLORS.white}
+          />
+
+          <Text style={styles.scannerMessage}>
+            Camera access is required to scan Snapgram QR codes.
+          </Text>
+
+          {permission.canAskAgain ? (
+            <Pressable
+              style={styles.scannerPermissionButton}
+              onPress={requestPermission}
+            >
+              <Text style={styles.scannerPermissionText}>
+                Allow camera
+              </Text>
+            </Pressable>
+          ) : (
+            <Pressable
+              style={styles.scannerPermissionButton}
+              onPress={() => Linking.openSettings()}
+            >
+              <Text style={styles.scannerPermissionText}>
+                Open settings
+              </Text>
+            </Pressable>
+          )}
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  return (
+    <View style={styles.scannerScreen}>
+      <CameraView
+        style={StyleSheet.absoluteFillObject}
+        facing="back"
+        barcodeScannerSettings={{
+          barcodeTypes: ["qr"],
+        }}
+        onBarcodeScanned={
+          scanned ? undefined : handleBarcodeScanned
+        }
+      />
+
+      <SafeAreaView
+        style={styles.scannerOverlay}
+        edges={["top", "bottom"]}
+      >
+        <View style={styles.scannerHeader}>
+          <Pressable
+            onPress={onClose}
+            style={styles.scannerCloseButton}
+            accessibilityRole="button"
+            accessibilityLabel="Close scanner"
+          >
+            <Ionicons
+              name="close"
+              size={28}
+              color={COLORS.white}
+            />
+          </Pressable>
+
+          <Text style={styles.scannerTitle}>
+            Scan QR code
+          </Text>
+
+          <View style={styles.scannerHeaderSpacer} />
+        </View>
+
+        <View style={styles.scannerContent}>
+          <Text style={styles.scannerInstruction}>
+            Point your camera at a Snapgram profile QR code.
+          </Text>
+
+          <View style={styles.scannerFrame}>
+            <View style={[styles.scannerCorner, styles.cornerTopLeft]} />
+            <View style={[styles.scannerCorner, styles.cornerTopRight]} />
+            <View style={[styles.scannerCorner, styles.cornerBottomLeft]} />
+            <View style={[styles.scannerCorner, styles.cornerBottomRight]} />
+          </View>
+        </View>
+      </SafeAreaView>
     </View>
   );
 }
@@ -3311,4 +3626,259 @@ const styles =
       color:
         COLORS.gray,
     },
+    qrOverlay: {
+  flex: 1,
+  backgroundColor: "rgba(0,0,0,0.55)",
+  justifyContent: "center",
+  alignItems: "center",
+  padding: 24,
+},
+
+qrModal: {
+  width: "100%",
+  maxWidth: 380,
+  backgroundColor: "#FFFFFF",
+  borderRadius: 24,
+  padding: 24,
+  alignItems: "center",
+},
+
+qrHeader: {
+  width: "100%",
+  flexDirection: "row",
+  alignItems: "center",
+  justifyContent: "space-between",
+},
+
+qrTitle: {
+  fontSize: 22,
+  fontWeight: "700",
+  color: "#000000",
+},
+
+qrCloseButton: {
+  width: 36,
+  height: 36,
+  borderRadius: 18,
+  alignItems: "center",
+  justifyContent: "center",
+  backgroundColor: "#F2F2F2",
+},
+
+qrSubtitle: {
+  width: "100%",
+  marginTop: 10,
+  marginBottom: 24,
+  textAlign: "center",
+  fontSize: 14,
+  lineHeight: 20,
+  color: "#666666",
+},
+
+qrCodeContainer: {
+  padding: 18,
+  backgroundColor: "#FFFFFF",
+  borderRadius: 18,
+  borderWidth: 1,
+  borderColor: "#E5E5E5",
+},
+
+qrUsername: {
+  marginTop: 18,
+  fontSize: 17,
+  fontWeight: "600",
+  color: "#000000",
+},
+
+qrShareButton: {
+  width: "100%",
+  height: 50,
+  marginTop: 22,
+  borderRadius: 12,
+  backgroundColor: "#0095F6",
+  flexDirection: "row",
+  alignItems: "center",
+  justifyContent: "center",
+  gap: 8,
+},
+
+qrShareButtonText: {
+  color: "#FFFFFF",
+  fontSize: 16,
+  fontWeight: "700",
+},
+
+profileActions: {
+  flexDirection: "row",
+  gap: 8,
+},
+
+profileActionButton: {
+  flex: 1,
+  height: 42,
+  borderRadius: 9,
+  backgroundColor: "#EFEFEF",
+  flexDirection: "row",
+  alignItems: "center",
+  justifyContent: "center",
+  gap: 7,
+},
+
+profileActionText: {
+  color: "#000000",
+  fontSize: 14,
+  fontWeight: "600",
+},
+
+
+  qrScanButton: {
+    width: "100%",
+    height: 50,
+    marginTop: 10,
+    borderRadius: 12,
+    backgroundColor: COLORS.lightGray,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+  },
+
+  qrScanButtonText: {
+    color: COLORS.black,
+    fontSize: 16,
+    fontWeight: "700",
+  },
+
+  scannerScreen: {
+    flex: 1,
+    backgroundColor: COLORS.black,
+  },
+
+  scannerOverlay: {
+    flex: 1,
+    backgroundColor: "transparent",
+  },
+
+  scannerHeader: {
+    minHeight: 58,
+    paddingHorizontal: 14,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+
+  scannerCloseButton: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(0,0,0,0.45)",
+  },
+
+  scannerTitle: {
+    fontSize: 18,
+    fontWeight: "700",
+    color: COLORS.white,
+  },
+
+  scannerHeaderSpacer: {
+    width: 42,
+    height: 42,
+  },
+
+  scannerCenter: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 32,
+    backgroundColor: COLORS.black,
+  },
+
+  scannerMessage: {
+    marginTop: 16,
+    textAlign: "center",
+    fontSize: 15,
+    lineHeight: 22,
+    color: COLORS.white,
+  },
+
+  scannerPermissionButton: {
+    minWidth: 150,
+    height: 46,
+    marginTop: 22,
+    paddingHorizontal: 22,
+    borderRadius: 10,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: COLORS.white,
+  },
+
+  scannerPermissionText: {
+    fontSize: 15,
+    fontWeight: "700",
+    color: COLORS.black,
+  },
+
+  scannerContent: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 24,
+  },
+
+  scannerInstruction: {
+    maxWidth: 320,
+    marginBottom: 30,
+    textAlign: "center",
+    fontSize: 15,
+    lineHeight: 22,
+    fontWeight: "600",
+    color: COLORS.white,
+  },
+
+  scannerFrame: {
+    width: 270,
+    height: 270,
+    position: "relative",
+  },
+
+  scannerCorner: {
+    position: "absolute",
+    width: 42,
+    height: 42,
+    borderColor: COLORS.white,
+  },
+
+  cornerTopLeft: {
+    top: 0,
+    left: 0,
+    borderTopWidth: 4,
+    borderLeftWidth: 4,
+    borderTopLeftRadius: 10,
+  },
+
+  cornerTopRight: {
+    top: 0,
+    right: 0,
+    borderTopWidth: 4,
+    borderRightWidth: 4,
+    borderTopRightRadius: 10,
+  },
+
+  cornerBottomLeft: {
+    bottom: 0,
+    left: 0,
+    borderBottomWidth: 4,
+    borderLeftWidth: 4,
+    borderBottomLeftRadius: 10,
+  },
+
+  cornerBottomRight: {
+    bottom: 0,
+    right: 0,
+    borderBottomWidth: 4,
+    borderRightWidth: 4,
+    borderBottomRightRadius: 10,
+  },
   });

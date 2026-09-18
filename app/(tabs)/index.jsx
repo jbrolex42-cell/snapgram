@@ -17,7 +17,10 @@ import {
 
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
-import { router } from "expo-router";
+import {
+  router,
+  useFocusEffect,
+} from "expo-router";
 
 import PostCard from "../../components/post/PostCard";
 import StoryTray from "../../components/story/StoryTray";
@@ -102,8 +105,13 @@ function getErrorMessage(error) {
     return "The server is temporarily unavailable.";
   }
 
+  const message =
+    error?.message?.toLowerCase?.() || "";
+
   if (
-    error?.message?.toLowerCase?.().includes("network")
+    message.includes("network") ||
+    message.includes("timeout") ||
+    message.includes("connection")
   ) {
     return "Check your internet connection and try again.";
   }
@@ -112,7 +120,10 @@ function getErrorMessage(error) {
 }
 
 export default function HomeScreen() {
-  const { user, loading: authLoading } = useAuth();
+  const {
+    user,
+    loading: authLoading,
+  } = useAuth();
 
   const mountedRef = useRef(true);
   const requestRef = useRef(false);
@@ -136,10 +147,6 @@ export default function HomeScreen() {
 
   const loadHome = useCallback(
     async ({ refresh = false } = {}) => {
-      if (requestRef.current) {
-        return;
-      }
-
       if (!user) {
         if (!mountedRef.current) {
           return;
@@ -155,6 +162,10 @@ export default function HomeScreen() {
         return;
       }
 
+      if (requestRef.current) {
+        return;
+      }
+
       requestRef.current = true;
 
       if (refresh) {
@@ -167,11 +178,13 @@ export default function HomeScreen() {
       setStoryError("");
 
       try {
-        const [feedResult, storiesResult] =
-          await Promise.allSettled([
-            getHomeFeed(),
-            getStories(),
-          ]);
+        const [
+          feedResult,
+          storiesResult,
+        ] = await Promise.allSettled([
+          getHomeFeed(),
+          getStories(),
+        ]);
 
         if (!mountedRef.current) {
           return;
@@ -186,19 +199,19 @@ export default function HomeScreen() {
           setFeedError("");
         } else {
           console.error(
-            "HOME FEED ERROR:",
+            "[HOME] FEED ERROR:",
             feedResult.reason
           );
-
-          if (!refresh) {
-            setPosts([]);
-          }
 
           setFeedError(
             getErrorMessage(
               feedResult.reason
             )
           );
+
+          if (!refresh) {
+            setPosts([]);
+          }
         }
 
         if (storiesResult.status === "fulfilled") {
@@ -211,7 +224,7 @@ export default function HomeScreen() {
           setStoryError("");
         } else {
           console.error(
-            "STORIES ERROR:",
+            "[HOME] STORIES ERROR:",
             storiesResult.reason
           );
 
@@ -221,7 +234,7 @@ export default function HomeScreen() {
         }
       } catch (error) {
         console.error(
-          "LOAD HOME ERROR:",
+          "[HOME] LOAD ERROR:",
           error
         );
 
@@ -242,16 +255,21 @@ export default function HomeScreen() {
     [user]
   );
 
-  useEffect(() => {
-    if (authLoading) {
-      return;
-    }
+  useFocusEffect(
+    useCallback(() => {
+      if (authLoading || !user) {
+        return;
+      }
 
-    loadHome();
-  }, [
-    authLoading,
-    loadHome,
-  ]);
+      loadHome();
+
+      return undefined;
+    }, [
+      authLoading,
+      user,
+      loadHome,
+    ])
+  );
 
   const handleCreatePost = useCallback(() => {
     router.push({
@@ -283,9 +301,7 @@ export default function HomeScreen() {
 
   const handleExplore =
     useCallback(() => {
-      router.push(
-        "/(tabs)/explore"
-      );
+      router.push("/(tabs)/explore");
     }, []);
 
   const handleStoryPress =
@@ -294,15 +310,12 @@ export default function HomeScreen() {
 
       if (!storyId) {
         console.warn(
-          "Cannot open story: missing story ID"
+          "[HOME] Missing story ID."
         );
-
         return;
       }
 
-      router.push(
-        `/stories/${storyId}`
-      );
+      router.push(`/stories/${storyId}`);
     }, []);
 
   const handlePostPress =
@@ -311,28 +324,23 @@ export default function HomeScreen() {
 
       if (!postId) {
         console.warn(
-          "Cannot open post: missing post ID"
+          "[HOME] Missing post ID."
         );
-
         return;
       }
 
-      router.push(
-        `/post/${postId}`
-      );
+      router.push(`/post/${postId}`);
     }, []);
 
-  const handleRetry =
-    useCallback(() => {
-      loadHome();
-    }, [loadHome]);
+  const handleRetry = useCallback(() => {
+    loadHome();
+  }, [loadHome]);
 
-  const handleRefresh =
-    useCallback(() => {
-      loadHome({
-        refresh: true,
-      });
-    }, [loadHome]);
+  const handleRefresh = useCallback(() => {
+    loadHome({
+      refresh: true,
+    });
+  }, [loadHome]);
 
   const renderPost = useCallback(
     ({ item }) => {
@@ -341,11 +349,7 @@ export default function HomeScreen() {
       }
 
       return (
-        <View
-          style={
-            styles.postWrapper
-          }
-        >
+        <View style={styles.postWrapper}>
           <PostCard
             post={item}
             onPress={() =>
@@ -358,458 +362,317 @@ export default function HomeScreen() {
     [handlePostPress]
   );
 
-  const keyExtractor =
-    useCallback(
-      (item, index) => {
-        return getId(
-          item,
-          `post-${index}`
-        );
-      },
-      []
-    );
+  const keyExtractor = useCallback(
+    (item, index) => {
+      return getId(
+        item,
+        `post-${index}`
+      );
+    },
+    []
+  );
 
-  const renderHeader =
-    useCallback(() => {
-      return (
-        <View
-          style={
-            styles.headerContainer
-          }
-        >
-          <View
-            style={styles.topHeader}
+  const renderHeader = useCallback(() => {
+    return (
+      <View style={styles.headerContainer}>
+        {/* HEADER */}
+        <View style={styles.topHeader}>
+          <Pressable
+            onPress={handleCreatePost}
+            hitSlop={10}
+            accessibilityRole="button"
+            accessibilityLabel="Create post"
+            style={({ pressed }) => [
+              styles.headerIconButton,
+              pressed && styles.pressed,
+            ]}
           >
+            <Ionicons
+              name="add-outline"
+              size={29}
+              color={COLORS.text}
+            />
+          </Pressable>
+
+          <Text
+            style={styles.logo}
+            numberOfLines={1}
+          >
+            Snapgram
+          </Text>
+
+          <View style={styles.headerRight}>
             <Pressable
-              onPress={
-                handleCreatePost
-              }
+              onPress={handleNotifications}
               hitSlop={10}
               accessibilityRole="button"
-              accessibilityLabel="Create post"
-              style={({
-                pressed,
-              }) => [
+              accessibilityLabel="Notifications"
+              style={({ pressed }) => [
                 styles.headerIconButton,
-                pressed &&
-                  styles.pressed,
+                pressed && styles.pressed,
               ]}
             >
               <Ionicons
-                name="add-outline"
-                size={29}
+                name="heart-outline"
+                size={27}
                 color={COLORS.text}
               />
             </Pressable>
 
-            <Text
-              style={styles.logo}
-              numberOfLines={1}
+            <Pressable
+              onPress={handleMessages}
+              hitSlop={10}
+              accessibilityRole="button"
+              accessibilityLabel="Messages"
+              style={({ pressed }) => [
+                styles.headerIconButton,
+                pressed && styles.pressed,
+              ]}
             >
-              Snapgram
-            </Text>
+              <Ionicons
+                name="chatbubble-outline"
+                size={25}
+                color={COLORS.text}
+              />
+            </Pressable>
+          </View>
+        </View>
 
-            <View
-              style={
-                styles.headerRight
-              }
+        {/* STORIES */}
+        {stories.length > 0 ? (
+          <View style={styles.storySection}>
+            <StoryTray
+              stories={stories}
+              onStoryPress={handleStoryPress}
+              onCreateStory={handleCreateStory}
+            />
+          </View>
+        ) : (
+          <View style={styles.emptyStorySection}>
+            <Pressable
+              onPress={handleCreateStory}
+              accessibilityRole="button"
+              accessibilityLabel="Create your story"
+              style={({ pressed }) => [
+                styles.storyButton,
+                pressed &&
+                  styles.storyPressed,
+              ]}
             >
-              <Pressable
-                onPress={
-                  handleNotifications
-                }
-                hitSlop={10}
-                accessibilityRole="button"
-                accessibilityLabel="Notifications"
-                style={({
-                  pressed,
-                }) => [
-                  styles.headerIconButton,
-                  pressed &&
-                    styles.pressed,
-                ]}
-              >
+              <View style={styles.storyAvatar}>
                 <Ionicons
-                  name="heart-outline"
-                  size={27}
-                  color={COLORS.text}
-                />
-              </Pressable>
-
-              <Pressable
-                onPress={
-                  handleMessages
-                }
-                hitSlop={10}
-                accessibilityRole="button"
-                accessibilityLabel="Messages"
-                style={({
-                  pressed,
-                }) => [
-                  styles.headerIconButton,
-                  pressed &&
-                    styles.pressed,
-                ]}
-              >
-                <Ionicons
-                  name="chatbubble-outline"
+                  name="add"
                   size={25}
                   color={COLORS.text}
                 />
-              </Pressable>
-            </View>
-          </View>
+              </View>
 
-          {stories.length > 0 ? (
-            <View
-              style={
-                styles.storySection
-              }
-            >
-              <StoryTray
-                stories={stories}
-                onStoryPress={
-                  handleStoryPress
-                }
-                onCreateStory={
-                  handleCreateStory
-                }
-              />
-            </View>
-          ) : (
-            <View
-              style={
-                styles.emptyStorySection
-              }
-            >
-              <Pressable
-                onPress={
-                  handleCreateStory
-                }
-                accessibilityRole="button"
-                accessibilityLabel="Create your story"
-                style={({
-                  pressed,
-                }) => [
-                  styles.storyButton,
-                  pressed &&
-                    styles.storyPressed,
-                ]}
-              >
-                <View
-                  style={
-                    styles.storyAvatar
-                  }
-                >
-                  <Ionicons
-                    name="add"
-                    size={25}
-                    color={COLORS.text}
-                  />
-                </View>
-
-                <Text
-                  style={
-                    styles.storyLabel
-                  }
-                >
-                  Your story
-                </Text>
-              </Pressable>
-            </View>
-          )}
-
-          {!!storyError && (
-            <Pressable
-              onPress={handleRetry}
-              style={
-                styles.storyError
-              }
-            >
-              <Ionicons
-                name="alert-circle-outline"
-                size={16}
-                color={
-                  COLORS.secondary
-                }
-              />
-
-              <Text
-                style={
-                  styles.storyErrorText
-                }
-              >
-                Stories unavailable · Tap to retry
-              </Text>
-            </Pressable>
-          )}
-
-          {!!feedError &&
-            posts.length > 0 && (
-              <Pressable
-                onPress={handleRetry}
-                accessibilityRole="button"
-                accessibilityLabel="Retry loading feed"
-                style={
-                  styles.feedError
-                }
-              >
-                <Ionicons
-                  name="cloud-offline-outline"
-                  size={17}
-                  color={COLORS.text}
-                />
-
-                <Text
-                  style={
-                    styles.feedErrorText
-                  }
-                >
-                  Couldn't refresh your feed. Tap to retry.
-                </Text>
-              </Pressable>
-            )}
-        </View>
-      );
-    }, [
-      stories,
-      storyError,
-      feedError,
-      posts.length,
-      handleCreatePost,
-      handleCreateStory,
-      handleNotifications,
-      handleMessages,
-      handleStoryPress,
-      handleRetry,
-    ]);
-
-  const renderEmpty =
-    useCallback(() => {
-      if (loading) {
-        return (
-          <View
-            style={
-              styles.emptyState
-            }
-          >
-            <ActivityIndicator
-              size="small"
-              color={COLORS.text}
-            />
-
-            <Text
-              style={
-                styles.emptyTitle
-              }
-            >
-              Loading your feed
-            </Text>
-          </View>
-        );
-      }
-
-      if (!user) {
-        return (
-          <View
-            style={
-              styles.emptyState
-            }
-          >
-            <View
-              style={
-                styles.emptyIcon
-              }
-            >
-              <Ionicons
-                name="person-outline"
-                size={29}
-                color={COLORS.text}
-              />
-            </View>
-
-            <Text
-              style={
-                styles.emptyTitle
-              }
-            >
-              Sign in to continue
-            </Text>
-
-            <Text
-              style={
-                styles.emptySubtitle
-              }
-            >
-              Log in to see posts from people
-              you follow.
-            </Text>
-          </View>
-        );
-      }
-
-      if (feedError) {
-        return (
-          <View
-            style={
-              styles.emptyState
-            }
-          >
-            <View
-              style={
-                styles.emptyIcon
-              }
-            >
-              <Ionicons
-                name="cloud-offline-outline"
-                size={29}
-                color={COLORS.text}
-              />
-            </View>
-
-            <Text
-              style={
-                styles.emptyTitle
-              }
-            >
-              Couldn't load your feed
-            </Text>
-
-            <Text
-              style={
-                styles.emptySubtitle
-              }
-            >
-              {feedError}
-            </Text>
-
-            <Pressable
-              onPress={
-                handleRetry
-              }
-              accessibilityRole="button"
-              accessibilityLabel="Try loading feed again"
-              style={({
-                pressed,
-              }) => [
-                styles.retryButton,
-                pressed &&
-                  styles.pressedButton,
-              ]}
-            >
-              <Text
-                style={
-                  styles.retryText
-                }
-              >
-                Try again
+              <Text style={styles.storyLabel}>
+                Your story
               </Text>
             </Pressable>
           </View>
-        );
-      }
+        )}
 
-      return (
-        <View
-          style={
-            styles.emptyState
-          }
-        >
-          <View
-            style={
-              styles.emptyIcon
-            }
+        {/* STORY ERROR */}
+        {!!storyError && (
+          <Pressable
+            onPress={handleRetry}
+            style={styles.storyError}
           >
             <Ionicons
-              name="images-outline"
-              size={30}
+              name="alert-circle-outline"
+              size={16}
+              color={COLORS.secondary}
+            />
+
+            <Text style={styles.storyErrorText}>
+              Stories unavailable · Tap to retry
+            </Text>
+          </Pressable>
+        )}
+
+        {/* FEED ERROR */}
+        {!!feedError && posts.length > 0 && (
+          <Pressable
+            onPress={handleRetry}
+            accessibilityRole="button"
+            accessibilityLabel="Retry loading feed"
+            style={styles.feedError}
+          >
+            <Ionicons
+              name="cloud-offline-outline"
+              size={17}
+              color={COLORS.text}
+            />
+
+            <Text style={styles.feedErrorText}>
+              Couldn't refresh your feed.
+              Tap to retry.
+            </Text>
+          </Pressable>
+        )}
+      </View>
+    );
+  }, [
+    stories,
+    storyError,
+    feedError,
+    posts.length,
+    handleCreatePost,
+    handleCreateStory,
+    handleNotifications,
+    handleMessages,
+    handleStoryPress,
+    handleRetry,
+  ]);
+
+  const renderEmpty = useCallback(() => {
+    if (loading) {
+      return (
+        <View style={styles.emptyState}>
+          <ActivityIndicator
+            size="small"
+            color={COLORS.text}
+          />
+
+          <Text style={styles.emptyTitle}>
+            Loading your feed
+          </Text>
+        </View>
+      );
+    }
+
+    if (!user) {
+      return (
+        <View style={styles.emptyState}>
+          <View style={styles.emptyIcon}>
+            <Ionicons
+              name="person-outline"
+              size={29}
               color={COLORS.text}
             />
           </View>
 
-          <Text
-            style={
-              styles.emptyTitle
-            }
-          >
-            Your feed is empty
+          <Text style={styles.emptyTitle}>
+            Sign in to continue
           </Text>
 
-          <Text
-            style={
-              styles.emptySubtitle
-            }
-          >
-            Follow people to see their photos
-            and videos here.
+          <Text style={styles.emptySubtitle}>
+            Log in to see posts from people
+            you follow.
+          </Text>
+        </View>
+      );
+    }
+
+    if (feedError) {
+      return (
+        <View style={styles.emptyState}>
+          <View style={styles.emptyIcon}>
+            <Ionicons
+              name="cloud-offline-outline"
+              size={29}
+              color={COLORS.text}
+            />
+          </View>
+
+          <Text style={styles.emptyTitle}>
+            Couldn't load your feed
+          </Text>
+
+          <Text style={styles.emptySubtitle}>
+            {feedError}
           </Text>
 
           <Pressable
-            onPress={
-              handleExplore
-            }
+            onPress={handleRetry}
             accessibilityRole="button"
-            accessibilityLabel="Discover people"
-            style={({
-              pressed,
-            }) => [
-              styles.exploreButton,
+            accessibilityLabel="Try loading feed again"
+            style={({ pressed }) => [
+              styles.retryButton,
               pressed &&
-                styles.explorePressed,
+                styles.pressedButton,
             ]}
           >
-            <Text
-              style={
-                styles.exploreText
-              }
-            >
-              Discover people
+            <Text style={styles.retryText}>
+              Try again
             </Text>
           </Pressable>
         </View>
       );
-    }, [
-      loading,
-      user,
-      feedError,
-      handleRetry,
-      handleExplore,
-    ]);
+    }
 
-  const renderFooter =
-    useCallback(() => {
-      if (
-        loading ||
-        refreshing ||
-        posts.length === 0
-      ) {
-        return null;
-      }
-
-      return (
-        <View
-          style={styles.footer}
-        >
+    return (
+      <View style={styles.emptyState}>
+        <View style={styles.emptyIcon}>
           <Ionicons
-            name="checkmark-circle-outline"
-            size={18}
-            color={COLORS.muted}
+            name="images-outline"
+            size={30}
+            color={COLORS.text}
           />
-
-          <Text
-            style={
-              styles.footerText
-            }
-          >
-            You're all caught up
-          </Text>
         </View>
-      );
-    }, [
-      loading,
-      refreshing,
-      posts.length,
-    ]);
+
+        <Text style={styles.emptyTitle}>
+          Your feed is empty
+        </Text>
+
+        <Text style={styles.emptySubtitle}>
+          Follow people to see their photos
+          and videos here.
+        </Text>
+
+        <Pressable
+          onPress={handleExplore}
+          accessibilityRole="button"
+          accessibilityLabel="Discover people"
+          style={({ pressed }) => [
+            styles.exploreButton,
+            pressed &&
+              styles.explorePressed,
+          ]}
+        >
+          <Text style={styles.exploreText}>
+            Discover people
+          </Text>
+        </Pressable>
+      </View>
+    );
+  }, [
+    loading,
+    user,
+    feedError,
+    handleRetry,
+    handleExplore,
+  ]);
+
+  const renderFooter = useCallback(() => {
+    if (
+      loading ||
+      refreshing ||
+      posts.length === 0
+    ) {
+      return null;
+    }
+
+    return (
+      <View style={styles.footer}>
+        <Ionicons
+          name="checkmark-circle-outline"
+          size={18}
+          color={COLORS.muted}
+        />
+
+        <Text style={styles.footerText}>
+          You're all caught up
+        </Text>
+      </View>
+    );
+  }, [
+    loading,
+    refreshing,
+    posts.length,
+  ]);
 
   if (authLoading) {
     return (
@@ -817,25 +680,15 @@ export default function HomeScreen() {
         edges={["top"]}
         style={styles.safeArea}
       >
-        <View
-          style={
-            styles.authLoading
-          }
-        >
-          <Text
-            style={
-              styles.authLogo
-            }
-          >
+        <View style={styles.authLoading}>
+          <Text style={styles.authLogo}>
             Snapgram
           </Text>
 
           <ActivityIndicator
             size="small"
             color={COLORS.text}
-            style={
-              styles.authSpinner
-            }
+            style={styles.authSpinner}
           />
         </View>
       </SafeAreaView>
@@ -850,25 +703,13 @@ export default function HomeScreen() {
       <FlatList
         data={posts}
         renderItem={renderPost}
-        keyExtractor={
-          keyExtractor
-        }
-        ListHeaderComponent={
-          renderHeader
-        }
-        ListEmptyComponent={
-          renderEmpty
-        }
-        ListFooterComponent={
-          renderFooter
-        }
-        showsVerticalScrollIndicator={
-          false
-        }
+        keyExtractor={keyExtractor}
+        ListHeaderComponent={renderHeader}
+        ListEmptyComponent={renderEmpty}
+        ListFooterComponent={renderFooter}
+        showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
-        removeClippedSubviews={
-          false
-        }
+        removeClippedSubviews={false}
         contentContainerStyle={
           posts.length === 0
             ? styles.emptyList
@@ -876,18 +717,10 @@ export default function HomeScreen() {
         }
         refreshControl={
           <RefreshControl
-            refreshing={
-              refreshing
-            }
-            onRefresh={
-              handleRefresh
-            }
-            tintColor={
-              COLORS.text
-            }
-            colors={[
-              COLORS.text,
-            ]}
+            refreshing={refreshing}
+            onRefresh={handleRefresh}
+            tintColor={COLORS.text}
+            colors={[COLORS.text]}
           />
         }
         initialNumToRender={4}
@@ -901,13 +734,11 @@ export default function HomeScreen() {
 const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
-    backgroundColor:
-      COLORS.background,
+    backgroundColor: COLORS.background,
   },
 
   headerContainer: {
-    backgroundColor:
-      COLORS.background,
+    backgroundColor: COLORS.background,
   },
 
   topHeader: {
@@ -915,14 +746,11 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     flexDirection: "row",
     alignItems: "center",
-    justifyContent:
-      "space-between",
-    backgroundColor:
-      COLORS.background,
+    justifyContent: "space-between",
+    backgroundColor: COLORS.background,
     borderBottomWidth:
       StyleSheet.hairlineWidth,
-    borderBottomColor:
-      COLORS.border,
+    borderBottomColor: COLORS.border,
   },
 
   logo: {
@@ -947,8 +775,7 @@ const styles = StyleSheet.create({
     height: 42,
     borderRadius: 21,
     alignItems: "center",
-    justifyContent:
-      "center",
+    justifyContent: "center",
   },
 
   pressed: {
@@ -956,49 +783,37 @@ const styles = StyleSheet.create({
   },
 
   storySection: {
-    backgroundColor:
-      COLORS.background,
+    backgroundColor: COLORS.background,
     borderBottomWidth:
       StyleSheet.hairlineWidth,
-    borderBottomColor:
-      COLORS.border,
+    borderBottomColor: COLORS.border,
   },
 
   emptyStorySection: {
     height: 108,
     paddingHorizontal: 14,
-    alignItems:
-      "flex-start",
-    justifyContent:
-      "center",
-    backgroundColor:
-      COLORS.background,
+    alignItems: "flex-start",
+    justifyContent: "center",
+    backgroundColor: COLORS.background,
     borderBottomWidth:
       StyleSheet.hairlineWidth,
-    borderBottomColor:
-      COLORS.border,
+    borderBottomColor: COLORS.border,
   },
 
   storyButton: {
-    alignItems:
-      "center",
-    justifyContent:
-      "center",
+    alignItems: "center",
+    justifyContent: "center",
   },
 
   storyAvatar: {
     width: 62,
     height: 62,
     borderRadius: 31,
-    alignItems:
-      "center",
-    justifyContent:
-      "center",
-    backgroundColor:
-      "#FAFAFA",
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#FAFAFA",
     borderWidth: 1,
-    borderColor:
-      COLORS.border,
+    borderColor: COLORS.border,
   },
 
   storyLabel: {
@@ -1017,20 +832,16 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     flexDirection: "row",
     alignItems: "center",
-    justifyContent:
-      "center",
+    justifyContent: "center",
     gap: 6,
-    backgroundColor:
-      "#FAFAFA",
+    backgroundColor: "#FAFAFA",
     borderBottomWidth:
       StyleSheet.hairlineWidth,
-    borderBottomColor:
-      COLORS.border,
+    borderBottomColor: COLORS.border,
   },
 
   storyErrorText: {
-    color:
-      COLORS.secondary,
+    color: COLORS.secondary,
     fontSize: 12,
     fontWeight: "600",
   },
@@ -1040,15 +851,12 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     flexDirection: "row",
     alignItems: "center",
-    justifyContent:
-      "center",
+    justifyContent: "center",
     gap: 7,
-    backgroundColor:
-      "#FAFAFA",
+    backgroundColor: "#FAFAFA",
     borderBottomWidth:
       StyleSheet.hairlineWidth,
-    borderBottomColor:
-      COLORS.border,
+    borderBottomColor: COLORS.border,
   },
 
   feedErrorText: {
@@ -1063,8 +871,7 @@ const styles = StyleSheet.create({
 
   postWrapper: {
     width: "100%",
-    backgroundColor:
-      COLORS.background,
+    backgroundColor: COLORS.background,
   },
 
   emptyList: {
@@ -1075,10 +882,8 @@ const styles = StyleSheet.create({
   emptyState: {
     minHeight: 390,
     paddingHorizontal: 30,
-    alignItems:
-      "center",
-    justifyContent:
-      "center",
+    alignItems: "center",
+    justifyContent: "center",
   },
 
   emptyIcon: {
@@ -1086,15 +891,11 @@ const styles = StyleSheet.create({
     height: 72,
     borderRadius: 36,
     marginBottom: 18,
-    alignItems:
-      "center",
-    justifyContent:
-      "center",
+    alignItems: "center",
+    justifyContent: "center",
     borderWidth: 1,
-    borderColor:
-      COLORS.border,
-    backgroundColor:
-      COLORS.background,
+    borderColor: COLORS.border,
+    backgroundColor: COLORS.background,
   },
 
   emptyTitle: {
@@ -1107,8 +908,7 @@ const styles = StyleSheet.create({
   emptySubtitle: {
     maxWidth: 300,
     marginTop: 8,
-    color:
-      COLORS.secondary,
+    color: COLORS.secondary,
     fontSize: 14,
     lineHeight: 20,
     textAlign: "center",
@@ -1120,12 +920,9 @@ const styles = StyleSheet.create({
     marginTop: 20,
     paddingHorizontal: 20,
     borderRadius: 8,
-    alignItems:
-      "center",
-    justifyContent:
-      "center",
-    backgroundColor:
-      "#EFEFEF",
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#EFEFEF",
   },
 
   pressedButton: {
@@ -1144,12 +941,9 @@ const styles = StyleSheet.create({
     marginTop: 20,
     paddingHorizontal: 20,
     borderRadius: 8,
-    alignItems:
-      "center",
-    justifyContent:
-      "center",
-    backgroundColor:
-      COLORS.blue,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: COLORS.blue,
   },
 
   explorePressed: {
@@ -1164,10 +958,8 @@ const styles = StyleSheet.create({
 
   footer: {
     height: 80,
-    alignItems:
-      "center",
-    justifyContent:
-      "center",
+    alignItems: "center",
+    justifyContent: "center",
     gap: 5,
   },
 
@@ -1178,10 +970,8 @@ const styles = StyleSheet.create({
 
   authLoading: {
     flex: 1,
-    alignItems:
-      "center",
-    justifyContent:
-      "center",
+    alignItems: "center",
+    justifyContent: "center",
   },
 
   authLogo: {

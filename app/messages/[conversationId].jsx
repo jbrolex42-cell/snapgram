@@ -1,29 +1,29 @@
 import React, {
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
+useCallback,
+useEffect,
+useMemo,
+useRef,
+useState,
 } from "react";
 
 import {
-  ActivityIndicator,
-  Alert,
-  FlatList,
-  Image,
-  KeyboardAvoidingView,
-  Modal,
-  Platform,
-  Pressable,
-  StyleSheet,
-  Text,
-  TextInput,
-  View,
+ActivityIndicator,
+Alert,
+FlatList,
+Image,
+KeyboardAvoidingView,
+Modal,
+Platform,
+Pressable,
+StyleSheet,
+Text,
+TextInput,
+View,
 } from "react-native";
 
 import {
-  router,
-  useLocalSearchParams,
+router,
+useLocalSearchParams,
 } from "expo-router";
 
 import * as Clipboard from "expo-clipboard";
@@ -40,1211 +40,889 @@ import VoiceRecorder from "../../components/messages/VoiceRecorder";
 import OnlineStatus from "../../components/messages/OnlineStatus";
 import MessageSearch from "../../components/messages/MessageSearch";
 import ReactionBar from "../../components/messages/ReactionBar";
+import VerifiedBadge from "../../components/common/VerifiedBadge";
 
 import {
-  getMessages,
-  getOrCreateConversation,
-  markMessagesRead,
-  sendMessage,
-  sendMediaMessage,
-  sendVoiceMessage,
-  searchMessages,
-  reactToMessage,
-  unsendMessage,
-  deleteMessage,
+getMessages,
+getOrCreateConversation,
+markMessagesRead,
+sendMessage,
+sendMediaMessage,
+sendVoiceMessage,
+reactToMessage,
+unsendMessage,
+deleteMessage,
 } from "../../services/messageService";
 
-import {
-  startCall,
-  updateCall,
-} from "../../services/callService";
+import { startCall } from "../../services/callService";
 
 import {
-  getSocket,
-  joinConversation,
-  leaveConversation,
-  sendSocketMessage,
-  sendTyping,
-  stopTyping,
-  waitForSocket,
+getSocket,
+joinConversation,
+leaveConversation,
+sendSocketMessage,
+sendTyping,
+stopTyping,
+waitForSocket,
 } from "../../services/socket";
 
 function getId(value) {
-  if (!value) return null;
+if (!value) {
+return null;
+}
 
-  if (typeof value === "string") {
-    return value;
-  }
+if (typeof value === "string") {
+return value;
+}
 
-  return (
-    value?._id ||
-    value?.id ||
-    null
-  );
+return value?._id || value?.id || null;
 }
 
 function normalizeParam(value) {
-  if (Array.isArray(value)) {
-    return value[0] || null;
-  }
-
-  return value || null;
+if (Array.isArray(value)) {
+return value[0] || null;
 }
 
-function getMessageId(message) {
-  return (
-    message?._id ||
-    message?.id ||
-    null
-  );
+return value || null;
 }
 
 function sameId(a, b) {
-  if (!a || !b) return false;
-
-  return (
-    String(a) === String(b)
-  );
+if (!a || !b) {
+return false;
 }
 
+return String(a) === String(b);
+}
+
+function getMessageId(message) {
+return message?._id || message?.id || null;
+}
+
+function getDisplayName(user) {
+return (
+user?.fullName?.trim() ||
+user?.name?.trim() ||
+user?.username ||
+"User"
+);
+}
+
+function getUsername(user) {
+if (!user?.username) {
+return null;
+}
+
+return `@${user.username}`;
+}
+
+function getAvatar(user) {
+return (
+user?.avatar ||
+user?.profilePicture ||
+user?.photoURL ||
+null
+);
+}
+
+/*
+
+* Search is intentionally local.
+*
+* The server must never receive a plaintext search query for an
+* end-to-end encrypted conversation.
+  */
+  function getMessageSearchText(message) {
+  if (!message) {
+  return "";
+  }
+
+return [
+message.text,
+message.caption,
+message?.sender?.fullName,
+message?.sender?.username,
+]
+.filter(Boolean)
+.join(" ")
+.toLowerCase();
+}
+
+
 export default function ConversationScreen() {
-  const params =
-    useLocalSearchParams();
+const params = useLocalSearchParams();
 
-  const {
-    user,
-    loading: authLoading,
-  } = useAuth();
+const {
+user,
+loading: authLoading,
+} = useAuth();
 
-  const routeConversationId =
-    normalizeParam(
-      params?.conversationId
+const insets = useSafeAreaInsets();
+
+const routeConversationId = normalizeParam(
+params?.conversationId
+);
+
+const routeUserId = normalizeParam(
+params?.userId
+);
+
+const currentUserId = getId(user);
+
+const [conversationId, setConversationId] =
+useState(
+routeConversationId
+? String(routeConversationId)
+: null
+);
+
+const [conversation, setConversation] =
+useState(null);
+
+const [messages, setMessages] =
+useState([]);
+
+const [text, setText] =
+useState("");
+
+const [loading, setLoading] =
+useState(true);
+
+const [searching, setSearching] =
+useState(false);
+
+const [searchResults, setSearchResults] =
+useState([]);
+
+const [typingUser, setTypingUser] =
+useState(null);
+
+const [replyingTo, setReplyingTo] =
+useState(null);
+
+const [selectedMessage, setSelectedMessage] =
+useState(null);
+
+const [startingCall, setStartingCall] =
+useState(null);
+
+const [sending, setSending] =
+useState(false);
+
+const listRef = useRef(null);
+const typingTimerRef = useRef(null);
+const mountedRef = useRef(true);
+const loadingRef = useRef(false);
+const callStartingRef = useRef(false);
+
+const otherUser = useMemo(() => {
+const participants = Array.isArray(
+conversation?.participants
+)
+? conversation.participants
+: [];
+
+const participant = participants.find(
+  (item) => {
+    const id = getId(item);
+
+    return (
+      id &&
+      !sameId(id, currentUserId)
     );
+  }
+);
 
-  const routeUserId =
-    normalizeParam(
-      params?.userId
-    );
+if (participant) {
+  return participant;
+}
 
-  const currentUserId =
-    getId(user);
+if (routeUserId) {
+  return {
+    _id: String(routeUserId),
+    id: String(routeUserId),
+    username: "user",
+    fullName: "User",
+    avatar: null,
+    isVerified: false,
+  };
+}
 
-  const [
-    conversationId,
-    setConversationId,
-  ] = useState(
-    routeConversationId
-      ? String(routeConversationId)
-      : null
+for (const message of messages) {
+  const senderId = getId(
+    message?.sender
   );
 
-  const [
-    conversation,
-    setConversation,
-  ] = useState(null);
+  if (
+    senderId &&
+    !sameId(
+      senderId,
+      currentUserId
+    )
+  ) {
+    return message.sender;
+  }
 
-  const [
-    messages,
-    setMessages,
-  ] = useState([]);
+  const receiverId = getId(
+    message?.receiver
+  );
 
-  const [
-    text,
-    setText,
-  ] = useState("");
+  if (
+    receiverId &&
+    !sameId(
+      receiverId,
+      currentUserId
+    )
+  ) {
+    return message.receiver;
+  }
+}
 
-  const [
-    loading,
-    setLoading,
-  ] = useState(true);
+return null;
 
-  const [
-    searching,
-    setSearching,
-  ] = useState(false);
+}, [
+conversation,
+currentUserId,
+messages,
+routeUserId,
+]);
 
-  const [
-    searchResults,
-    setSearchResults,
-  ] = useState([]);
+const receiverId =
+getId(otherUser) ||
+routeUserId ||
+null;
 
-  const [
-    typingUser,
-    setTypingUser,
-  ] = useState(null);
+const displayName =
+getDisplayName(otherUser);
 
-  const [
-    replyingTo,
-    setReplyingTo,
-  ] = useState(null);
+const username =
+getUsername(otherUser);
 
-  const [
-    selectedMessage,
-    setSelectedMessage,
-  ] = useState(null);
+const otherAvatar =
+getAvatar(otherUser);
 
-  const [
-    startingCall,
-    setStartingCall,
-  ] = useState(null);
+const appendMessage = useCallback(
+(message) => {
+if (!message) {
+return;
+}
 
-  const [
-    sending,
-    setSending,
-  ] = useState(false);
+  const id = getMessageId(message);
 
-  const insets =
-    useSafeAreaInsets();
-
-  const listRef =
-    useRef(null);
-
-  const typingTimerRef =
-    useRef(null);
-
-  const mountedRef =
-    useRef(true);
-
-  const loadingRef =
-    useRef(false);
-
-  const callStartingRef =
-    useRef(false);
-
-  const otherUser =
-    useMemo(() => {
-      const participants =
-        Array.isArray(
-          conversation?.participants
+  setMessages((current) => {
+    if (
+      id &&
+      current.some((item) =>
+        sameId(
+          getMessageId(item),
+          id
         )
-          ? conversation.participants
+      )
+    ) {
+      return current;
+    }
+
+    return [
+      ...current,
+      message,
+    ];
+  });
+},
+[]
+
+);
+
+const loadConversation = useCallback(
+async () => {
+if (authLoading) {
+return;
+}
+
+  if (!user) {
+    setLoading(false);
+    return;
+  }
+
+  if (loadingRef.current) {
+    return;
+  }
+
+  loadingRef.current = true;
+
+  try {
+    setLoading(true);
+
+    let id = conversationId;
+
+    if (!id && routeUserId) {
+      const created =
+        await getOrCreateConversation(
+          String(routeUserId)
+        );
+
+      const createdId =
+        getId(created);
+
+      if (!createdId) {
+        throw new Error(
+          "Unable to create conversation."
+        );
+      }
+
+      id = String(createdId);
+
+      if (mountedRef.current) {
+        setConversationId(id);
+        setConversation(
+          created
+        );
+      }
+    }
+
+    if (!id) {
+      if (mountedRef.current) {
+        setMessages([]);
+      }
+
+      return;
+    }
+
+    const result =
+      await getMessages(id);
+
+    if (!mountedRef.current) {
+      return;
+    }
+
+    if (result?.conversation) {
+      setConversation(
+        result.conversation
+      );
+    }
+
+    const loaded =
+      Array.isArray(
+        result?.messages
+      )
+        ? result.messages
+        : Array.isArray(result)
+          ? result
           : [];
 
-      const participant =
-        participants.find(
-          (item) => {
-            const id =
-              getId(item);
+    /*
+     * messageService is responsible for decrypting messages
+     * before returning them to the UI.
+     *
+     * The screen therefore only handles plaintext that already
+     * exists locally after successful decryption.
+     */
+    setMessages(loaded);
 
-            return (
-              id &&
-              !sameId(
-                id,
-                currentUserId
-              )
-            );
-          }
-        );
-
-      if (participant) {
-        return participant;
-      }
-
-      if (routeUserId) {
-        return {
-          _id: String(routeUserId),
-          id: String(routeUserId),
-          username: "User",
-          name: "User",
-          avatar: null,
-        };
-      }
-
-      for (
-        let i = 0;
-        i < messages.length;
-        i += 1
-      ) {
-        const message =
-          messages[i];
-
-        const sender =
-          message?.sender;
-
-        const receiver =
-          message?.receiver;
-
-        const senderId =
-          getId(sender);
-
-        if (
-          senderId &&
-          !sameId(
-            senderId,
-            currentUserId
-          )
-        ) {
-          return sender;
-        }
-
-        const receiverId =
-          getId(receiver);
-
-        if (
-          receiverId &&
-          !sameId(
-            receiverId,
-            currentUserId
-          )
-        ) {
-          return receiver;
-        }
-      }
-
-      return null;
-    }, [
-      conversation,
-      currentUserId,
-      messages,
-      routeUserId,
-    ]);
-
-  const receiverId =
-    getId(otherUser) ||
-    routeUserId ||
-    null;
-
-  const otherUsername =
-    otherUser?.username ||
-    otherUser?.name ||
-    "User";
-
-  const otherAvatar =
-    otherUser?.avatar ||
-    otherUser?.profilePicture ||
-    otherUser?.photoURL ||
-    null;
-
-  const appendMessage =
-    useCallback(
-      (message) => {
-        if (!message) {
-          return;
-        }
-
-        const id =
-          getMessageId(
-            message
-          );
-
-        setMessages(
-          (current) => {
-            if (
-              id &&
-              current.some(
-                (item) =>
-                  sameId(
-                    getMessageId(
-                      item
-                    ),
-                    id
-                  )
-              )
-            ) {
-              return current;
-            }
-
-            return [
-              ...current,
-              message,
-            ];
-          }
-        );
-      },
-      []
+    try {
+      await markMessagesRead(id);
+    } catch (error) {
+      console.warn(
+        "[CHAT] Mark read failed:",
+        error?.response?.data ||
+          error
+      );
+    }
+  } catch (error) {
+    console.error(
+      "[CHAT] Load conversation error:",
+      error?.response?.data ||
+        error
     );
 
-  const loadConversation =
-    useCallback(
-      async () => {
-        if (authLoading) {
-          return;
-        }
+    if (mountedRef.current) {
+      Alert.alert(
+        "Unable to load chat",
+        error?.response?.data
+          ?.message ||
+          error?.message ||
+          "We couldn't load this conversation."
+      );
+    }
+  } finally {
+    loadingRef.current = false;
 
-        if (!user) {
-          setLoading(false);
-          return;
-        }
+    if (mountedRef.current) {
+      setLoading(false);
+    }
+  }
+},
+[
+  authLoading,
+  conversationId,
+  routeUserId,
+  user,
+]
 
-        if (loadingRef.current) {
-          return;
-        }
+);
 
-        loadingRef.current = true;
 
-        try {
-          setLoading(true);
+useEffect(() => {
+mountedRef.current = true;
 
-          let id =
-            conversationId;
+return () => {
+  mountedRef.current = false;
 
-          if (
-            !id &&
-            routeUserId
-          ) {
-            const created =
-              await getOrCreateConversation(
-                String(
-                  routeUserId
-                )
-              );
-
-            const createdId =
-              getId(created);
-
-            if (!createdId) {
-              throw new Error(
-                "Unable to create conversation."
-              );
-            }
-
-            id = String(
-              createdId
-            );
-
-            if (
-              mountedRef.current
-            ) {
-              setConversationId(
-                id
-              );
-
-              setConversation(
-                created
-              );
-            }
-          }
-
-          if (!id) {
-            if (
-              mountedRef.current
-            ) {
-              setMessages([]);
-            }
-
-            return;
-          }
-
-          const result =
-            await getMessages(
-              id
-            );
-
-          if (
-            !mountedRef.current
-          ) {
-            return;
-          }
-
-          if (
-            result?.conversation
-          ) {
-            setConversation(
-              result.conversation
-            );
-          }
-
-          const loaded =
-            Array.isArray(
-              result?.messages
-            )
-              ? result.messages
-              : Array.isArray(
-                    result
-                  )
-                ? result
-                : [];
-
-          setMessages(
-            loaded
-          );
-
-          try {
-            await markMessagesRead(
-              id
-            );
-          } catch (
-            readError
-          ) {
-            console.warn(
-              "[CHAT] mark read failed:",
-              readError?.response
-                ?.data ||
-                readError
-            );
-          }
-        } catch (error) {
-          console.error(
-            "[CHAT] load error:",
-            error?.response
-              ?.data ||
-              error
-          );
-
-          if (
-            mountedRef.current
-          ) {
-            Alert.alert(
-              "Unable to load chat",
-              error?.response
-                ?.data?.message ||
-                error?.message ||
-                "We couldn't load this conversation."
-            );
-          }
-        } finally {
-          loadingRef.current =
-            false;
-
-          if (
-            mountedRef.current
-          ) {
-            setLoading(false);
-          }
-        }
-      },
-      [
-        authLoading,
-        conversationId,
-        routeUserId,
-        user,
-      ]
+  if (typingTimerRef.current) {
+    clearTimeout(
+      typingTimerRef.current
     );
+  }
+};
 
-  useEffect(() => {
-    mountedRef.current =
-      true;
+}, []);
 
-    return () => {
-      mountedRef.current =
-        false;
+useEffect(() => {
+loadConversation();
+}, [loadConversation]);
 
-      if (
-        typingTimerRef.current
-      ) {
-        clearTimeout(
-          typingTimerRef.current
-        );
-      }
-    };
-  }, []);
+useEffect(() => {
+if (
+!user ||
+!conversationId
+) {
+return undefined;
+}
 
-  useEffect(() => {
-    loadConversation();
-  }, [
-    loadConversation,
-  ]);
+const socket = getSocket();
 
-  useEffect(() => {
-    if (
-      !user ||
-      !conversationId
-    ) {
-      return undefined;
+if (!socket) {
+  return undefined;
+}
+
+joinConversation(
+  conversationId
+);
+
+const handleNewMessage =
+  (message) => {
+    if (!message) {
+      return;
     }
 
-    const socket =
-      getSocket();
+    const incomingConversation =
+      message?.conversation;
+
+    const incomingConversationId =
+      getId(
+        incomingConversation
+      ) ||
+      incomingConversation;
 
     if (
-      !socket
-    ) {
-      return undefined;
-    }
-
-    joinConversation(
-      conversationId
-    );
-
-    const handleNewMessage =
-      (message) => {
-        if (!message) {
-          return;
-        }
-
-        const incomingConversation =
-          message?.conversation;
-
-        const incomingConversationId =
-          getId(
-            incomingConversation
-          ) ||
-          incomingConversation;
-
-        if (
-          !sameId(
-            incomingConversationId,
-            conversationId
-          )
-        ) {
-          return;
-        }
-
-        appendMessage(
-          message
-        );
-
-        markMessagesRead(
-          conversationId
-        ).catch(() => {});
-      };
-
-    const handleTyping =
-      (data) => {
-        if (
-          data?.userId &&
-          currentUserId &&
-          sameId(
-            data.userId,
-            currentUserId
-          )
-        ) {
-          return;
-        }
-
-        const username =
-          data?.username ||
-          otherUsername ||
-          "Someone";
-
-        setTypingUser(
-          username
-        );
-      };
-
-    const handleStopTyping =
-      () => {
-        setTypingUser(
-          null
-        );
-      };
-
-    socket.on(
-      "message:new",
-      handleNewMessage
-    );
-
-    socket.on(
-      "message:typing",
-      handleTyping
-    );
-
-    socket.on(
-      "message:stopTyping",
-      handleStopTyping
-    );
-
-    return () => {
-      leaveConversation(
+      !sameId(
+        incomingConversationId,
         conversationId
+      )
+    ) {
+      return;
+    }
+
+    /*
+     * message:new should already contain the locally
+     * decrypted representation from the message service/
+     * socket message handling layer.
+     */
+    appendMessage(message);
+
+    markMessagesRead(
+      conversationId
+    ).catch(() => {});
+  };
+
+const handleTyping =
+  (data) => {
+    if (
+      data?.userId &&
+      currentUserId &&
+      sameId(
+        data.userId,
+        currentUserId
+      )
+    ) {
+      return;
+    }
+
+    setTypingUser(
+      displayName
+    );
+  };
+
+const handleStopTyping =
+  () => {
+    setTypingUser(null);
+  };
+
+socket.on(
+  "message:new",
+  handleNewMessage
+);
+
+socket.on(
+  "message:typing",
+  handleTyping
+);
+
+socket.on(
+  "message:stopTyping",
+  handleStopTyping
+);
+
+return () => {
+  leaveConversation(
+    conversationId
+  );
+
+  socket.off(
+    "message:new",
+    handleNewMessage
+  );
+
+  socket.off(
+    "message:typing",
+    handleTyping
+  );
+
+  socket.off(
+    "message:stopTyping",
+    handleStopTyping
+  );
+};
+
+}, [
+appendMessage,
+conversationId,
+currentUserId,
+displayName,
+user,
+]);
+
+const handleTypingChange =
+useCallback(
+(value) => {
+setText(value);
+
+    if (typingTimerRef.current) {
+      clearTimeout(
+        typingTimerRef.current
+      );
+    }
+
+    const socket = getSocket();
+
+    if (
+      !socket?.connected ||
+      !conversationId ||
+      !currentUserId ||
+      !receiverId
+    ) {
+      return;
+    }
+
+    if (value.trim()) {
+      sendTyping(
+        conversationId,
+        receiverId
       );
 
-      socket.off(
-        "message:new",
-        handleNewMessage
+      typingTimerRef.current =
+        setTimeout(() => {
+          stopTyping(
+            conversationId,
+            receiverId
+          );
+        }, 1200);
+    } else {
+      stopTyping(
+        conversationId,
+        receiverId
       );
-
-      socket.off(
-        "message:typing",
-        handleTyping
-      );
-
-      socket.off(
-        "message:stopTyping",
-        handleStopTyping
-      );
-    };
-  }, [
-    appendMessage,
+    }
+  },
+  [
     conversationId,
     currentUserId,
-    otherUsername,
-    user,
-  ]);
+    receiverId,
+  ]
+);
 
-  const handleTypingChange =
-    useCallback(
-      (value) => {
-        setText(value);
+const handleSend = useCallback(
+async () => {
+const value = text.trim();
 
-        if (
-          typingTimerRef.current
-        ) {
-          clearTimeout(
-            typingTimerRef.current
-          );
-        }
+  if (
+    !value ||
+    !conversationId ||
+    !receiverId ||
+    sending
+  ) {
+    return;
+  }
 
-        const socket =
-          getSocket();
+  setSending(true);
 
-        if (
-          !socket?.connected ||
-          !conversationId ||
-          !currentUserId
-        ) {
-          return;
-        }
+  try {
+    setText("");
 
-        if (
-          value.trim()
-        ) {
-          sendTyping(
-            conversationId,
-            currentUserId,
-            user?.username ||
-              "Snapgram User"
-          );
-
-          typingTimerRef.current =
-            setTimeout(() => {
-              stopTyping(
-                conversationId,
-                currentUserId
-              );
-            }, 1200);
-        } else {
-          stopTyping(
-            conversationId,
-            currentUserId
-          );
-        }
-      },
-      [
-        conversationId,
-        currentUserId,
-        user?.username,
-      ]
+    stopTyping(
+      conversationId,
+      receiverId
     );
 
-  const handleSend =
-    useCallback(
-      async () => {
-        const value =
-          text.trim();
-
-        if (
-          !value ||
-          !conversationId ||
-          !receiverId ||
-          sending
-        ) {
-          return;
-        }
-
-        setSending(true);
-
-        try {
-          setText("");
-
-          stopTyping(
-            conversationId,
-            currentUserId
-          );
-
-          const message =
-            await sendMessage({
-              conversationId,
-              receiverId:
-                String(
-                  receiverId
-                ),
-              text: value,
-              replyTo:
-                getMessageId(
-                  replyingTo
-                ) || null,
-            });
-
-          if (message) {
-            appendMessage(
-              message
-            );
-
-            sendSocketMessage(
-              message
-            );
-          }
-
-          setReplyingTo(
-            null
-          );
-        } catch (error) {
-          console.error(
-            "[CHAT] send error:",
-            error?.response
-              ?.data ||
-              error
-          );
-
-          setText(
-            value
-          );
-
-          Alert.alert(
-            "Message failed",
-            error?.response
-              ?.data?.message ||
-              error?.message ||
-              "Unable to send message."
-          );
-        } finally {
-          if (
-            mountedRef.current
-          ) {
-            setSending(false);
-          }
-        }
-      },
-      [
-        appendMessage,
+    const message =
+      await sendMessage({
         conversationId,
-        currentUserId,
-        receiverId,
-        replyingTo,
-        sending,
-        text,
-      ]
+        receiverId: String(
+          receiverId
+        ),
+        text: value,
+        replyTo:
+          getMessageId(
+            replyingTo
+          ) || null,
+      });
+
+    if (message) {
+      appendMessage(message);
+
+      sendSocketMessage(
+        message
+      );
+    }
+
+    setReplyingTo(null);
+  } catch (error) {
+    console.error(
+      "[CHAT] Secure send error:",
+      error?.response?.data ||
+        error
     );
 
-  const handleMediaSelected =
-    useCallback(
-      async (media) => {
-        if (
-          !media?.uri ||
-          !conversationId ||
-          !receiverId
-        ) {
-          return;
-        }
+    setText(value);
 
-        try {
-          const message =
-            await sendMediaMessage({
-              conversationId,
-              receiverId:
-                String(
-                  receiverId
-                ),
-              type:
-                media.type ||
-                "image",
-              uri: media.uri,
-              mimeType:
-                media.mimeType,
-              replyTo:
-                getMessageId(
-                  replyingTo
-                ) || null,
-            });
-
-          if (message) {
-            appendMessage(
-              message
-            );
-
-            sendSocketMessage(
-              message
-            );
-          }
-
-          setReplyingTo(
-            null
-          );
-        } catch (error) {
-          console.error(
-            "[CHAT] media error:",
-            error?.response
-              ?.data ||
-              error
-          );
-
-          Alert.alert(
-            "Media failed",
-            error?.response
-              ?.data?.message ||
-              error?.message ||
-              "Unable to send media."
-          );
-        }
-      },
-      [
-        appendMessage,
-        conversationId,
-        receiverId,
-        replyingTo,
-      ]
+    Alert.alert(
+      "Message failed",
+      error?.response?.data
+        ?.message ||
+        error?.message ||
+        "Unable to send encrypted message."
     );
+  } finally {
+    if (mountedRef.current) {
+      setSending(false);
+    }
+  }
+},
+[
+  appendMessage,
+  conversationId,
+  receiverId,
+  replyingTo,
+  sending,
+  text,
+]
 
-  const handleVoiceRecorded =
-    useCallback(
-      async (recording) => {
-        if (
-          !recording?.uri ||
-          !conversationId ||
-          !receiverId
-        ) {
-          return;
-        }
+);
 
-        try {
-          const message =
-            await sendVoiceMessage({
-              conversationId,
-              receiverId:
-                String(
-                  receiverId
-                ),
-              uri: recording.uri,
-              duration:
-                recording.duration ||
-                0,
-              replyTo:
-                getMessageId(
-                  replyingTo
-                ) || null,
-            });
+const handleMediaSelected =
+useCallback(
+async (media) => {
+if (
+!media?.uri ||
+!conversationId ||
+!receiverId
+) {
+return;
+}
 
-          if (message) {
-            appendMessage(
-              message
-            );
+    try {
 
-            sendSocketMessage(
-              message
-            );
-          }
+      const message =
+        await sendMediaMessage({
+          conversationId,
+          receiverId: String(
+            receiverId
+          ),
+          type:
+            media.type ||
+            "image",
+          uri: media.uri,
+          mimeType:
+            media.mimeType,
+          replyTo:
+            getMessageId(
+              replyingTo
+            ) || null,
+        });
 
-          setReplyingTo(
-            null
-          );
-        } catch (error) {
-          console.error(
-            "[CHAT] voice error:",
-            error?.response
-              ?.data ||
-              error
-          );
+      if (message) {
+        appendMessage(message);
 
-          Alert.alert(
-            "Voice message failed",
-            error?.response
-              ?.data?.message ||
-              error?.message ||
-              "Unable to send voice message."
-          );
-        }
-      },
-      [
-        appendMessage,
-        conversationId,
-        receiverId,
-        replyingTo,
-      ]
-    );
-
-  const handleMessageOptions =
-    useCallback(
-      (message) => {
-        if (!message) {
-          return;
-        }
-
-        setSelectedMessage(
+        sendSocketMessage(
           message
         );
-      },
-      []
-    );
+      }
 
-  const handleReply =
-    useCallback(
-      (message) => {
-        if (!message) {
-          return;
-        }
+      setReplyingTo(null);
+    } catch (error) {
+      console.error(
+        "[CHAT] Secure media send error:",
+        error?.response?.data ||
+          error
+      );
 
-        setReplyingTo(
+      Alert.alert(
+        "Media failed",
+        error?.response?.data
+          ?.message ||
+          error?.message ||
+          "Unable to send encrypted media."
+      );
+    }
+  },
+  [
+    appendMessage,
+    conversationId,
+    receiverId,
+    replyingTo,
+  ]
+);
+
+const handleVoiceRecorded =
+useCallback(
+async (recording) => {
+if (
+!recording?.uri ||
+!conversationId ||
+!receiverId
+) {
+return;
+}
+
+    try {
+
+      const message =
+        await sendVoiceMessage({
+          conversationId,
+          receiverId: String(
+            receiverId
+          ),
+          uri: recording.uri,
+          duration:
+            recording.duration ||
+            0,
+          replyTo:
+            getMessageId(
+              replyingTo
+            ) || null,
+        });
+
+      if (message) {
+        appendMessage(message);
+
+        sendSocketMessage(
           message
         );
+      }
 
-        setSelectedMessage(
-          null
+      setReplyingTo(null);
+    } catch (error) {
+      console.error(
+        "[CHAT] Secure voice send error:",
+        error?.response?.data ||
+          error
+      );
+
+      Alert.alert(
+        "Voice message failed",
+        error?.response?.data
+          ?.message ||
+          error?.message ||
+          "Unable to send encrypted voice message."
+      );
+    }
+  },
+  [
+    appendMessage,
+    conversationId,
+    receiverId,
+    replyingTo,
+  ]
+);
+
+const handleMessageOptions =
+useCallback(
+(message) => {
+if (!message) {
+return;
+}
+
+    setSelectedMessage(
+      message
+    );
+  },
+  []
+);
+
+const handleReply =
+useCallback(
+(message) => {
+if (!message) {
+return;
+}
+
+    setReplyingTo(message);
+    setSelectedMessage(null);
+  },
+  []
+);
+
+const handleCopy =
+useCallback(
+async (message) => {
+if (!message?.text) {
+return;
+}
+
+    try {
+      await Clipboard.setStringAsync(
+        message.text
+      );
+
+      setSelectedMessage(null);
+    } catch (error) {
+      console.error(
+        "[CHAT] Copy error:",
+        error
+      );
+    }
+  },
+  []
+);
+
+const handleReaction =
+useCallback(
+async (message, emoji) => {
+const messageId =
+getMessageId(message);
+
+    if (!messageId) {
+      return;
+    }
+
+    try {
+      const result =
+        await reactToMessage(
+          messageId,
+          emoji
         );
-      },
-      []
-    );
 
-  const handleCopy =
-    useCallback(
-      async (message) => {
-        if (
-          !message?.text
-        ) {
-          return;
-        }
-
-        try {
-          await Clipboard.setStringAsync(
-            message.text
-          );
-
-          setSelectedMessage(
-            null
-          );
-        } catch (
-          error
-        ) {
-          console.error(
-            "[CHAT] copy error:",
-            error
-          );
-        }
-      },
-      []
-    );
-
-  const handleReaction =
-    useCallback(
-      async (
-        message,
-        emoji
-      ) => {
-        const messageId =
-          getMessageId(
-            message
-          );
-
-        if (
-          !messageId
-        ) {
-          return;
-        }
-
-        try {
-          const result =
-            await reactToMessage(
-              messageId,
-              emoji
-            );
-
-          setMessages(
-            (current) =>
-              current.map(
-                (item) =>
-                  sameId(
-                    getMessageId(
-                      item
-                    ),
-                    messageId
-                  )
-                    ? {
-                        ...item,
-                        reactions:
-                          result?.reactions ||
-                          [],
-                      }
-                    : item
-              )
-          );
-
-          setSelectedMessage(
-            null
-          );
-        } catch (
-          error
-        ) {
-          Alert.alert(
-            "Reaction failed",
-            error?.response
-              ?.data?.message ||
-              "Unable to add reaction."
-          );
-        }
-      },
-      []
-    );
-
-  const handleUnsend =
-    useCallback(
-      async (message) => {
-        const messageId =
-          getMessageId(
-            message
-          );
-
-        if (
-          !messageId
-        ) {
-          return;
-        }
-
-        try {
-          await unsendMessage(
-            messageId
-          );
-
-          setMessages(
-            (current) =>
-              current.map(
-                (item) =>
-                  sameId(
-                    getMessageId(
-                      item
-                    ),
-                    messageId
-                  )
-                    ? {
-                        ...item,
-                        deleted:
-                          true,
-                        text: "",
-                        mediaUrl:
-                          null,
-                        mediaPublicId:
-                          null,
-                      }
-                    : item
-              )
-          );
-
-          setSelectedMessage(
-            null
-          );
-        } catch (
-          error
-        ) {
-          Alert.alert(
-            "Unsend failed",
-            error?.response
-              ?.data?.message ||
-              "Unable to unsend this message."
-          );
-        }
-      },
-      []
-    );
-
-  const handleDelete =
-    useCallback(
-      async (message) => {
-        const messageId =
-          getMessageId(
-            message
-          );
-
-        if (
-          !messageId
-        ) {
-          return;
-        }
-
-        try {
-          await deleteMessage(
-            messageId
-          );
-
-          setMessages(
-            (current) =>
-              current.filter(
-                (item) =>
-                  !sameId(
-                    getMessageId(
-                      item
-                    ),
-                    messageId
-                  )
-              )
-          );
-
-          setSelectedMessage(
-            null
-          );
-        } catch (
-          error
-        ) {
-          Alert.alert(
-            "Delete failed",
-            error?.response
-              ?.data?.message ||
-              "Unable to delete message."
-          );
-        }
-      },
-      []
-    );
-
-  const handleSearch =
-    useCallback(
-      async (query) => {
-        const cleanQuery =
-          String(
-            query || ""
-          ).trim();
-
-        if (
-          !cleanQuery ||
-          !conversationId
-        ) {
-          setSearchResults(
-            []
-          );
-          return;
-        }
-
-        try {
-          const result =
-            await searchMessages(
-              conversationId,
-              cleanQuery
-            );
-
-          const safe =
-            Array.isArray(
-              result
-            )
-              ? result
-              : Array.isArray(
-                    result?.messages
-                  )
-                ? result.messages
-                : [];
-
-          setSearchResults(
-            safe
-          );
-        } catch (
-          error
-        ) {
-          console.error(
-            "[CHAT] search error:",
-            error?.response
-              ?.data ||
-              error
-          );
-        }
-      },
-      [
-        conversationId,
-      ]
-    );
-
-  const handleSearchResultPress =
-    useCallback(
-      (message) => {
-        const messageId =
-          getMessageId(
-            message
-          );
-
-        if (
-          !messageId
-        ) {
-          return;
-        }
-
-        const index =
-          messages.findIndex(
+      setMessages(
+        (current) =>
+          current.map(
             (item) =>
               sameId(
                 getMessageId(
@@ -1252,1844 +930,1920 @@ export default function ConversationScreen() {
                 ),
                 messageId
               )
-          );
-
-        setSearching(
-          false
-        );
-
-        setSearchResults(
-          []
-        );
-
-        if (
-          index < 0
-        ) {
-          Alert.alert(
-            "Message unavailable",
-            "This message is not currently loaded."
-          );
-
-          return;
-        }
-
-        requestAnimationFrame(
-          () => {
-            try {
-              listRef.current?.scrollToIndex(
-                {
-                  index,
-                  animated: true,
-                  viewPosition: 0.5,
-                }
-              );
-            } catch (
-              error
-            ) {
-              console.warn(
-                "[CHAT] search scroll error:",
-                error
-              );
-            }
-          }
-        );
-      },
-      [
-        messages,
-      ]
-    );
-
-  const startOutgoingCall =
-    useCallback(
-      async (type) => {
-        if (
-          callStartingRef.current ||
-          startingCall
-        ) {
-          return;
-        }
-
-        if (
-          type !== "voice" &&
-          type !== "video"
-        ) {
-          return;
-        }
-
-        const callerId =
-          currentUserId;
-
-        const targetId =
-          receiverId;
-
-        if (!callerId) {
-          Alert.alert(
-            "Call failed",
-            "Your account could not be identified."
-          );
-          return;
-        }
-
-        if (!targetId) {
-          Alert.alert(
-            "Call failed",
-            "Unable to find this user."
-          );
-          return;
-        }
-
-        if (
-          sameId(
-            callerId,
-            targetId
+                ? {
+                    ...item,
+                    reactions:
+                      result?.reactions ||
+                      [],
+                  }
+                : item
           )
-        ) {
-          Alert.alert(
-            "Call failed",
-            "You cannot call yourself."
-          );
-          return;
-        }
-
-        callStartingRef.current =
-          true;
-
-        setStartingCall(
-          type
-        );
-
-        let createdCallId =
-          null;
-
-        try {
-          console.log(
-            "[CALL] Starting",
-            {
-              type,
-              callerId,
-              receiverId:
-                targetId,
-            }
-          );
-
-          const socket =
-            await waitForSocket(
-              String(
-                callerId
-              ),
-              10000
-            );
-
-          if (
-            !socket?.connected
-          ) {
-            throw new Error(
-              "Call server is not connected."
-            );
-          }
-
-          const call =
-            await startCall({
-              receiverId:
-                String(
-                  targetId
-                ),
-              type,
-            });
-
-          createdCallId =
-            getId(call);
-
-          if (
-            !createdCallId
-          ) {
-            throw new Error(
-              "The server did not return a call ID."
-            );
-          }
-
-          const caller = {
-            _id: String(
-              callerId
-            ),
-
-            id: String(
-              callerId
-            ),
-
-            username:
-              user?.username ||
-              user?.name ||
-              "Snapgram User",
-
-            name:
-              user?.name ||
-              user?.username ||
-              "",
-
-            avatar:
-              user?.avatar ||
-              user?.profilePicture ||
-              null,
-          };
-
-          socket.emit(
-            "call:initiate",
-            {
-              callId:
-                String(
-                  createdCallId
-                ),
-
-              receiverId:
-                String(
-                  targetId
-                ),
-
-              type,
-
-              caller,
-            }
-          );
-
-          console.log(
-            "[CALL] call:initiate sent",
-            {
-              callId:
-                createdCallId,
-              receiverId:
-                targetId,
-              type,
-            }
-          );
-
-          router.push({
-            pathname:
-              "/calls/[callId]",
-
-            params: {
-              callId:
-                String(
-                  createdCallId
-                ),
-
-              username:
-                otherUsername,
-
-              avatar:
-                otherAvatar || "",
-
-              type,
-
-              otherUserId:
-                String(
-                  targetId
-                ),
-
-              callerId:
-                String(
-                  callerId
-                ),
-
-              isCaller:
-                "true",
-
-              callStatus:
-                "ringing",
-            },
-          });
-        } catch (
-          error
-        ) {
-          console.error(
-            "[CALL] start error:",
-            error?.response
-              ?.data ||
-              error?.message ||
-              error
-          );
-
-          if (
-            createdCallId
-          ) {
-            try {
-              await updateCall(
-                String(
-                  createdCallId
-                ),
-                "ended"
-              );
-            } catch (
-              cleanupError
-            ) {
-              console.warn(
-                "[CALL] cleanup failed:",
-                cleanupError
-              );
-            }
-          }
-
-          if (
-            mountedRef.current
-          ) {
-            Alert.alert(
-              "Call failed",
-              error?.response
-                ?.data?.message ||
-                error?.message ||
-                `Unable to start ${type} call.`
-            );
-          }
-        } finally {
-          callStartingRef.current =
-            false;
-
-          if (
-            mountedRef.current
-          ) {
-            setStartingCall(
-              null
-            );
-          }
-        }
-      },
-      [
-        currentUserId,
-        otherAvatar,
-        otherUsername,
-        receiverId,
-        startingCall,
-        user,
-      ]
-    );
-
-  const handleVoiceCall =
-    useCallback(() => {
-      startOutgoingCall(
-        "voice"
-      );
-    }, [
-      startOutgoingCall,
-    ]);
-
-  const handleVideoCall =
-    useCallback(() => {
-      startOutgoingCall(
-        "video"
-      );
-    }, [
-      startOutgoingCall,
-    ]);
-
-  const openSearch =
-    useCallback(() => {
-      setSearching(
-        true
-      );
-    }, []);
-
-  const closeSearch =
-    useCallback(() => {
-      setSearching(
-        false
       );
 
-      setSearchResults(
-        []
+      setSelectedMessage(
+        null
       );
-    }, []);
-
-  const scrollToBottom =
-    useCallback(
-      (animated = true) => {
-        requestAnimationFrame(
-          () => {
-            try {
-              listRef.current?.scrollToEnd(
-                {
-                  animated,
-                }
-              );
-            } catch {}
-          }
-        );
-      },
-      []
-    );
-
-  useEffect(() => {
-    if (
-      messages.length > 0 &&
-      !loading
-    ) {
-      scrollToBottom(
-        false
+    } catch (error) {
+      Alert.alert(
+        "Reaction failed",
+        error?.response?.data
+          ?.message ||
+          "Unable to add reaction."
       );
     }
-  }, [
-    loading,
-    messages.length,
-    scrollToBottom,
-  ]);
+  },
+  []
+);
 
-  const renderMessage =
-    useCallback(
-      ({ item }) => (
-        <MessageBubble
-          message={item}
-          currentUserId={
-            currentUserId
-          }
-          onLongPress={
-            handleMessageOptions
-          }
-        />
-      ),
-      [
-        currentUserId,
-        handleMessageOptions,
-      ]
+const handleUnsend =
+useCallback(
+async (message) => {
+const messageId =
+getMessageId(message);
+
+    if (!messageId) {
+      return;
+    }
+
+    try {
+      await unsendMessage(
+        messageId
+      );
+
+      setMessages(
+        (current) =>
+          current.map(
+            (item) =>
+              sameId(
+                getMessageId(
+                  item
+                ),
+                messageId
+              )
+                ? {
+                    ...item,
+                    deleted:
+                      true,
+                    text: "",
+                    ciphertext:
+                      null,
+                    mediaUrl:
+                      null,
+                    mediaPublicId:
+                      null,
+                  }
+                : item
+          )
+      );
+
+      setSelectedMessage(
+        null
+      );
+    } catch (error) {
+      Alert.alert(
+        "Unsend failed",
+        error?.response?.data
+          ?.message ||
+          "Unable to unsend this message."
+      );
+    }
+  },
+  []
+);
+
+const handleDelete =
+useCallback(
+async (message) => {
+const messageId =
+getMessageId(message);
+
+    if (!messageId) {
+      return;
+    }
+
+    try {
+      await deleteMessage(
+        messageId
+      );
+
+      setMessages(
+        (current) =>
+          current.filter(
+            (item) =>
+              !sameId(
+                getMessageId(
+                  item
+                ),
+                messageId
+              )
+          )
+      );
+
+      setSelectedMessage(
+        null
+      );
+    } catch (error) {
+      Alert.alert(
+        "Delete failed",
+        error?.response?.data
+          ?.message ||
+          "Unable to delete this message."
+      );
+    }
+  },
+  []
+);
+
+const handleSearch =
+useCallback(
+async (query) => {
+const cleanQuery =
+String(query || "")
+.trim()
+.toLowerCase();
+
+    if (!cleanQuery) {
+      setSearchResults([]);
+      return;
+    }
+
+    const results =
+      messages.filter(
+        (message) =>
+          getMessageSearchText(
+            message
+          ).includes(
+            cleanQuery
+          )
+      );
+
+    setSearchResults(
+      results
     );
+  },
+  [messages]
+);
 
-  const keyExtractor =
-    useCallback(
-      (item, index) =>
-        String(
-          getMessageId(
-            item
-          ) ||
-            `message-${index}`
-        ),
-      []
-    );
+const handleSearchResultPress =
+useCallback(
+(message) => {
+const messageId =
+getMessageId(message);
 
-  const handleScrollToIndexFailed =
-    useCallback(
-      (info) => {
-        setTimeout(
-          () => {
-            try {
-              listRef.current?.scrollToOffset(
-                {
-                  offset:
-                    Math.max(
-                      0,
-                      info.averageItemLength *
-                        info.index
-                    ),
-                  animated: true,
-                }
-              );
-            } catch {}
-          },
-          100
-        );
-      },
-      []
-    );
+    if (!messageId) {
+      return;
+    }
 
-  if (
-    authLoading ||
-    loading
-  ) {
-    return (
-      <View
-        style={
-          styles.loading
+    const index =
+      messages.findIndex(
+        (item) =>
+          sameId(
+            getMessageId(
+              item
+            ),
+            messageId
+          )
+      );
+
+    setSearching(false);
+    setSearchResults([]);
+
+    if (index < 0) {
+      Alert.alert(
+        "Message unavailable",
+        "This message is not currently loaded."
+      );
+
+      return;
+    }
+
+    requestAnimationFrame(
+      () => {
+        try {
+          listRef.current?.scrollToIndex(
+            {
+              index,
+              animated: true,
+              viewPosition: 0.5,
+            }
+          );
+        } catch (error) {
+          console.warn(
+            "[CHAT] Search scroll error:",
+            error
+          );
         }
-      >
-        <ActivityIndicator
-          size="small"
-          color="#111111"
-        />
-      </View>
-    );
-  }
-
-  return (
-    <KeyboardAvoidingView
-      style={
-        styles.container
       }
-      behavior={
-        Platform.OS === "ios"
-          ? "padding"
-          : undefined
+    );
+  },
+  [messages]
+);
+
+const openConversationInfo =
+useCallback(() => {
+if (
+!conversationId ||
+!receiverId
+) {
+return;
+}
+
+  router.push({
+    pathname:
+      "/messages/[conversationId]/info",
+    params: {
+      conversationId:
+        String(
+          conversationId
+        ),
+      userId: String(
+        receiverId
+      ),
+    },
+  });
+}, [
+  conversationId,
+  receiverId,
+]);
+
+const startOutgoingCall =
+useCallback(
+async (type) => {
+if (
+callStartingRef.current ||
+startingCall
+) {
+return;
+}
+
+    if (
+      type !== "voice" &&
+      type !== "video"
+    ) {
+      return;
+    }
+
+    const callerId =
+      currentUserId;
+
+    const targetId =
+      receiverId;
+
+    if (!callerId) {
+      Alert.alert(
+        "Call failed",
+        "Your account could not be identified."
+      );
+      return;
+    }
+
+    if (!targetId) {
+      Alert.alert(
+        "Call failed",
+        "Unable to find this user."
+      );
+      return;
+    }
+
+    if (
+      sameId(
+        callerId,
+        targetId
+      )
+    ) {
+      Alert.alert(
+        "Call failed",
+        "You cannot call yourself."
+      );
+      return;
+    }
+
+    callStartingRef.current =
+      true;
+
+    setStartingCall(type);
+
+    try {
+      /*
+       * Socket identity comes from the authenticated
+       * socket connection. The client does not become the
+       * source of truth for who is calling.
+       */
+      const socket =
+        await waitForSocket(
+          String(callerId),
+          10000
+        );
+
+      if (!socket?.connected) {
+        throw new Error(
+          "Call server is not connected."
+        );
+      }
+
+      const call =
+        await startCall({
+          receiverId:
+            String(targetId),
+          type,
+        });
+
+      const callId =
+        getId(call);
+
+      if (!callId) {
+        throw new Error(
+          "The server did not return a call ID."
+        );
+      }
+
+      /*
+       * The server/socket layer should validate the
+       * authenticated caller and receiver.
+       *
+       * The caller object is UI metadata only.
+       */
+      socket.emit(
+        "call:initiate",
+        {
+          callId: String(
+            callId
+          ),
+          receiverId:
+            String(targetId),
+          type,
+        }
+      );
+
+      router.push({
+        pathname:
+          "/calls/[callId]",
+        params: {
+          callId: String(
+            callId
+          ),
+          username:
+            displayName,
+          avatar:
+            otherAvatar || "",
+          type,
+          otherUserId:
+            String(
+              targetId
+            ),
+          callerId:
+            String(
+              callerId
+            ),
+          isCaller: "true",
+          callStatus:
+            "ringing",
+        },
+      });
+    } catch (error) {
+      console.error(
+        "[CALL] Start error:",
+        error?.response?.data ||
+          error?.message ||
+          error
+      );
+
+      if (mountedRef.current) {
+        Alert.alert(
+          "Call failed",
+          error?.response?.data
+            ?.message ||
+            error?.message ||
+            `Unable to start ${type} call.`
+        );
+      }
+    } finally {
+      callStartingRef.current =
+        false;
+
+      if (mountedRef.current) {
+        setStartingCall(
+          null
+        );
+      }
+    }
+  },
+  [
+    currentUserId,
+    displayName,
+    otherAvatar,
+    receiverId,
+    startingCall,
+  ]
+);
+
+
+const handleVoiceCall =
+useCallback(() => {
+startOutgoingCall(
+"voice"
+);
+}, [startOutgoingCall]);
+
+const handleVideoCall =
+useCallback(() => {
+startOutgoingCall(
+"video"
+);
+}, [startOutgoingCall]);
+
+/* ------------------------------------------------------------------------ */
+/* Search controls                                                           */
+/* ------------------------------------------------------------------------ */
+
+const openSearch =
+useCallback(() => {
+setSearching(true);
+}, []);
+
+const closeSearch =
+useCallback(() => {
+setSearching(false);
+setSearchResults([]);
+}, []);
+
+/* ------------------------------------------------------------------------ */
+/* Scrolling                                                                 */
+/* ------------------------------------------------------------------------ */
+
+const scrollToBottom =
+useCallback(
+(animated = true) => {
+requestAnimationFrame(() => {
+try {
+listRef.current?.scrollToEnd(
+{
+animated,
+}
+);
+} catch {}
+});
+},
+[]
+);
+
+useEffect(() => {
+if (
+messages.length > 0 &&
+!loading
+) {
+scrollToBottom(false);
+}
+}, [
+loading,
+messages.length,
+scrollToBottom,
+]);
+
+/* ------------------------------------------------------------------------ */
+/* Message rendering                                                         */
+/* ------------------------------------------------------------------------ */
+
+const renderMessage =
+useCallback(
+({ item }) => (
+<MessageBubble
+message={item}
+currentUserId={
+currentUserId
+}
+onLongPress={
+handleMessageOptions
+}
+/>
+),
+[
+currentUserId,
+handleMessageOptions,
+]
+);
+
+const keyExtractor =
+useCallback(
+(item, index) =>
+String(
+getMessageId(item) ||
+`message-${index}`
+),
+[]
+);
+
+const handleScrollToIndexFailed =
+useCallback((info) => {
+setTimeout(() => {
+try {
+listRef.current?.scrollToOffset(
+{
+offset: Math.max(
+0,
+info.averageItemLength *
+info.index
+),
+animated: true,
+}
+);
+} catch {}
+}, 100);
+}, []);
+
+/* ------------------------------------------------------------------------ */
+/* Loading                                                                    */
+/* ------------------------------------------------------------------------ */
+
+if (
+authLoading ||
+loading
+) {
+return ( <View style={styles.loading}> <ActivityIndicator
+       size="small"
+       color="#111111"
+     /> </View>
+);
+}
+
+return (
+<KeyboardAvoidingView
+style={styles.container}
+behavior={
+Platform.OS === "ios"
+? "padding"
+: undefined
+}
+>
+{/* HEADER */}
+
+  <View
+    style={[
+      styles.header,
+      {
+        paddingTop:
+          insets.top,
+      },
+    ]}
+  >
+    <Pressable
+      onPress={() =>
+        router.back()
+      }
+      style={
+        styles.backButton
+      }
+      hitSlop={10}
+    >
+      <Ionicons
+        name="chevron-back"
+        size={28}
+        color="#111111"
+      />
+    </Pressable>
+
+    <Pressable
+      onPress={
+        openConversationInfo
+      }
+      style={
+        styles.headerUser
       }
     >
-      {/* HEADER */}
-
-      <View
-        style={[
-          styles.header,
-          { paddingTop: insets.top },
-        ]}
-      >
-        <Pressable
-          onPress={() =>
-            router.back()
-          }
+      {otherAvatar ? (
+        <Image
+          source={{
+            uri: otherAvatar,
+          }}
           style={
-            styles.backButton
+            styles.headerAvatar
           }
-          hitSlop={10}
-        >
-          <Ionicons
-            name="chevron-back"
-            size={28}
-            color="#111111"
-          />
-        </Pressable>
-
-        {otherAvatar ? (
-          <Image
-            source={{
-              uri:
-                otherAvatar,
-            }}
-            style={
-              styles.headerAvatar
-            }
-          />
-        ) : (
-          <View
-            style={
-              styles.headerAvatarFallback
-            }
-          >
-            <Text
-              style={
-                styles.headerAvatarLetter
-              }
-            >
-              {otherUsername
-                .charAt(0)
-                .toUpperCase()}
-            </Text>
-          </View>
-        )}
-
+        />
+      ) : (
         <View
           style={
-            styles.headerInfo
+            styles.headerAvatarFallback
           }
         >
+          <Text
+            style={
+              styles.headerAvatarLetter
+            }
+          >
+            {displayName
+              .charAt(0)
+              .toUpperCase()}
+          </Text>
+        </View>
+      )}
+
+      <View
+        style={
+          styles.headerIdentity
+        }
+      >
+        <View
+          style={
+            styles.nameRow
+          }
+        >
+          <Text
+            numberOfLines={1}
+            style={
+              styles.headerName
+            }
+          >
+            {displayName}
+          </Text>
+
+          {otherUser?.isVerified ? (
+            <VerifiedBadge
+              size={14}
+            />
+          ) : null}
+        </View>
+
+        {/*
+         * Verified users:
+         * full name + badge only.
+         *
+         * Unverified users:
+         * full name + username.
+         *
+         * Online status remains separate so it does not
+         * accidentally display the username for verified users.
+         */}
+        {otherUser?.isVerified ? (
+          <OnlineStatus
+            userId={
+              receiverId
+            }
+          />
+        ) : username ? (
           <Text
             numberOfLines={1}
             style={
               styles.headerUsername
             }
           >
-            {otherUsername}
+            {username}
           </Text>
-
-          {receiverId ? (
-            <OnlineStatus
-              userId={
-                receiverId
-              }
-            />
-          ) : null}
-        </View>
-
-        <Pressable
-          onPress={
-            openSearch
-          }
-          style={
-            styles.headerIcon
-          }
-          hitSlop={8}
-        >
-          <Ionicons
-            name="search-outline"
-            size={23}
-            color="#111111"
+        ) : (
+          <OnlineStatus
+            userId={
+              receiverId
+            }
           />
-        </Pressable>
-
-        <Pressable
-          onPress={
-            handleVoiceCall
-          }
-          disabled={
-            !!startingCall
-          }
-          style={[
-            styles.headerIcon,
-            !!startingCall &&
-              styles.disabledIcon,
-          ]}
-          hitSlop={8}
-        >
-          {startingCall ===
-          "voice" ? (
-            <ActivityIndicator
-              size="small"
-              color="#111111"
-            />
-          ) : (
-            <Ionicons
-              name="call-outline"
-              size={22}
-              color="#111111"
-            />
-          )}
-        </Pressable>
-
-        <Pressable
-          onPress={
-            handleVideoCall
-          }
-          disabled={
-            !!startingCall
-          }
-          style={[
-            styles.headerIcon,
-            !!startingCall &&
-              styles.disabledIcon,
-          ]}
-          hitSlop={8}
-        >
-          {startingCall ===
-          "video" ? (
-            <ActivityIndicator
-              size="small"
-              color="#111111"
-            />
-          ) : (
-            <Ionicons
-              name="videocam-outline"
-              size={24}
-              color="#111111"
-            />
-          )}
-        </Pressable>
+        )}
       </View>
+    </Pressable>
 
-      {/* SEARCH */}
+    <Pressable
+      onPress={
+        openSearch
+      }
+      style={
+        styles.headerIcon
+      }
+      hitSlop={8}
+    >
+      <Ionicons
+        name="search-outline"
+        size={23}
+        color="#111111"
+      />
+    </Pressable>
 
-      {searching ? (
-        <MessageSearch
-          onSearch={
-            handleSearch
-          }
-          onClose={
-            closeSearch
-          }
+    <Pressable
+      onPress={
+        handleVoiceCall
+      }
+      disabled={
+        !!startingCall
+      }
+      style={[
+        styles.headerIcon,
+        !!startingCall &&
+          styles.disabledIcon,
+      ]}
+      hitSlop={8}
+    >
+      {startingCall ===
+      "voice" ? (
+        <ActivityIndicator
+          size="small"
+          color="#111111"
         />
-      ) : null}
+      ) : (
+        <Ionicons
+          name="call-outline"
+          size={22}
+          color="#111111"
+        />
+      )}
+    </Pressable>
 
-      {/* SEARCH RESULTS */}
+    <Pressable
+      onPress={
+        handleVideoCall
+      }
+      disabled={
+        !!startingCall
+      }
+      style={[
+        styles.headerIcon,
+        !!startingCall &&
+          styles.disabledIcon,
+      ]}
+      hitSlop={8}
+    >
+      {startingCall ===
+      "video" ? (
+        <ActivityIndicator
+          size="small"
+          color="#111111"
+        />
+      ) : (
+        <Ionicons
+          name="videocam-outline"
+          size={24}
+          color="#111111"
+        />
+      )}
+    </Pressable>
+  </View>
 
-      {searching &&
-      searchResults.length > 0 ? (
-        <View
-          style={
-            styles.searchResults
-          }
-        >
-          {searchResults.map(
-            (
-              message,
-              index
-            ) => (
-              <Pressable
-                key={String(
-                  getMessageId(
-                    message
-                  ) ||
-                    `search-${index}`
-                )}
-                onPress={() =>
-                  handleSearchResultPress(
-                    message
-                  )
-                }
+  {/* SEARCH */}
+
+  {searching ? (
+    <MessageSearch
+      onSearch={
+        handleSearch
+      }
+      onClose={
+        closeSearch
+      }
+    />
+  ) : null}
+
+  {/* SEARCH RESULTS */}
+
+  {searching &&
+  searchResults.length > 0 ? (
+    <View
+      style={
+        styles.searchResults
+      }
+    >
+      {searchResults.map(
+        (
+          message,
+          index
+        ) => {
+          const sender =
+            message?.sender;
+
+          const senderName =
+            getDisplayName(
+              sender
+            );
+
+          return (
+            <Pressable
+              key={String(
+                getMessageId(
+                  message
+                ) ||
+                  `search-${index}`
+              )}
+              onPress={() =>
+                handleSearchResultPress(
+                  message
+                )
+              }
+              style={
+                styles.searchResult
+              }
+            >
+              <View
                 style={
-                  styles.searchResult
+                  styles.searchResultIcon
+                }
+              >
+                <Ionicons
+                  name="chatbubble-outline"
+                  size={17}
+                  color="#666666"
+                />
+              </View>
+
+              <View
+                style={
+                  styles.searchResultContent
                 }
               >
                 <View
                   style={
-                    styles.searchResultIcon
-                  }
-                >
-                  <Ionicons
-                    name="chatbubble-outline"
-                    size={17}
-                    color="#666666"
-                  />
-                </View>
-
-                <View
-                  style={
-                    styles.searchResultContent
+                    styles.searchNameRow
                   }
                 >
                   <Text
+                    numberOfLines={
+                      1
+                    }
                     style={
                       styles.searchResultUsername
                     }
                   >
-                    {message?.sender
-                      ?.username ||
-                      "User"}
+                    {senderName}
                   </Text>
 
-                  <Text
-                    numberOfLines={
-                      2
-                    }
-                    style={
-                      styles.searchResultText
-                    }
-                  >
-                    {message?.type ===
-                    "voice"
-                      ? "Voice message"
-                      : message?.text ||
-                        "Media message"}
-                  </Text>
+                  {sender?.isVerified ? (
+                    <VerifiedBadge
+                      size={12}
+                    />
+                  ) : null}
                 </View>
 
-                <Ionicons
-                  name="chevron-forward"
-                  size={17}
-                  color="#AAAAAA"
-                />
-              </Pressable>
-            )
-          )}
-        </View>
-      ) : null}
+                <Text
+                  numberOfLines={
+                    2
+                  }
+                  style={
+                    styles.searchResultText
+                  }
+                >
+                  {message?.type ===
+                  "voice"
+                    ? "Voice message"
+                    : message?.text ||
+                      "Media message"}
+                </Text>
+              </View>
 
-      {/* MESSAGES */}
+              <Ionicons
+                name="chevron-forward"
+                size={17}
+                color="#AAAAAA"
+              />
+            </Pressable>
+          );
+        }
+      )}
+    </View>
+  ) : null}
 
-      <FlatList
-        ref={
-          listRef
+  {/* MESSAGES */}
+
+  <FlatList
+    ref={listRef}
+    data={messages}
+    keyExtractor={
+      keyExtractor
+    }
+    renderItem={
+      renderMessage
+    }
+    onScrollToIndexFailed={
+      handleScrollToIndexFailed
+    }
+    contentContainerStyle={[
+      styles.messages,
+      messages.length ===
+        0 &&
+        styles.emptyMessages,
+    ]}
+    showsVerticalScrollIndicator={
+      false
+    }
+    keyboardShouldPersistTaps="handled"
+    keyboardDismissMode={
+      Platform.OS === "ios"
+        ? "interactive"
+        : "on-drag"
+    }
+  />
+
+  {/* TYPING */}
+
+  {typingUser ? (
+    <View
+      style={
+        styles.typingContainer
+      }
+    >
+      <Text
+        style={
+          styles.typingText
         }
-        data={
-          messages
-        }
-        keyExtractor={
-          keyExtractor
-        }
-        renderItem={
-          renderMessage
-        }
-        onScrollToIndexFailed={
-          handleScrollToIndexFailed
-        }
-        contentContainerStyle={[
-          styles.messages,
-          messages.length === 0 &&
-            styles.emptyMessages,
-        ]}
-        showsVerticalScrollIndicator={
-          false
-        }
-        keyboardShouldPersistTaps="handled"
-        keyboardDismissMode={
-          Platform.OS === "ios"
-            ? "interactive"
-            : "on-drag"
+      >
+        {typingUser} is typing...
+      </Text>
+    </View>
+  ) : null}
+
+  {/* REPLY */}
+
+  {replyingTo ? (
+    <View
+      style={
+        styles.replyComposer
+      }
+    >
+      <View
+        style={
+          styles.replyAccent
         }
       />
 
-      {/* TYPING */}
-
-      {typingUser ? (
-        <View
-          style={
-            styles.typingContainer
-          }
-        >
-          <Text
-            style={
-              styles.typingText
-            }
-          >
-            {typingUser} is typing...
-          </Text>
-        </View>
-      ) : null}
-
-      {/* REPLY */}
-
-      {replyingTo ? (
-        <View
-          style={
-            styles.replyComposer
-          }
-        >
-          <View
-            style={
-              styles.replyAccent
-            }
-          />
-
-          <View
-            style={
-              styles.replyContent
-            }
-          >
-            <Text
-              style={
-                styles.replyTitle
-              }
-            >
-              Replying to message
-            </Text>
-
-            <Text
-              numberOfLines={1}
-              style={
-                styles.replyText
-              }
-            >
-              {replyingTo?.type ===
-              "voice"
-                ? "Voice message"
-                : replyingTo?.text ||
-                  "Media message"}
-            </Text>
-          </View>
-
-          <Pressable
-            onPress={() =>
-              setReplyingTo(
-                null
-              )
-            }
-            style={
-              styles.replyClose
-            }
-          >
-            <Ionicons
-              name="close"
-              size={20}
-              color="#777777"
-            />
-          </Pressable>
-        </View>
-      ) : null}
-
-      {/* COMPOSER */}
-
       <View
         style={
-          styles.composer
+          styles.replyContent
         }
       >
-        <MediaPicker
-          onSelected={
-            handleMediaSelected
-          }
-        />
-
-        <TextInput
-          value={text}
-          onChangeText={
-            handleTypingChange
-          }
-          placeholder="Message..."
-          placeholderTextColor="#999999"
+        <Text
           style={
-            styles.input
+            styles.replyTitle
           }
-          multiline
-          maxLength={5000}
-          textAlignVertical="center"
-          returnKeyType="default"
-        />
+        >
+          Replying to message
+        </Text>
 
-        {!text.trim() ? (
-          <VoiceRecorder
-            onRecorded={
-              handleVoiceRecorded
-            }
-          />
-        ) : (
-          <Pressable
-            onPress={
-              handleSend
-            }
-            disabled={
-              sending
-            }
-            style={
-              styles.sendButton
-            }
-            hitSlop={6}
-          >
-            {sending ? (
-              <ActivityIndicator
-                size="small"
-                color="#0095F6"
-              />
-            ) : (
-              <Ionicons
-                name="send"
-                size={21}
-                color="#0095F6"
-              />
-            )}
-          </Pressable>
-        )}
+        <Text
+          numberOfLines={1}
+          style={
+            styles.replyText
+          }
+        >
+          {replyingTo?.type ===
+          "voice"
+            ? "Voice message"
+            : replyingTo?.text ||
+              "Media message"}
+        </Text>
       </View>
 
-      {/* MESSAGE OPTIONS */}
-
-      <Modal
-        visible={
-          !!selectedMessage
-        }
-        transparent
-        animationType="fade"
-        onRequestClose={() =>
-          setSelectedMessage(
+      <Pressable
+        onPress={() =>
+          setReplyingTo(
             null
           )
         }
+        style={
+          styles.replyClose
+        }
       >
-        <Pressable
+        <Ionicons
+          name="close"
+          size={20}
+          color="#777777"
+        />
+      </Pressable>
+    </View>
+  ) : null}
+
+  {/* COMPOSER */}
+
+  <View
+    style={styles.composer}
+  >
+    <MediaPicker
+      onSelected={
+        handleMediaSelected
+      }
+    />
+
+    <TextInput
+      value={text}
+      onChangeText={
+        handleTypingChange
+      }
+      placeholder="Message..."
+      placeholderTextColor="#999999"
+      style={styles.input}
+      multiline
+      maxLength={5000}
+      textAlignVertical="center"
+      returnKeyType="default"
+    />
+
+    {!text.trim() ? (
+      <VoiceRecorder
+        onRecorded={
+          handleVoiceRecorded
+        }
+      />
+    ) : (
+      <Pressable
+        onPress={
+          handleSend
+        }
+        disabled={sending}
+        style={
+          styles.sendButton
+        }
+        hitSlop={6}
+      >
+        {sending ? (
+          <ActivityIndicator
+            size="small"
+            color="#0095F6"
+          />
+        ) : (
+          <Ionicons
+            name="send"
+            size={21}
+            color="#0095F6"
+          />
+        )}
+      </Pressable>
+    )}
+  </View>
+
+  {/* MESSAGE OPTIONS */}
+
+  <Modal
+    visible={
+      !!selectedMessage
+    }
+    transparent
+    animationType="fade"
+    onRequestClose={() =>
+      setSelectedMessage(
+        null
+      )
+    }
+  >
+    <Pressable
+      style={
+        styles.modalOverlay
+      }
+      onPress={() =>
+        setSelectedMessage(
+          null
+        )
+      }
+    >
+      <Pressable
+        style={
+          styles.actionBox
+        }
+        onPress={() => {}}
+      >
+        <View
           style={
-            styles.modalOverlay
+            styles.modalHandle
           }
+        />
+
+        {selectedMessage ? (
+          <ReactionBar
+            onSelect={(emoji) =>
+              handleReaction(
+                selectedMessage,
+                emoji
+              )
+            }
+          />
+        ) : null}
+
+        <ActionRow
+          icon="arrow-undo-outline"
+          label="Reply"
+          onPress={() =>
+            handleReply(
+              selectedMessage
+            )
+          }
+        />
+
+        {selectedMessage?.text ? (
+          <ActionRow
+            icon="copy-outline"
+            label="Copy"
+            onPress={() =>
+              handleCopy(
+                selectedMessage
+              )
+            }
+          />
+        ) : null}
+
+        <ActionRow
+          icon="remove-circle-outline"
+          label="Unsend"
+          danger
+          onPress={() =>
+            handleUnsend(
+              selectedMessage
+            )
+          }
+        />
+
+        <ActionRow
+          icon="trash-outline"
+          label="Delete"
+          danger
+          onPress={() =>
+            handleDelete(
+              selectedMessage
+            )
+          }
+        />
+
+        <Pressable
           onPress={() =>
             setSelectedMessage(
               null
             )
           }
+          style={
+            styles.cancelAction
+          }
         >
-          <Pressable
+          <Text
             style={
-              styles.actionBox
+              styles.cancelText
             }
-            onPress={() => {}}
           >
-            <View
-              style={
-                styles.modalHandle
-              }
-            />
-
-            {selectedMessage ? (
-              <ReactionBar
-                onSelect={(emoji) =>
-                  handleReaction(
-                    selectedMessage,
-                    emoji
-                  )
-                }
-              />
-            ) : null}
-
-            <ActionRow
-              icon="arrow-undo-outline"
-              label="Reply"
-              onPress={() =>
-                handleReply(
-                  selectedMessage
-                )
-              }
-            />
-
-            {selectedMessage?.text ? (
-              <ActionRow
-                icon="copy-outline"
-                label="Copy"
-                onPress={() =>
-                  handleCopy(
-                    selectedMessage
-                  )
-                }
-              />
-            ) : null}
-
-            <ActionRow
-              icon="arrow-undo-outline"
-              label="Unsend"
-              danger
-              onPress={() =>
-                handleUnsend(
-                  selectedMessage
-                )
-              }
-            />
-
-            <ActionRow
-              icon="trash-outline"
-              label="Delete"
-              danger
-              onPress={() =>
-                handleDelete(
-                  selectedMessage
-                )
-              }
-            />
-
-            <Pressable
-              onPress={() =>
-                setSelectedMessage(
-                  null
-                )
-              }
-              style={
-                styles.cancelAction
-              }
-            >
-              <Text
-                style={
-                  styles.cancelText
-                }
-              >
-                Cancel
-              </Text>
-            </Pressable>
-          </Pressable>
+            Cancel
+          </Text>
         </Pressable>
-      </Modal>
-    </KeyboardAvoidingView>
-  );
+      </Pressable>
+    </Pressable>
+  </Modal>
+</KeyboardAvoidingView>
+
+);
 }
 
 function ActionRow({
-  icon,
-  label,
-  danger = false,
-  onPress,
+icon,
+label,
+danger = false,
+onPress,
 }) {
-  return (
-    <Pressable
-      onPress={onPress}
-      style={
-        styles.action
-      }
-    >
-      <Ionicons
-        name={icon}
-        size={21}
-        color={
-          danger
-            ? "#ED4956"
-            : "#111111"
-        }
-        style={
-          styles.actionIcon
-        }
-      />
+return ( <Pressable
+   onPress={onPress}
+   style={styles.action}
+ >
+<Ionicons
+name={icon}
+size={21}
+color={
+danger
+? "#ED4956"
+: "#111111"
+}
+style={
+styles.actionIcon
+}
+/>
 
-      <Text
-        style={[
-          styles.actionText,
-          danger &&
-            styles.dangerText,
-        ]}
-      >
-        {label}
-      </Text>
-    </Pressable>
-  );
+  <Text
+    style={[
+      styles.actionText,
+      danger &&
+        styles.dangerText,
+    ]}
+  >
+    {label}
+  </Text>
+</Pressable>
+
+);
 }
 
 function MessageBubble({
-  message,
-  currentUserId,
-  onLongPress,
+message,
+currentUserId,
+onLongPress,
 }) {
-  const senderId =
-    getId(
-      message?.sender
-    ) ||
-    message?.sender;
+const senderId =
+getId(message?.sender) ||
+message?.sender;
 
-  const isMine =
-    sameId(
-      senderId,
-      currentUserId
-    );
+const isMine = sameId(
+senderId,
+currentUserId
+);
 
-  if (
-    message?.deleted
-  ) {
-    return (
-      <View
-        style={[
-          styles.messageRow,
-          isMine
-            ? styles.myMessageRow
-            : styles.theirMessageRow,
-        ]}
+if (message?.deleted) {
+return (
+<View
+style={[
+styles.messageRow,
+isMine
+? styles.myMessageRow
+: styles.theirMessageRow,
+]}
+>
+<View
+style={
+styles.deletedBubble
+}
+> <Ionicons
+         name="ban-outline"
+         size={15}
+         color="#999999"
+       />
+
+      <Text
+        style={
+          styles.deletedText
+        }
       >
-        <View
-          style={
-            styles.deletedBubble
-          }
+        Message unsent
+      </Text>
+    </View>
+  </View>
+);
+
+}
+
+const isVoice =
+message?.type ===
+"voice";
+
+return (
+<Pressable
+onLongPress={() =>
+onLongPress?.(message)
+}
+delayLongPress={350}
+style={[
+styles.messageRow,
+isMine
+? styles.myMessageRow
+: styles.theirMessageRow,
+]}
+>
+<View
+style={[
+styles.bubble,
+isVoice &&
+styles.voiceBubble,
+isMine
+? styles.myBubble
+: styles.theirBubble,
+]}
+>
+{message?.replyTo ? (
+<View
+style={[
+styles.replyReference,
+isMine
+? styles.myReplyReference
+: styles.theirReplyReference,
+]}
+>
+<Ionicons
+name="return-down-forward-outline"
+size={13}
+color={
+isMine
+? "#FFFFFF"
+: "#777777"
+}
+/>
+
+
+        <Text
+          numberOfLines={2}
+          style={[
+            styles.replyReferenceText,
+            isMine
+              ? styles.myReplyText
+              : styles.theirReplyText,
+          ]}
         >
-          <Ionicons
-            name="ban-outline"
-            size={15}
-            color="#999999"
-          />
-
-          <Text
-            style={
-              styles.deletedText
-            }
-          >
-            Message unsent
-          </Text>
-        </View>
+          {message.replyTo
+            ?.type ===
+          "voice"
+            ? "Voice message"
+            : message.replyTo
+                ?.text ||
+              "Media message"}
+        </Text>
       </View>
-    );
-  }
+    ) : null}
 
-  const isVoice =
-    message?.type ===
-    "voice";
-
-  return (
-    <Pressable
-      onLongPress={() =>
-        onLongPress?.(
-          message
-        )
-      }
-      delayLongPress={
-        350
-      }
-      style={[
-        styles.messageRow,
-        isMine
-          ? styles.myMessageRow
-          : styles.theirMessageRow,
-      ]}
-    >
-      <View
-        style={[
-          styles.bubble,
-          isVoice &&
-            styles.voiceBubble,
+    {isVoice ? (
+      <VoiceMessageBubble
+        url={
+          message?.mediaUrl ||
+          null
+        }
+        duration={
+          message?.mediaDuration ||
+          0
+        }
+        isMine={
           isMine
-            ? styles.myBubble
-            : styles.theirBubble,
-        ]}
-      >
-        {message?.replyTo ? (
-          <View
+        }
+      />
+    ) : (
+      <>
+        {message?.text ? (
+          <Text
             style={[
-              styles.replyReference,
+              styles.messageText,
               isMine
-                ? styles.myReplyReference
-                : styles.theirReplyReference,
+                ? styles.myMessageText
+                : styles.theirMessageText,
             ]}
           >
-            <Ionicons
-              name="return-down-forward-outline"
-              size={13}
-              color={
-                isMine
-                  ? "#FFFFFF"
-                  : "#777777"
-              }
-            />
-
-            <Text
-              numberOfLines={
-                2
-              }
-              style={[
-                styles.replyReferenceText,
-                isMine
-                  ? styles.myReplyText
-                  : styles.theirReplyText,
-              ]}
-            >
-              {message.replyTo?.type ===
-              "voice"
-                ? "Voice message"
-                : message.replyTo
-                    ?.text ||
-                  "Media message"}
-            </Text>
-          </View>
+            {message.text}
+          </Text>
         ) : null}
 
-        {isVoice ? (
-          <VoiceMessageBubble
-            url={
-              message?.mediaUrl ||
-              null
-            }
-            duration={
-              message?.mediaDuration ||
-              0
+        {message?.mediaUrl &&
+        message?.type !==
+          "voice" ? (
+          <MessageMedia
+            message={
+              message
             }
             isMine={
               isMine
             }
           />
-        ) : (
-          <>
-            {message?.text ? (
-              <Text
-                style={[
-                  styles.messageText,
-                  isMine
-                    ? styles.myMessageText
-                    : styles.theirMessageText,
-                ]}
-              >
-                {
-                  message.text
-                }
-              </Text>
-            ) : null}
-
-            {message?.mediaUrl &&
-            message?.type !==
-              "voice" ? (
-              <MessageMedia
-                message={
-                  message
-                }
-                isMine={
-                  isMine
-                }
-              />
-            ) : null}
-          </>
-        )}
-
-        {Array.isArray(
-          message?.reactions
-        ) &&
-        message.reactions
-          .length > 0 ? (
-          <View
-            style={
-              styles.reactions
-            }
-          >
-            {message.reactions
-              .slice(
-                0,
-                5
-              )
-              .map(
-                (
-                  reaction,
-                  index
-                ) => (
-                  <Text
-                    key={`${getMessageId(message) || "message"}-reaction-${index}`}
-                    style={
-                      styles.reaction
-                    }
-                  >
-                    {reaction?.emoji ||
-                      reaction}
-                  </Text>
-                )
-              )}
-          </View>
         ) : null}
+      </>
+    )}
+
+    {Array.isArray(
+      message?.reactions
+    ) &&
+    message.reactions
+      .length > 0 ? (
+      <View
+        style={
+          styles.reactions
+        }
+      >
+        {message.reactions
+          .slice(0, 5)
+          .map(
+            (
+              reaction,
+              index
+            ) => (
+              <Text
+                key={`${getMessageId(message) || "message"}-reaction-${index}`}
+                style={
+                  styles.reaction
+                }
+              >
+                {reaction?.emoji ||
+                  reaction}
+              </Text>
+            )
+          )}
       </View>
-    </Pressable>
-  );
+    ) : null}
+  </View>
+</Pressable>
+
+
+);
 }
 
 function MessageMedia({
-  message,
-  isMine,
+message,
+isMine,
 }) {
-  if (
-    !message?.mediaUrl
-  ) {
-    return null;
-  }
-
-  const type =
-    message?.type ||
-    message?.mediaType ||
-    "image";
-
-  const isImage =
-    type === "image" ||
-    String(
-      message?.mimeType ||
-        ""
-    ).startsWith(
-      "image/"
-    );
-
-  if (!isImage) {
-    return (
-      <View
-        style={
-          styles.mediaPlaceholder
-        }
-      >
-        <Ionicons
-          name={
-            type === "video"
-              ? "videocam-outline"
-              : "document-outline"
-          }
-          size={22}
-          color={
-            isMine
-              ? "#FFFFFF"
-              : "#555555"
-          }
-        />
-
-        <Text
-          style={[
-            styles.mediaPlaceholderText,
-            isMine
-              ? styles.myMessageText
-              : styles.theirMessageText,
-          ]}
-        >
-          {type === "video"
-            ? "Video"
-            : "Media"}
-        </Text>
-      </View>
-    );
-  }
-
-  return (
-    <Image
-      source={{
-        uri:
-          message.mediaUrl,
-      }}
-      style={
-        styles.messageImage
-      }
-      resizeMode="cover"
-    />
-  );
+if (!message?.mediaUrl) {
+return null;
 }
 
-const styles =
-  StyleSheet.create({
-    container: {
-      flex: 1,
-      backgroundColor:
-        "#FFFFFF",
-    },
+const type =
+message?.type ||
+message?.mediaType ||
+"image";
 
-    loading: {
-      flex: 1,
-      alignItems:
-        "center",
-      justifyContent:
-        "center",
-      backgroundColor:
-        "#FFFFFF",
-    },
+const isImage =
+type === "image" ||
+String(
+message?.mimeType ||
+""
+).startsWith(
+"image/"
+);
 
-    header: {
-      minHeight: 62,
-      paddingHorizontal: 4,
-      flexDirection:
-        "row",
-      alignItems:
-        "center",
-      backgroundColor:
-        "#FFFFFF",
-      borderBottomWidth:
-        StyleSheet.hairlineWidth,
-      borderBottomColor:
-        "#DBDBDB",
-    },
+if (!isImage) {
+return (
+<View
+style={
+styles.mediaPlaceholder
+}
+>
+<Ionicons
+name={
+type ===
+"video"
+? "videocam-outline"
+: "document-outline"
+}
+size={22}
+color={
+isMine
+? "#FFFFFF"
+: "#555555"
+}
+/>
 
-    backButton: {
-      width: 40,
-      height: 44,
-      alignItems:
-        "center",
-      justifyContent:
-        "center",
-    },
 
-    headerAvatar: {
-      width: 38,
-      height: 38,
-      marginHorizontal: 7,
-      borderRadius: 19,
-      backgroundColor:
-        "#EFEFEF",
-    },
+    <Text
+      style={[
+        styles.mediaPlaceholderText,
+        isMine
+          ? styles.myMessageText
+          : styles.theirMessageText,
+      ]}
+    >
+      {type ===
+      "video"
+        ? "Video"
+        : "Media"}
+    </Text>
+  </View>
+);
 
-    headerAvatarFallback: {
-      width: 38,
-      height: 38,
-      marginHorizontal: 7,
-      borderRadius: 19,
-      alignItems:
-        "center",
-      justifyContent:
-        "center",
-      backgroundColor:
-        "#EFEFEF",
-    },
+}
 
-    headerAvatarLetter: {
-      fontSize: 15,
-      fontWeight:
-        "700",
-      color: "#777777",
-    },
+return (
+<Image
+source={{
+uri: message.mediaUrl,
+}}
+style={
+styles.messageImage
+}
+resizeMode="cover"
+/>
+);
+}
 
-    headerInfo: {
-      flex: 1,
-      minWidth: 0,
-      justifyContent:
-        "center",
-    },
+const styles = StyleSheet.create({
+container: {
+flex: 1,
+backgroundColor: "#FFFFFF",
+},
 
-    headerUsername: {
-      fontSize: 15,
-      lineHeight: 19,
-      fontWeight:
-        "700",
-      color: "#111111",
-    },
+loading: {
+flex: 1,
+alignItems: "center",
+justifyContent: "center",
+backgroundColor: "#FFFFFF",
+},
 
-    headerIcon: {
-      width: 42,
-      height: 44,
-      alignItems:
-        "center",
-      justifyContent:
-        "center",
-      borderRadius: 21,
-    },
+header: {
+minHeight: 62,
+paddingHorizontal: 4,
+flexDirection: "row",
+alignItems: "center",
+backgroundColor: "#FFFFFF",
+borderBottomWidth:
+StyleSheet.hairlineWidth,
+borderBottomColor: "#DBDBDB",
+},
 
-    disabledIcon: {
-      opacity: 0.45,
-    },
+backButton: {
+width: 40,
+height: 44,
+alignItems: "center",
+justifyContent: "center",
+},
 
-    searchResults: {
-      maxHeight: 260,
-      backgroundColor:
-        "#FFFFFF",
-      borderBottomWidth:
-        StyleSheet.hairlineWidth,
-      borderBottomColor:
-        "#DBDBDB",
-    },
+headerUser: {
+flex: 1,
+minWidth: 0,
+marginRight: 2,
+flexDirection: "row",
+alignItems: "center",
+},
 
-    searchResult: {
-      minHeight: 58,
-      paddingHorizontal: 15,
-      paddingVertical: 9,
-      flexDirection:
-        "row",
-      alignItems:
-        "center",
-      borderBottomWidth:
-        StyleSheet.hairlineWidth,
-      borderBottomColor:
-        "#EEEEEE",
-    },
+headerAvatar: {
+width: 38,
+height: 38,
+marginHorizontal: 7,
+borderRadius: 19,
+backgroundColor: "#EFEFEF",
+},
 
-    searchResultIcon: {
-      width: 34,
-      height: 34,
-      marginRight: 10,
-      borderRadius: 17,
-      alignItems:
-        "center",
-      justifyContent:
-        "center",
-      backgroundColor:
-        "#F2F2F2",
-    },
+headerAvatarFallback: {
+width: 38,
+height: 38,
+marginHorizontal: 7,
+borderRadius: 19,
+alignItems: "center",
+justifyContent: "center",
+backgroundColor: "#EFEFEF",
+},
 
-    searchResultContent: {
-      flex: 1,
-      minWidth: 0,
-    },
+headerAvatarLetter: {
+fontSize: 15,
+fontWeight: "700",
+color: "#777777",
+},
 
-    searchResultUsername: {
-      fontSize: 13,
-      fontWeight:
-        "700",
-      color: "#111111",
-    },
+headerIdentity: {
+flex: 1,
+minWidth: 0,
+justifyContent: "center",
+},
 
-    searchResultText: {
-      marginTop: 2,
-      fontSize: 13,
-      lineHeight: 18,
-      color: "#666666",
-    },
+nameRow: {
+flexDirection: "row",
+alignItems: "center",
+minWidth: 0,
+},
 
-    messages: {
-      flexGrow: 1,
-      paddingHorizontal: 12,
-      paddingTop: 14,
-      paddingBottom: 12,
-    },
+headerName: {
+flexShrink: 1,
+fontSize: 15,
+lineHeight: 19,
+fontWeight: "700",
+color: "#111111",
+},
 
-    emptyMessages: {
-      justifyContent:
-        "flex-end",
-    },
+headerUsername: {
+marginTop: 1,
+fontSize: 12,
+lineHeight: 16,
+color: "#777777",
+},
 
-    messageRow: {
-      width: "100%",
-      marginVertical: 3,
-    },
+headerIcon: {
+width: 42,
+height: 44,
+alignItems: "center",
+justifyContent: "center",
+borderRadius: 21,
+},
 
-    myMessageRow: {
-      alignItems:
-        "flex-end",
-    },
+disabledIcon: {
+opacity: 0.45,
+},
 
-    theirMessageRow: {
-      alignItems:
-        "flex-start",
-    },
+searchResults: {
+maxHeight: 260,
+backgroundColor: "#FFFFFF",
+borderBottomWidth:
+StyleSheet.hairlineWidth,
+borderBottomColor: "#DBDBDB",
+},
 
-    bubble: {
-      maxWidth: "82%",
-      paddingHorizontal: 14,
-      paddingVertical: 9,
-      borderRadius: 20,
-    },
+searchResult: {
+minHeight: 58,
+paddingHorizontal: 15,
+paddingVertical: 9,
+flexDirection: "row",
+alignItems: "center",
+borderBottomWidth:
+StyleSheet.hairlineWidth,
+borderBottomColor: "#EEEEEE",
+},
 
-    myBubble: {
-      backgroundColor:
-        "#0095F6",
-      borderBottomRightRadius:
-        5,
-    },
+searchResultIcon: {
+width: 34,
+height: 34,
+marginRight: 10,
+borderRadius: 17,
+alignItems: "center",
+justifyContent: "center",
+backgroundColor: "#F2F2F2",
+},
 
-    theirBubble: {
-      backgroundColor:
-        "#EFEFEF",
-      borderBottomLeftRadius:
-        5,
-    },
+searchResultContent: {
+flex: 1,
+minWidth: 0,
+},
 
-    voiceBubble: {
-      minWidth: 230,
-      paddingHorizontal: 9,
-      paddingVertical: 8,
-    },
+searchNameRow: {
+flexDirection: "row",
+alignItems: "center",
+minWidth: 0,
+},
 
-    messageText: {
-      fontSize: 15,
-      lineHeight: 20,
-    },
+searchResultUsername: {
+flexShrink: 1,
+fontSize: 13,
+fontWeight: "700",
+color: "#111111",
+},
 
-    myMessageText: {
-      color: "#FFFFFF",
-    },
+searchResultText: {
+marginTop: 2,
+fontSize: 13,
+lineHeight: 18,
+color: "#666666",
+},
 
-    theirMessageText: {
-      color: "#111111",
-    },
+messages: {
+flexGrow: 1,
+paddingHorizontal: 12,
+paddingTop: 14,
+paddingBottom: 12,
+},
 
-    replyReference: {
-      flexDirection:
-        "row",
-      alignItems:
-        "center",
-      minHeight: 26,
-      paddingLeft: 8,
-      marginBottom: 7,
-      borderLeftWidth: 3,
-    },
+emptyMessages: {
+justifyContent: "flex-end",
+},
 
-    myReplyReference: {
-      borderLeftColor:
-        "#FFFFFF",
-    },
+messageRow: {
+width: "100%",
+marginVertical: 3,
+},
 
-    theirReplyReference: {
-      borderLeftColor:
-        "#777777",
-    },
+myMessageRow: {
+alignItems: "flex-end",
+},
 
-    replyReferenceText: {
-      flex: 1,
-      marginLeft: 5,
-      fontSize: 12,
-      lineHeight: 16,
-    },
+theirMessageRow: {
+alignItems: "flex-start",
+},
 
-    myReplyText: {
-      color: "#FFFFFF",
-    },
+bubble: {
+maxWidth: "82%",
+paddingHorizontal: 14,
+paddingVertical: 9,
+borderRadius: 20,
+},
 
-    theirReplyText: {
-      color: "#666666",
-    },
+myBubble: {
+backgroundColor: "#0095F6",
+borderBottomRightRadius: 5,
+},
 
-    reactions: {
-      alignSelf:
-        "flex-start",
-      flexDirection:
-        "row",
-      alignItems:
-        "center",
-      marginTop: 5,
-      paddingHorizontal: 5,
-      paddingVertical: 2,
-      borderRadius: 10,
-      backgroundColor:
-        "rgba(255,255,255,0.92)",
-    },
+theirBubble: {
+backgroundColor: "#EFEFEF",
+borderBottomLeftRadius: 5,
+},
 
-    reaction: {
-      marginHorizontal: 1,
-      fontSize: 14,
-    },
+voiceBubble: {
+minWidth: 230,
+paddingHorizontal: 9,
+paddingVertical: 8,
+},
 
-    messageImage: {
-      width: 220,
-      height: 220,
-      borderRadius: 14,
-      backgroundColor:
-        "#EDEDED",
-    },
+messageText: {
+fontSize: 15,
+lineHeight: 20,
+},
 
-    mediaPlaceholder: {
-      minWidth: 100,
-      minHeight: 48,
-      flexDirection:
-        "row",
-      alignItems:
-        "center",
-      justifyContent:
-        "center",
-    },
+myMessageText: {
+color: "#FFFFFF",
+},
 
-    mediaPlaceholderText: {
-      marginLeft: 7,
-      fontSize: 14,
-      fontWeight:
-        "600",
-    },
+theirMessageText: {
+color: "#111111",
+},
 
-    deletedBubble: {
-      maxWidth: "78%",
-      minHeight: 38,
-      paddingHorizontal: 14,
-      paddingVertical: 9,
-      flexDirection:
-        "row",
-      alignItems:
-        "center",
-      borderRadius: 18,
-      backgroundColor:
-        "#F3F3F3",
-    },
+replyReference: {
+flexDirection: "row",
+alignItems: "center",
+minHeight: 26,
+paddingLeft: 8,
+marginBottom: 7,
+borderLeftWidth: 3,
+},
 
-    deletedText: {
-      marginLeft: 6,
-      fontSize: 14,
-      fontStyle:
-        "italic",
-      color: "#999999",
-    },
+myReplyReference: {
+borderLeftColor: "#FFFFFF",
+},
 
-    typingContainer: {
-      paddingHorizontal: 17,
-      paddingVertical: 4,
-      backgroundColor:
-        "#FFFFFF",
-    },
+theirReplyReference: {
+borderLeftColor: "#777777",
+},
 
-    typingText: {
-      fontSize: 12,
-      lineHeight: 17,
-      fontStyle:
-        "italic",
-      color: "#888888",
-    },
+replyReferenceText: {
+flex: 1,
+marginLeft: 5,
+fontSize: 12,
+lineHeight: 16,
+},
 
-    replyComposer: {
-      minHeight: 52,
-      paddingHorizontal: 12,
-      paddingVertical: 7,
-      flexDirection:
-        "row",
-      alignItems:
-        "center",
-      backgroundColor:
-        "#F8F8F8",
-      borderTopWidth:
-        StyleSheet.hairlineWidth,
-      borderTopColor:
-        "#DBDBDB",
-    },
+myReplyText: {
+color: "#FFFFFF",
+},
 
-    replyAccent: {
-      width: 3,
-      height: 34,
-      marginRight: 9,
-      borderRadius: 2,
-      backgroundColor:
-        "#0095F6",
-    },
+theirReplyText: {
+color: "#666666",
+},
 
-    replyContent: {
-      flex: 1,
-      minWidth: 0,
-    },
+reactions: {
+alignSelf: "flex-start",
+flexDirection: "row",
+alignItems: "center",
+marginTop: 5,
+paddingHorizontal: 5,
+paddingVertical: 2,
+borderRadius: 10,
+backgroundColor:
+"rgba(255,255,255,0.92)",
+},
 
-    replyTitle: {
-      fontSize: 11,
-      lineHeight: 15,
-      fontWeight:
-        "800",
-      color: "#0095F6",
-    },
+reaction: {
+marginHorizontal: 1,
+fontSize: 14,
+},
 
-    replyText: {
-      marginTop: 1,
-      fontSize: 12,
-      lineHeight: 17,
-      color: "#666666",
-    },
+messageImage: {
+width: 220,
+height: 220,
+borderRadius: 14,
+backgroundColor: "#EDEDED",
+},
 
-    replyClose: {
-      width: 34,
-      height: 34,
-      alignItems:
-        "center",
-      justifyContent:
-        "center",
-    },
+mediaPlaceholder: {
+minWidth: 100,
+minHeight: 48,
+flexDirection: "row",
+alignItems: "center",
+justifyContent: "center",
+},
 
-    composer: {
-      minHeight: 61,
-      paddingHorizontal: 9,
-      paddingVertical: 8,
-      flexDirection:
-        "row",
-      alignItems:
-        "center",
-      backgroundColor:
-        "#FFFFFF",
-      borderTopWidth:
-        StyleSheet.hairlineWidth,
-      borderTopColor:
-        "#DBDBDB",
-    },
+mediaPlaceholderText: {
+marginLeft: 7,
+fontSize: 14,
+fontWeight: "600",
+},
 
-    input: {
-      flex: 1,
-      minHeight: 43,
-      maxHeight: 105,
-      marginHorizontal: 6,
-      paddingHorizontal: 15,
-      paddingTop: 10,
-      paddingBottom: 10,
-      borderRadius: 22,
-      backgroundColor:
-        "#F2F2F2",
-      color: "#111111",
-      fontSize: 15,
-      lineHeight: 20,
-    },
+deletedBubble: {
+maxWidth: "78%",
+minHeight: 38,
+paddingHorizontal: 14,
+paddingVertical: 9,
+flexDirection: "row",
+alignItems: "center",
+borderRadius: 18,
+backgroundColor: "#F3F3F3",
+},
 
-    sendButton: {
-      width: 43,
-      height: 43,
-      alignItems:
-        "center",
-      justifyContent:
-        "center",
-    },
+deletedText: {
+marginLeft: 6,
+fontSize: 14,
+fontStyle: "italic",
+color: "#999999",
+},
 
-    modalOverlay: {
-      flex: 1,
-      alignItems:
-        "center",
-      justifyContent:
-        "center",
-      paddingHorizontal: 20,
-      backgroundColor:
-        "rgba(0,0,0,0.45)",
-    },
+typingContainer: {
+paddingHorizontal: 17,
+paddingVertical: 4,
+backgroundColor: "#FFFFFF",
+},
 
-    actionBox: {
-      width: "100%",
-      maxWidth: 390,
-      overflow:
-        "hidden",
-      borderRadius: 20,
-      backgroundColor:
-        "#FFFFFF",
-    },
+typingText: {
+fontSize: 12,
+lineHeight: 17,
+fontStyle: "italic",
+color: "#888888",
+},
 
-    modalHandle: {
-      alignSelf:
-        "center",
-      width: 38,
-      height: 4,
-      marginTop: 9,
-      marginBottom: 4,
-      borderRadius: 2,
-      backgroundColor:
-        "#D8D8D8",
-    },
+replyComposer: {
+minHeight: 52,
+paddingHorizontal: 12,
+paddingVertical: 7,
+flexDirection: "row",
+alignItems: "center",
+backgroundColor: "#F8F8F8",
+borderTopWidth:
+StyleSheet.hairlineWidth,
+borderTopColor: "#DBDBDB",
+},
 
-    action: {
-      minHeight: 53,
-      paddingHorizontal: 20,
-      flexDirection:
-        "row",
-      alignItems:
-        "center",
-      borderBottomWidth:
-        StyleSheet.hairlineWidth,
-      borderBottomColor:
-        "#EEEEEE",
-    },
+replyAccent: {
+width: 3,
+height: 34,
+marginRight: 9,
+borderRadius: 2,
+backgroundColor: "#0095F6",
+},
 
-    actionIcon: {
-      width: 28,
-      marginRight: 11,
-    },
+replyContent: {
+flex: 1,
+minWidth: 0,
+},
 
-    actionText: {
-      fontSize: 15,
-      fontWeight:
-        "600",
-      color: "#111111",
-    },
+replyTitle: {
+fontSize: 11,
+lineHeight: 15,
+fontWeight: "800",
+color: "#0095F6",
+},
 
-    dangerText: {
-      color: "#ED4956",
-      fontWeight:
-        "700",
-    },
+replyText: {
+marginTop: 1,
+fontSize: 12,
+lineHeight: 17,
+color: "#666666",
+},
 
-    cancelAction: {
-      minHeight: 54,
-      alignItems:
-        "center",
-      justifyContent:
-        "center",
-    },
+replyClose: {
+width: 34,
+height: 34,
+alignItems: "center",
+justifyContent: "center",
+},
 
-    cancelText: {
-      fontSize: 15,
-      fontWeight:
-        "600",
-      color: "#111111",
-    },
-  });
+composer: {
+minHeight: 61,
+paddingHorizontal: 9,
+paddingVertical: 8,
+flexDirection: "row",
+alignItems: "center",
+backgroundColor: "#FFFFFF",
+borderTopWidth:
+StyleSheet.hairlineWidth,
+borderTopColor: "#DBDBDB",
+},
+
+input: {
+flex: 1,
+minHeight: 43,
+maxHeight: 105,
+marginHorizontal: 6,
+paddingHorizontal: 15,
+paddingTop: 10,
+paddingBottom: 10,
+borderRadius: 22,
+backgroundColor: "#F2F2F2",
+color: "#111111",
+fontSize: 15,
+lineHeight: 20,
+},
+
+sendButton: {
+width: 43,
+height: 43,
+alignItems: "center",
+justifyContent: "center",
+},
+
+modalOverlay: {
+flex: 1,
+alignItems: "center",
+justifyContent: "center",
+paddingHorizontal: 20,
+backgroundColor:
+"rgba(0,0,0,0.45)",
+},
+
+actionBox: {
+width: "100%",
+maxWidth: 390,
+overflow: "hidden",
+borderRadius: 20,
+backgroundColor: "#FFFFFF",
+},
+
+modalHandle: {
+alignSelf: "center",
+width: 38,
+height: 4,
+marginTop: 9,
+marginBottom: 4,
+borderRadius: 2,
+backgroundColor: "#D8D8D8",
+},
+
+action: {
+minHeight: 53,
+paddingHorizontal: 20,
+flexDirection: "row",
+alignItems: "center",
+borderBottomWidth:
+StyleSheet.hairlineWidth,
+borderBottomColor: "#EEEEEE",
+},
+
+actionIcon: {
+width: 28,
+marginRight: 11,
+},
+
+actionText: {
+fontSize: 15,
+fontWeight: "600",
+color: "#111111",
+},
+
+dangerText: {
+color: "#ED4956",
+fontWeight: "700",
+},
+
+cancelAction: {
+minHeight: 54,
+alignItems: "center",
+justifyContent: "center",
+},
+
+cancelText: {
+fontSize: 15,
+fontWeight: "600",
+color: "#111111",
+},
+});

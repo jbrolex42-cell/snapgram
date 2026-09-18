@@ -20,13 +20,9 @@ import {
   useLocalSearchParams,
 } from "expo-router";
 
-import {
-  MaterialCommunityIcons,
-} from "@expo/vector-icons";
+import { MaterialCommunityIcons } from "@expo/vector-icons";
 
-import {
-  SafeAreaView,
-} from "react-native-safe-area-context";
+import { SafeAreaView } from "react-native-safe-area-context";
 
 import CallControls from "../../components/calls/CallControls";
 import LocalVideo from "../../components/calls/LocalVideo";
@@ -34,9 +30,15 @@ import RemoteVideo from "../../components/calls/RemoteVideo";
 
 import { useAuth } from "../../context/AuthContext";
 
-import { waitForSocket } from "../../services/socket";
-
-import { updateCall } from "../../services/callService";
+import {
+  waitForSocket,
+  sendCallReady,
+  endCall as sendEndCall,
+  cancelCall,
+  sendWebRTCOffer,
+  sendWebRTCAnswer,
+  sendICECandidate,
+} from "../../services/socket";
 
 import {
   getLocalStream,
@@ -61,15 +63,13 @@ export default function CallScreen() {
     params?.username || "Snapgram User"
   );
 
-  const avatar = String(
-    params?.avatar || ""
-  );
+  const avatar = String(params?.avatar || "");
 
   const type = String(
     params?.type || "voice"
   ).toLowerCase();
 
-  const caller =
+  const isCaller =
     String(params?.isCaller) === "true";
 
   const isVideo = type === "video";
@@ -91,6 +91,12 @@ export default function CallScreen() {
       ""
   );
 
+  /*
+   * ============================================================
+   * REFS
+   * ============================================================
+   */
+
   const mountedRef = useRef(true);
 
   const initializingRef = useRef(false);
@@ -101,11 +107,16 @@ export default function CallScreen() {
 
   const offerSentRef = useRef(false);
 
-  const acceptedRef = useRef(
-    caller === false
-  );
-
   const readySentRef = useRef(false);
+
+  /*
+   * Caller starts without acceptance.
+   *
+   * Receiver is already considered accepted from the
+   * call-screen perspective because the incoming-call screen
+   * should only navigate here after accepting.
+   */
+  const acceptedRef = useRef(!isCaller);
 
   const remoteDescriptionSetRef =
     useRef(false);
@@ -123,6 +134,12 @@ export default function CallScreen() {
 
   const setupTimeoutRef =
     useRef(null);
+
+  /*
+   * ============================================================
+   * STATE
+   * ============================================================
+   */
 
   const [localStream, setLocalStream] =
     useState(null);
@@ -147,13 +164,19 @@ export default function CallScreen() {
 
   const [callStatus, setCallStatus] =
     useState(
-      caller
+      isCaller
         ? "Calling..."
         : "Connecting..."
     );
 
   const [connectionError, setConnectionError] =
     useState("");
+
+  /*
+   * ============================================================
+   * DISPLAY DATA
+   * ============================================================
+   */
 
   const displayName =
     username.trim() || "Snapgram User";
@@ -197,9 +220,7 @@ export default function CallScreen() {
         >
           {avatarUri ? (
             <Image
-              source={{
-                uri: avatarUri,
-              }}
+              source={{ uri: avatarUri }}
               style={[
                 styles.avatarImage,
                 {
@@ -227,6 +248,12 @@ export default function CallScreen() {
     [avatarUri, initials]
   );
 
+  /*
+   * ============================================================
+   * CALL VALIDATION
+   * ============================================================
+   */
+
   const isCurrentCall = useCallback(
     (data) => {
       if (!data) {
@@ -234,7 +261,7 @@ export default function CallScreen() {
       }
 
       if (
-        data?.callId &&
+        data.callId &&
         callId &&
         String(data.callId) !== callId
       ) {
@@ -246,6 +273,12 @@ export default function CallScreen() {
     [callId]
   );
 
+  /*
+   * ============================================================
+   * TIMEOUT
+   * ============================================================
+   */
+
   const clearSetupTimeout =
     useCallback(() => {
       if (setupTimeoutRef.current) {
@@ -256,6 +289,12 @@ export default function CallScreen() {
         setupTimeoutRef.current = null;
       }
     }, []);
+
+  /*
+   * ============================================================
+   * CLEANUP
+   * ============================================================
+   */
 
   const cleanupCall = useCallback(() => {
     if (cleanedUpRef.current) {
@@ -278,12 +317,6 @@ export default function CallScreen() {
     const socket = socketRef.current;
 
     if (socket) {
-      socket.off("webrtc:offer");
-      socket.off("webrtc:answer");
-      socket.off(
-        "webrtc:ice-candidate"
-      );
-
       socket.off("call:accepted");
       socket.off("call:ready");
 
@@ -291,6 +324,10 @@ export default function CallScreen() {
       socket.off("call:cancelled");
       socket.off("call:rejected");
       socket.off("call:missed");
+
+      socket.off("webrtc:offer");
+      socket.off("webrtc:answer");
+      socket.off("webrtc:ice-candidate");
     }
 
     socketRef.current = null;
@@ -303,10 +340,8 @@ export default function CallScreen() {
       try {
         peer.ontrack = null;
         peer.onicecandidate = null;
-        peer.onconnectionstatechange =
-          null;
-        peer.oniceconnectionstatechange =
-          null;
+        peer.onconnectionstatechange = null;
+        peer.oniceconnectionstatechange = null;
         peer.onicecandidateerror = null;
       } catch {}
 
@@ -314,7 +349,7 @@ export default function CallScreen() {
         peer.close?.();
       } catch (error) {
         console.warn(
-          "PEER CLOSE ERROR:",
+          "[CALL] Peer cleanup error:",
           error?.message || error
         );
       }
@@ -330,7 +365,7 @@ export default function CallScreen() {
         stopLocalStream(stream);
       } catch (error) {
         console.warn(
-          "LOCAL STREAM CLEANUP ERROR:",
+          "[CALL] Local stream cleanup error:",
           error?.message || error
         );
       }
@@ -345,37 +380,39 @@ export default function CallScreen() {
     }
   }, [clearSetupTimeout]);
 
-  const handleRemoteEnd =
-    useCallback(
-      (data) => {
-        if (
-          !mountedRef.current ||
-          endingRef.current
-        ) {
-          return;
+  /*
+   * ============================================================
+   * REMOTE CALL EVENTS
+   * ============================================================
+   */
+
+  const handleRemoteEnd = useCallback(
+    (data) => {
+      if (
+        !mountedRef.current ||
+        endingRef.current
+      ) {
+        return;
+      }
+
+      if (!isCurrentCall(data)) {
+        return;
+      }
+
+      endingRef.current = true;
+
+      setCallStatus("Call ended");
+
+      cleanupCall();
+
+      setTimeout(() => {
+        if (mountedRef.current) {
+          router.back();
         }
-
-        if (!isCurrentCall(data)) {
-          return;
-        }
-
-        endingRef.current = true;
-
-        setCallStatus("Call ended");
-
-        cleanupCall();
-
-        setTimeout(() => {
-          if (mountedRef.current) {
-            router.back();
-          }
-        }, 200);
-      },
-      [
-        cleanupCall,
-        isCurrentCall,
-      ]
-    );
+      }, 200);
+    },
+    [cleanupCall, isCurrentCall]
+  );
 
   const handleCallAccepted =
     useCallback(
@@ -387,8 +424,8 @@ export default function CallScreen() {
         acceptedRef.current = true;
 
         console.log(
-          "CALL ACCEPTED:",
-          data
+          "[CALL] Call accepted:",
+          callId
         );
 
         if (mountedRef.current) {
@@ -397,15 +434,21 @@ export default function CallScreen() {
           );
         }
       },
-      [isCurrentCall]
+      [callId, isCurrentCall]
     );
+
+  /*
+   * ============================================================
+   * SEND WEBRTC OFFER
+   * ============================================================
+   */
 
   const createAndSendOffer =
     useCallback(async () => {
       if (
-        !caller ||
-        offerSentRef.current ||
-        !acceptedRef.current
+        !isCaller ||
+        !acceptedRef.current ||
+        offerSentRef.current
       ) {
         return;
       }
@@ -427,7 +470,7 @@ export default function CallScreen() {
         "stable"
       ) {
         console.log(
-          "SKIPPING OFFER:",
+          "[CALL] Offer skipped. Signaling state:",
           peer.signalingState
         );
 
@@ -438,7 +481,7 @@ export default function CallScreen() {
 
       try {
         console.log(
-          "CREATING WEBRTC OFFER..."
+          "[CALL] Creating WebRTC offer..."
         );
 
         const offer =
@@ -448,10 +491,8 @@ export default function CallScreen() {
           return;
         }
 
-        socket.emit("webrtc:offer", {
+        sendWebRTCOffer({
           callId,
-          targetUserId: remoteUserId,
-          senderId: currentUserId,
           offer,
         });
 
@@ -460,13 +501,13 @@ export default function CallScreen() {
         );
 
         console.log(
-          "WEBRTC OFFER SENT"
+          "[CALL] WebRTC offer sent"
         );
       } catch (error) {
         offerSentRef.current = false;
 
         console.error(
-          "CREATE OFFER ERROR:",
+          "[CALL] Create offer error:",
           error
         );
 
@@ -477,25 +518,26 @@ export default function CallScreen() {
           );
         }
       }
-    }, [
-      caller,
-      callId,
-      currentUserId,
-      remoteUserId,
-    ]);
+    }, [callId, isCaller]);
+
+  /*
+   * ============================================================
+   * REMOTE READY
+   * ============================================================
+   */
 
   const handleCallReady =
     useCallback(
       async (data) => {
         if (
-          !caller ||
+          !isCaller ||
           !isCurrentCall(data)
         ) {
           return;
         }
 
         console.log(
-          "REMOTE CALL SCREEN READY"
+          "[CALL] Remote call screen ready"
         );
 
         acceptedRef.current = true;
@@ -503,11 +545,17 @@ export default function CallScreen() {
         await createAndSendOffer();
       },
       [
-        caller,
         createAndSendOffer,
+        isCaller,
         isCurrentCall,
       ]
     );
+
+  /*
+   * ============================================================
+   * WEBRTC OFFER
+   * ============================================================
+   */
 
   const handleOffer =
     useCallback(
@@ -527,7 +575,7 @@ export default function CallScreen() {
 
         if (!peer) {
           console.warn(
-            "OFFER RECEIVED BEFORE PEER READY"
+            "[CALL] Offer received before peer was ready"
           );
 
           return;
@@ -546,6 +594,10 @@ export default function CallScreen() {
           remoteDescriptionSetRef.current =
             true;
 
+          /*
+           * Apply ICE candidates that arrived before
+           * the remote description.
+           */
           const queued =
             pendingIceCandidatesRef.current;
 
@@ -562,7 +614,7 @@ export default function CallScreen() {
               );
             } catch (error) {
               console.warn(
-                "QUEUED ICE ERROR:",
+                "[CALL] Queued ICE error:",
                 error?.message || error
               );
             }
@@ -580,24 +632,17 @@ export default function CallScreen() {
             );
           }
 
-          socket.emit(
-            "webrtc:answer",
-            {
-              callId,
-              targetUserId:
-                data?.senderId ||
-                remoteUserId,
-              senderId: currentUserId,
-              answer,
-            }
-          );
+          sendWebRTCAnswer({
+            callId,
+            answer,
+          });
 
           console.log(
-            "WEBRTC ANSWER SENT"
+            "[CALL] WebRTC answer sent"
           );
         } catch (error) {
           console.error(
-            "HANDLE OFFER ERROR:",
+            "[CALL] Handle offer error:",
             error
           );
 
@@ -609,13 +654,14 @@ export default function CallScreen() {
           }
         }
       },
-      [
-        callId,
-        currentUserId,
-        isCurrentCall,
-        remoteUserId,
-      ]
+      [callId, isCurrentCall]
     );
+
+  /*
+   * ============================================================
+   * WEBRTC ANSWER
+   * ============================================================
+   */
 
   const handleAnswer =
     useCallback(
@@ -662,18 +708,18 @@ export default function CallScreen() {
               );
             } catch (error) {
               console.warn(
-                "QUEUED ANSWER ICE ERROR:",
+                "[CALL] Queued answer ICE error:",
                 error?.message || error
               );
             }
           }
 
           console.log(
-            "REMOTE ANSWER INSTALLED"
+            "[CALL] Remote answer installed"
           );
         } catch (error) {
           console.error(
-            "HANDLE ANSWER ERROR:",
+            "[CALL] Handle answer error:",
             error
           );
 
@@ -687,6 +733,12 @@ export default function CallScreen() {
       },
       [isCurrentCall]
     );
+
+  /*
+   * ============================================================
+   * ICE CANDIDATES
+   * ============================================================
+   */
 
   const handleIceCandidate =
     useCallback(
@@ -706,6 +758,10 @@ export default function CallScreen() {
         }
 
         try {
+          /*
+           * ICE candidates must wait until the remote
+           * description exists.
+           */
           if (
             !remoteDescriptionSetRef.current
           ) {
@@ -722,7 +778,7 @@ export default function CallScreen() {
           );
         } catch (error) {
           console.warn(
-            "ICE CANDIDATE ERROR:",
+            "[CALL] ICE candidate error:",
             error?.message || error
           );
         }
@@ -730,39 +786,43 @@ export default function CallScreen() {
       [isCurrentCall]
     );
 
-  const sendCallReady =
-    useCallback(() => {
-      if (
-        caller ||
-        readySentRef.current
-      ) {
-        return;
-      }
+  /*
+   * ============================================================
+   * SEND CALL READY
+   * ============================================================
+   */
 
-      const socket =
-        socketRef.current;
+  const sendReady = useCallback(() => {
+    if (
+      isCaller ||
+      readySentRef.current
+    ) {
+      return;
+    }
 
-      if (!socket?.connected) {
-        return;
-      }
+    const socket =
+      socketRef.current;
 
-      readySentRef.current = true;
+    if (!socket?.connected) {
+      return;
+    }
 
-      socket.emit("call:ready", {
-        callId,
-        targetUserId: remoteUserId,
-        receiverId: currentUserId,
-      });
+    readySentRef.current = true;
 
-      console.log(
-        "CALL READY SENT"
-      );
-    }, [
-      caller,
+    sendCallReady({
       callId,
-      currentUserId,
-      remoteUserId,
-    ]);
+    });
+
+    console.log(
+      "[CALL] Call ready sent"
+    );
+  }, [callId, isCaller]);
+
+  /*
+   * ============================================================
+   * SOCKET LISTENERS
+   * ============================================================
+   */
 
   const registerListeners =
     useCallback(() => {
@@ -773,6 +833,9 @@ export default function CallScreen() {
         return;
       }
 
+      /*
+       * Prevent duplicate listeners.
+       */
       socket.off(
         "call:accepted",
         handleCallAccepted
@@ -818,6 +881,9 @@ export default function CallScreen() {
         handleIceCandidate
       );
 
+      /*
+       * Register listeners.
+       */
       socket.on(
         "call:accepted",
         handleCallAccepted
@@ -864,7 +930,7 @@ export default function CallScreen() {
       );
 
       console.log(
-        "CALL WEBRTC LISTENERS READY"
+        "[CALL] WebRTC listeners ready"
       );
     }, [
       handleCallAccepted,
@@ -874,6 +940,12 @@ export default function CallScreen() {
       handleAnswer,
       handleIceCandidate,
     ]);
+
+  /*
+   * ============================================================
+   * INITIALIZE CALL
+   * ============================================================
+   */
 
   const initializeCall =
     useCallback(async () => {
@@ -909,16 +981,21 @@ export default function CallScreen() {
         setConnectionError("");
 
         console.log(
-          "INITIALIZING CALL:",
+          "[CALL] Initializing:",
           {
             callId,
             currentUserId,
             remoteUserId,
-            caller,
+            isCaller,
             isVideo,
           }
         );
 
+        /*
+         * Socket identity comes from authenticated socket
+         * authentication. We do not trust a client-supplied
+         * user ID for call authorization.
+         */
         const socket =
           await waitForSocket(
             currentUserId,
@@ -942,6 +1019,9 @@ export default function CallScreen() {
 
         registerListeners();
 
+        /*
+         * Get microphone/camera.
+         */
         const stream =
           await getLocalStream(
             isVideo
@@ -957,6 +1037,9 @@ export default function CallScreen() {
 
         setLocalStream(stream);
 
+        /*
+         * Create peer connection.
+         */
         const peer =
           await createPeerConnection();
 
@@ -968,6 +1051,9 @@ export default function CallScreen() {
 
         peerRef.current = peer;
 
+        /*
+         * Add local tracks.
+         */
         const tracks =
           typeof stream.getTracks ===
           "function"
@@ -984,34 +1070,43 @@ export default function CallScreen() {
             );
           } catch (error) {
             console.warn(
-              "ADD TRACK ERROR:",
+              "[CALL] Add track error:",
               error?.message || error
             );
           }
         }
 
+        /*
+         * Remote media.
+         */
         peer.ontrack = (event) => {
           if (!mountedRef.current) {
             return;
           }
 
-          const stream =
+          const incomingStream =
             event?.streams?.[0];
 
-          if (!stream) {
+          if (!incomingStream) {
             return;
           }
 
           remoteStreamRef.current =
-            stream;
+            incomingStream;
 
-          setRemoteStream(stream);
+          setRemoteStream(
+            incomingStream
+          );
 
           setConnected(true);
           setCallStatus("Connected");
           setConnectionError("");
         };
 
+        /*
+         * Local ICE -> authenticated socket server ->
+         * authorized remote participant.
+         */
         peer.onicecandidate = (
           event
         ) => {
@@ -1029,19 +1124,22 @@ export default function CallScreen() {
             return;
           }
 
-          socket.emit(
-            "webrtc:ice-candidate",
-            {
+          try {
+            sendICECandidate({
               callId,
-              targetUserId:
-                remoteUserId,
-              senderId:
-                currentUserId,
               candidate,
-            }
-          );
+            });
+          } catch (error) {
+            console.warn(
+              "[CALL] Send ICE error:",
+              error?.message || error
+            );
+          }
         };
 
+        /*
+         * Connection state.
+         */
         peer.onconnectionstatechange =
           () => {
             if (!mountedRef.current) {
@@ -1052,7 +1150,7 @@ export default function CallScreen() {
               peer.connectionState;
 
             console.log(
-              "WEBRTC CONNECTION STATE:",
+              "[CALL] WebRTC connection state:",
               state
             );
 
@@ -1074,6 +1172,7 @@ export default function CallScreen() {
                 setCallStatus(
                   "Connected"
                 );
+                clearSetupTimeout();
                 break;
 
               case "disconnected":
@@ -1102,7 +1201,7 @@ export default function CallScreen() {
         peer.oniceconnectionstatechange =
           () => {
             console.log(
-              "WEBRTC ICE STATE:",
+              "[CALL] ICE state:",
               peer.iceConnectionState
             );
           };
@@ -1110,16 +1209,24 @@ export default function CallScreen() {
         peer.onicecandidateerror =
           (event) => {
             console.warn(
-              "WEBRTC ICE ERROR:",
+              "[CALL] ICE error:",
               event
             );
           };
 
-        if (!caller) {
-          sendCallReady();
+        /*
+         * Receiver tells caller that their call screen
+         * and WebRTC peer are ready.
+         */
+        if (!isCaller) {
+          sendReady();
         }
 
-        if (caller) {
+        /*
+         * Caller can create an offer immediately if the
+         * remote side was already accepted.
+         */
+        if (isCaller) {
           setCallStatus(
             acceptedRef.current
               ? "Connecting..."
@@ -1137,10 +1244,12 @@ export default function CallScreen() {
           );
         }
 
-        setInitializing(false);
+        if (mountedRef.current) {
+          setInitializing(false);
+        }
       } catch (error) {
         console.error(
-          "CALL INITIALIZATION ERROR:",
+          "[CALL] Initialization error:",
           error
         );
 
@@ -1158,14 +1267,21 @@ export default function CallScreen() {
       }
     }, [
       callId,
-      caller,
-      currentUserId,
+      clearSetupTimeout,
       createAndSendOffer,
+      currentUserId,
+      isCaller,
       isVideo,
       registerListeners,
       remoteUserId,
-      sendCallReady,
+      sendReady,
     ]);
+
+  /*
+   * ============================================================
+   * INITIAL EFFECT
+   * ============================================================
+   */
 
   useEffect(() => {
     mountedRef.current = true;
@@ -1174,8 +1290,7 @@ export default function CallScreen() {
     endingRef.current = false;
     initializingRef.current = false;
 
-    acceptedRef.current =
-      caller === false;
+    acceptedRef.current = !isCaller;
 
     offerSentRef.current = false;
     readySentRef.current = false;
@@ -1202,12 +1317,19 @@ export default function CallScreen() {
 
     return () => {
       mountedRef.current = false;
+
       cleanupCall();
     };
   }, [
     initializeCall,
     cleanupCall,
   ]);
+
+  /*
+   * ============================================================
+   * CONTROLS
+   * ============================================================
+   */
 
   const toggleMute = useCallback(() => {
     const stream =
@@ -1233,135 +1355,133 @@ export default function CallScreen() {
     setMuted(nextMuted);
   }, [muted]);
 
-  const toggleVideo =
-    useCallback(() => {
-      if (!isVideo) {
-        return;
+  const toggleVideo = useCallback(() => {
+    if (!isVideo) {
+      return;
+    }
+
+    const stream =
+      localStreamRef.current;
+
+    if (!stream) {
+      return;
+    }
+
+    const tracks =
+      stream.getVideoTracks?.() || [];
+
+    if (!tracks.length) {
+      return;
+    }
+
+    const nextEnabled =
+      !videoEnabled;
+
+    tracks.forEach((track) => {
+      track.enabled = nextEnabled;
+    });
+
+    setVideoEnabled(nextEnabled);
+  }, [isVideo, videoEnabled]);
+
+  const toggleSpeaker = useCallback(() => {
+    setSpeaker((value) => !value);
+  }, []);
+
+  const switchCamera = useCallback(() => {
+    if (!isVideo) {
+      return;
+    }
+
+    const stream =
+      localStreamRef.current;
+
+    if (!stream) {
+      return;
+    }
+
+    const track =
+      stream
+        .getVideoTracks?.()
+        ?.find(Boolean);
+
+    if (!track) {
+      return;
+    }
+
+    try {
+      if (
+        typeof track._switchCamera ===
+        "function"
+      ) {
+        track._switchCamera();
       }
+    } catch (error) {
+      console.warn(
+        "[CALL] Switch camera error:",
+        error?.message || error
+      );
+    }
+  }, [isVideo]);
 
-      const stream =
-        localStreamRef.current;
+  /*
+   * ============================================================
+   * END CALL
+   * ============================================================
+   *
+   * Call state changes happen through Socket.IO.
+   * No REST PATCH/updateCall is used here.
+   */
 
-      if (!stream) {
-        return;
-      }
+  const endCall = useCallback(() => {
+    if (endingRef.current) {
+      return;
+    }
 
-      const tracks =
-        stream.getVideoTracks?.() || [];
+    endingRef.current = true;
 
-      if (!tracks.length) {
-        return;
-      }
+    const socket =
+      socketRef.current;
 
-      const nextEnabled =
-        !videoEnabled;
-
-      tracks.forEach((track) => {
-        track.enabled = nextEnabled;
-      });
-
-      setVideoEnabled(nextEnabled);
-    }, [
-      isVideo,
-      videoEnabled,
-    ]);
-
-  const toggleSpeaker =
-    useCallback(() => {
-      setSpeaker((value) => !value);
-    }, []);
-
-  const switchCamera =
-    useCallback(() => {
-      if (!isVideo) {
-        return;
-      }
-
-      const stream =
-        localStreamRef.current;
-
-      if (!stream) {
-        return;
-      }
-
-      const track =
-        stream
-          .getVideoTracks?.()
-          ?.find(Boolean);
-
-      if (!track) {
-        return;
-      }
-
-      try {
-        if (
-          typeof track._switchCamera ===
-          "function"
-        ) {
-          track._switchCamera();
-        }
-      } catch (error) {
-        console.warn(
-          "SWITCH CAMERA ERROR:",
-          error?.message || error
-        );
-      }
-    }, [isVideo]);
-
-  const endCall = useCallback(
-    async () => {
-      if (endingRef.current) {
-        return;
-      }
-
-      endingRef.current = true;
-
-      try {
-        if (callId) {
-          await updateCall(
+    try {
+      if (
+        socket?.connected &&
+        callId
+      ) {
+        if (isCaller && !connected) {
+          cancelCall({
             callId,
-            "ended"
-          );
-        }
-      } catch (error) {
-        console.warn(
-          "END CALL UPDATE ERROR:",
-          error?.message || error
-        );
-      }
-
-      try {
-        const socket =
-          socketRef.current;
-
-        if (socket?.connected) {
-          socket.emit("call:end", {
+          });
+        } else {
+          sendEndCall({
             callId,
-            otherUserId:
-              remoteUserId,
-            targetUserId:
-              remoteUserId,
           });
         }
-      } catch (error) {
-        console.warn(
-          "END CALL SOCKET ERROR:",
-          error?.message || error
-        );
       }
+    } catch (error) {
+      console.warn(
+        "[CALL] End call error:",
+        error?.message || error
+      );
+    }
 
-      cleanupCall();
+    cleanupCall();
 
-      if (mountedRef.current) {
-        router.back();
-      }
-    },
-    [
-      callId,
-      cleanupCall,
-      remoteUserId,
-    ]
-  );
+    if (mountedRef.current) {
+      router.back();
+    }
+  }, [
+    callId,
+    cleanupCall,
+    connected,
+    isCaller,
+  ]);
+
+  /*
+   * ============================================================
+   * ERROR SCREEN
+   * ============================================================
+   */
 
   if (connectionError) {
     return (
@@ -1404,6 +1524,12 @@ export default function CallScreen() {
       </SafeAreaView>
     );
   }
+
+  /*
+   * ============================================================
+   * INITIALIZING SCREEN
+   * ============================================================
+   */
 
   if (initializing) {
     return (
@@ -1456,6 +1582,12 @@ export default function CallScreen() {
     );
   }
 
+  /*
+   * ============================================================
+   * VIDEO CALL
+   * ============================================================
+   */
+
   if (isVideo) {
     return (
       <View style={styles.videoRoot}>
@@ -1494,6 +1626,7 @@ export default function CallScreen() {
               </View>
             )}
 
+            {/* HEADER */}
             <View
               style={
                 styles.videoTopHeader
@@ -1502,7 +1635,7 @@ export default function CallScreen() {
               <Pressable
                 onPress={endCall}
                 accessibilityRole="button"
-                accessibilityLabel="Minimize call"
+                accessibilityLabel="End call"
                 style={
                   styles.headerButton
                 }
@@ -1636,20 +1769,26 @@ export default function CallScreen() {
     );
   }
 
+  /*
+   * ============================================================
+   * VOICE CALL
+   * ============================================================
+   */
+
   return (
     <View style={styles.voiceRoot}>
       <SafeAreaView
         style={styles.voiceSafeArea}
         edges={["top", "bottom"]}
       >
-        {/* VOICE HEADER */}
+        {/* HEADER */}
         <View
           style={styles.voiceTopBar}
         >
           <Pressable
             onPress={endCall}
             accessibilityRole="button"
-            accessibilityLabel="Minimize call"
+            accessibilityLabel="End call"
             style={
               styles.voiceBackButton
             }
@@ -1672,7 +1811,7 @@ export default function CallScreen() {
           />
         </View>
 
-        {/* VOICE PROFILE */}
+        {/* PROFILE */}
         <View
           style={styles.voiceProfile}
         >
@@ -1716,7 +1855,7 @@ export default function CallScreen() {
           )}
         </View>
 
-        {/* VOICE CONTROLS */}
+        {/* CONTROLS */}
         <View
           style={styles.voiceControls}
         >
@@ -1739,6 +1878,12 @@ export default function CallScreen() {
     </View>
   );
 }
+
+/*
+ * ============================================================
+ * STYLES
+ * ============================================================
+ */
 
 const styles = StyleSheet.create({
   blackScreen: {
@@ -2057,6 +2202,7 @@ const styles = StyleSheet.create({
     color: "#34c759",
     fontSize: 12,
     fontWeight: "600",
+    marginLeft: 6,
   },
 
   voiceControls: {

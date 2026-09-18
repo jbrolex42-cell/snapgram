@@ -16,10 +16,6 @@ import {
 
 import { translateCaption } from "../../services/translationApi";
 
-/**
- * Convert the language saved in Settings into
- * the language code expected by the translation API.
- */
 function normalizeLanguage(language) {
   if (!language) {
     return "en";
@@ -95,9 +91,6 @@ function normalizeLanguage(language) {
   return aliases[value] || value;
 }
 
-/**
- * Convert a language code into a readable name.
- */
 function getLanguageName(language) {
   const normalized = normalizeLanguage(language);
 
@@ -145,11 +138,6 @@ export default function TranslatableCaption({
   const [error, setError] =
     useState("");
 
-  /**
-   * Prevent an older translation request from
-   * updating the component after the caption
-   * or selected language changes.
-   */
   const requestIdRef = useRef(0);
 
   const normalizedTarget = useMemo(
@@ -173,10 +161,6 @@ export default function TranslatableCaption({
     [text]
   );
 
-  /**
-   * Reset translation when the caption or
-   * selected language changes.
-   */
   useEffect(() => {
     requestIdRef.current += 1;
 
@@ -192,10 +176,6 @@ export default function TranslatableCaption({
       return;
     }
 
-    /**
-     * If this caption has already been translated,
-     * simply switch between original and translation.
-     */
     if (translatedText) {
       setShowTranslated((current) => !current);
       return;
@@ -214,10 +194,6 @@ export default function TranslatableCaption({
           normalizedSource || undefined,
       });
 
-      /**
-       * Ignore an old request if another request
-       * has already started.
-       */
       if (requestId !== requestIdRef.current) {
         return;
       }
@@ -275,10 +251,6 @@ export default function TranslatableCaption({
     return null;
   }
 
-  /**
-   * If the caption is already written in the
-   * user's selected language, translation is unnecessary.
-   */
   const sameLanguage =
     detectedLanguage &&
     normalizeLanguage(detectedLanguage) ===

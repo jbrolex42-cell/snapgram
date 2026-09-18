@@ -483,3 +483,55 @@ export async function getComments(
     []
   );
 }
+export async function getArchivedPosts(
+  page = 1,
+  limit = 50
+) {
+  const response = await api.get(
+    "/posts/archived",
+    {
+      params: {
+        page,
+        limit,
+      },
+    }
+  );
+
+  return {
+    posts: extractPosts(response),
+    page:
+      response.data?.page ||
+      page,
+    limit:
+      response.data?.limit ||
+      limit,
+    total:
+      response.data?.total ||
+      0,
+    hasMore:
+      response.data?.hasMore ||
+      false,
+  };
+}
+
+export async function restoreArchivedPost(
+  postId
+) {
+  if (!postId) {
+    throw new Error(
+      "Post ID is required."
+    );
+  }
+
+  const response = await api.patch(
+    `/posts/${postId}/archive`,
+    {
+      isArchived: false,
+    }
+  );
+
+  return (
+    response.data?.post ||
+    response.data
+  );
+}

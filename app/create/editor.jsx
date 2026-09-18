@@ -18,9 +18,7 @@ import {
   View,
 } from "react-native";
 
-import {
-  Ionicons,
-} from "@expo/vector-icons";
+import { Ionicons } from "@expo/vector-icons";
 
 import {
   router,
@@ -43,9 +41,7 @@ import CropSelector from "../../components/create/CropSelector";
 import FilterSelector from "../../components/create/FilterSelector";
 import AdjustControls from "../../components/create/AdjustControls";
 
-import {
-  createPost,
-} from "../../services/postService";
+import { createPost } from "../../services/postService";
 
 const DEFAULT_ADJUSTMENTS = {
   brightness: 0,
@@ -78,24 +74,32 @@ const VISIBILITY_OPTIONS = [
 
 function parseMedia(params) {
   try {
-    if (params.media) {
+    if (params?.media) {
       const parsed = JSON.parse(params.media);
 
       if (Array.isArray(parsed)) {
-        return parsed.filter((item) => item?.uri);
+        return parsed.filter(
+          (item) => item?.uri
+        );
       }
     }
 
-    if (params.uri) {
+    if (params?.uri) {
       return [
         {
           uri: params.uri,
-          type: params.type === "video" ? "video" : "image",
+
+          type:
+            params.type === "video"
+              ? "video"
+              : "image",
+
           mimeType:
             params.mimeType ||
             (params.type === "video"
               ? "video/mp4"
               : "image/jpeg"),
+
           fileName:
             params.fileName ||
             `snapgram-${Date.now()}`,
@@ -103,10 +107,22 @@ function parseMedia(params) {
       ];
     }
   } catch (error) {
-    console.error("CREATE MEDIA PARSE ERROR:", error);
+    console.error(
+      "CREATE MEDIA PARSE ERROR:",
+      error
+    );
   }
 
   return [];
+}
+
+function isVideoMedia(media) {
+  return (
+    media?.type === "video" ||
+    String(media?.mimeType || "")
+      .toLowerCase()
+      .startsWith("video/")
+  );
 }
 
 export default function CreatePostScreen() {
@@ -115,28 +131,35 @@ export default function CreatePostScreen() {
 
   const initialMedia = useMemo(
     () => parseMedia(params),
-    [params.media, params.uri]
+    [params]
   );
 
-  const [media, setMedia] = useState(initialMedia);
-  const [currentIndex, setCurrentIndex] = useState(0);
+  const [media, setMedia] =
+    useState(initialMedia);
 
-  const [caption, setCaption] = useState("");
+  const [currentIndex, setCurrentIndex] =
+    useState(0);
 
-  const [activeTool, setActiveTool] = useState("filter");
+  const [caption, setCaption] =
+    useState("");
 
-  const [cropRatio, setCropRatio] = useState("original");
+  const [activeTool, setActiveTool] =
+    useState("filter");
 
-  const [filter, setFilter] = useState("Normal");
+  const [cropRatio, setCropRatio] =
+    useState("original");
 
-  const [adjustments, setAdjustments] = useState(
-    DEFAULT_ADJUSTMENTS
-  );
+  const [filter, setFilter] =
+    useState("Normal");
+
+  const [adjustments, setAdjustments] =
+    useState(DEFAULT_ADJUSTMENTS);
 
   const [visibility, setVisibility] =
     useState("public");
 
-  const [location, setLocation] = useState(null);
+  const [location, setLocation] =
+    useState(null);
 
   const [locationModal, setLocationModal] =
     useState(false);
@@ -156,32 +179,58 @@ export default function CreatePostScreen() {
   const [audienceModal, setAudienceModal] =
     useState(false);
 
-  const [posting, setPosting] = useState(false);
+  const [posting, setPosting] =
+    useState(false);
 
   const [uploadProgress, setUploadProgress] =
     useState(0);
 
-  const currentMedia = media[currentIndex];
+  const currentMedia =
+    media[currentIndex] || null;
+
+  const selectedAudience =
+    VISIBILITY_OPTIONS.find(
+      (item) =>
+        item.value === visibility
+    );
 
   function updateCurrentMedia(updater) {
     setMedia((previous) =>
-      previous.map((item, index) =>
-        index === currentIndex
-          ? typeof updater === "function"
-            ? updater(item)
-            : {
-                ...item,
-                ...updater,
-              }
-          : item
-      )
+      previous.map((item, index) => {
+        if (index !== currentIndex) {
+          return item;
+        }
+
+        if (
+          typeof updater === "function"
+        ) {
+          return updater(item);
+        }
+
+        return {
+          ...item,
+          ...updater,
+        };
+      })
     );
   }
 
   async function handleCrop(ratio) {
+    if (posting) {
+      return;
+    }
+
     setCropRatio(ratio);
 
     if (!currentMedia?.uri) {
+      return;
+    }
+
+    if (isVideoMedia(currentMedia)) {
+      Alert.alert(
+        "Crop unavailable",
+        "Video cropping is not supported in this editor yet."
+      );
       return;
     }
 
@@ -190,27 +239,33 @@ export default function CreatePostScreen() {
     }
 
     try {
-      const result = await manipulateAsync(
-        currentMedia.uri,
-        [],
-        {
-          compress: 0.95,
-          format: SaveFormat.JPEG,
-        }
-      );
+      const result =
+        await manipulateAsync(
+          currentMedia.uri,
+          [],
+          {
+            compress: 0.95,
+            format: SaveFormat.JPEG,
+          }
+        );
 
-      if (result?.uri) {
-        updateCurrentMedia({
-          uri: result.uri,
-          mimeType: "image/jpeg",
-          type: "image",
-          fileName: `snapgram-${Date.now()}.jpg`,
-          width: result.width,
-          height: result.height,
-        });
+      if (!result?.uri) {
+        return;
       }
+
+      updateCurrentMedia({
+        uri: result.uri,
+        type: "image",
+        mimeType: "image/jpeg",
+        fileName: `snapgram-${Date.now()}.jpg`,
+        width: result.width,
+        height: result.height,
+      });
     } catch (error) {
-      console.error("CROP ERROR:", error);
+      console.error(
+        "CROP ERROR:",
+        error
+      );
 
       Alert.alert(
         "Crop failed",
@@ -220,48 +275,67 @@ export default function CreatePostScreen() {
   }
 
   async function handleRotate() {
+    if (posting) {
+      return;
+    }
+
     if (!currentMedia?.uri) {
       return;
     }
 
-    try {
-      const result = await manipulateAsync(
-        currentMedia.uri,
-        [
-          {
-            rotate: 90,
-          },
-        ],
-        {
-          compress: 0.95,
-          format:
-            currentMedia.type === "video"
-              ? SaveFormat.JPEG
-              : SaveFormat.JPEG,
-        }
+    if (isVideoMedia(currentMedia)) {
+      Alert.alert(
+        "Rotate unavailable",
+        "Video rotation is not supported in this editor yet."
       );
+      return;
+    }
 
-      if (result?.uri) {
-        updateCurrentMedia({
-          uri: result.uri,
-          type: "image",
-          mimeType: "image/jpeg",
-          fileName: `snapgram-${Date.now()}.jpg`,
-          width: result.width,
-          height: result.height,
-        });
+    try {
+      const result =
+        await manipulateAsync(
+          currentMedia.uri,
+          [
+            {
+              rotate: 90,
+            },
+          ],
+          {
+            compress: 0.95,
+            format: SaveFormat.JPEG,
+          }
+        );
+
+      if (!result?.uri) {
+        return;
       }
+
+      updateCurrentMedia({
+        uri: result.uri,
+        type: "image",
+        mimeType: "image/jpeg",
+        fileName: `snapgram-${Date.now()}.jpg`,
+        width: result.width,
+        height: result.height,
+      });
     } catch (error) {
-      console.error("ROTATE ERROR:", error);
+      console.error(
+        "ROTATE ERROR:",
+        error
+      );
 
       Alert.alert(
         "Rotate failed",
-        "We couldn't rotate this media."
+        "We couldn't rotate this image."
       );
     }
   }
 
   function removeCurrentMedia() {
+    if (posting) {
+      return;
+    }
+
     if (media.length === 1) {
       Alert.alert(
         "Media required",
@@ -272,20 +346,29 @@ export default function CreatePostScreen() {
 
     setMedia((previous) =>
       previous.filter(
-        (_, index) => index !== currentIndex
+        (_, index) =>
+          index !== currentIndex
       )
     );
 
     setCurrentIndex((previous) =>
       Math.max(
         0,
-        Math.min(previous, media.length - 2)
+        Math.min(
+          previous,
+          media.length - 2
+        )
       )
     );
   }
 
   function saveLocation() {
-    const value = locationText.trim();
+    if (posting) {
+      return;
+    }
+
+    const value =
+      locationText.trim();
 
     if (!value) {
       setLocation(null);
@@ -303,15 +386,22 @@ export default function CreatePostScreen() {
   }
 
   function saveTags() {
+    if (posting) {
+      return;
+    }
+
     const usernames = tagText
       .split(",")
       .map((item) =>
-        item.trim().replace(/^@/, "")
+        item
+          .trim()
+          .replace(/^@/, "")
       )
       .filter(Boolean)
       .filter(
         (item, index, array) =>
-          array.indexOf(item) === index
+          array.indexOf(item) ===
+          index
       );
 
     setTaggedUsers(usernames);
@@ -319,6 +409,10 @@ export default function CreatePostScreen() {
   }
 
   async function handleShare() {
+    if (posting) {
+      return;
+    }
+
     if (!media.length) {
       Alert.alert(
         "Media required",
@@ -327,7 +421,16 @@ export default function CreatePostScreen() {
       return;
     }
 
-    if (posting) {
+    const validMedia =
+      media.filter(
+        (item) => item?.uri
+      );
+
+    if (!validMedia.length) {
+      Alert.alert(
+        "Invalid media",
+        "The selected media could not be processed."
+      );
       return;
     }
 
@@ -335,46 +438,82 @@ export default function CreatePostScreen() {
       setPosting(true);
       setUploadProgress(0);
 
-      const response = await createPost({
-        media,
-        caption,
-        location,
-        taggedUsers,
-        visibility,
-        edit: {
-          filter,
-          adjustments,
-          cropRatio,
-        },
-        onUploadProgress: (progress) => {
-          setUploadProgress(progress);
-        },
-      });
+      const postType =
+        validMedia.some(
+          isVideoMedia
+        )
+          ? "reel"
+          : "post";
+
+      const response =
+        await createPost({
+          media: validMedia,
+
+          caption:
+            caption.trim(),
+
+          location,
+
+          taggedUsers,
+
+          visibility,
+
+          postType,
+
+          edit: {
+            filter,
+            adjustments,
+            cropRatio,
+          },
+
+          onUploadProgress:
+            (progress) => {
+              const safeProgress =
+                Math.max(
+                  0,
+                  Math.min(
+                    100,
+                    Number(progress) || 0
+                  )
+                );
+
+              setUploadProgress(
+                safeProgress
+              );
+            },
+        });
 
       console.log(
         "POST CREATED:",
         response
       );
 
+      if (
+        !response ||
+        response.success === false
+      ) {
+        throw new Error(
+          response?.message ||
+            "The post could not be created."
+        );
+      }
+
       setUploadProgress(100);
 
-      Alert.alert(
-        "Posted",
-        "Your post has been shared successfully.",
-        [
-          {
-            text: "OK",
-            onPress: () => {
-              router.replace("/(tabs)");
-            },
-          },
-        ]
-      );
+      /*
+       * Replace the create screen immediately.
+       * Home uses useFocusEffect, so it will reload
+       * automatically when it receives focus.
+       */
+      router.replace("/(tabs)");
     } catch (error) {
       console.error(
         "CREATE POST ERROR:",
-        error?.response?.data || error
+        error?.response?.data ||
+          error
       );
+
+      setUploadProgress(0);
 
       Alert.alert(
         "Upload failed",
@@ -387,30 +526,37 @@ export default function CreatePostScreen() {
     }
   }
 
-  const selectedAudience =
-    VISIBILITY_OPTIONS.find(
-      (item) => item.value === visibility
-    );
-
   if (!media.length) {
     return (
-      <SafeAreaView style={styles.emptyScreen}>
-        <View style={styles.emptyContent}>
+      <SafeAreaView
+        style={styles.emptyScreen}
+      >
+        <View
+          style={styles.emptyContent}
+        >
           <Ionicons
             name="images-outline"
             size={54}
             color="#8e8e8e"
           />
 
-          <Text style={styles.emptyTitle}>
+          <Text
+            style={styles.emptyTitle}
+          >
             No media selected
           </Text>
 
           <TouchableOpacity
             style={styles.emptyButton}
-            onPress={() => router.back()}
+            onPress={() =>
+              router.back()
+            }
           >
-            <Text style={styles.emptyButtonText}>
+            <Text
+              style={
+                styles.emptyButtonText
+              }
+            >
               Go back
             </Text>
           </TouchableOpacity>
@@ -432,9 +578,12 @@ export default function CreatePostScreen() {
             : undefined
         }
       >
+        {/* HEADER */}
         <View style={styles.header}>
           <TouchableOpacity
-            onPress={() => router.back()}
+            onPress={() =>
+              router.back()
+            }
             disabled={posting}
             style={styles.headerButton}
           >
@@ -445,7 +594,9 @@ export default function CreatePostScreen() {
             />
           </TouchableOpacity>
 
-          <Text style={styles.headerTitle}>
+          <Text
+            style={styles.headerTitle}
+          >
             New post
           </Text>
 
@@ -457,16 +608,24 @@ export default function CreatePostScreen() {
             <Text
               style={[
                 styles.shareText,
-                posting && styles.shareDisabled,
+                posting &&
+                  styles.shareDisabled,
               ]}
             >
-              {posting ? "Sharing..." : "Share"}
+              {posting
+                ? "Sharing..."
+                : "Share"}
             </Text>
           </TouchableOpacity>
         </View>
 
+        {/* UPLOAD PROGRESS */}
         {posting && (
-          <View style={styles.progressContainer}>
+          <View
+            style={
+              styles.progressContainer
+            }
+          >
             <View
               style={[
                 styles.progressBar,
@@ -481,13 +640,20 @@ export default function CreatePostScreen() {
         <ScrollView
           style={styles.scroll}
           contentContainerStyle={{
-            paddingBottom: 30 + insets.bottom,
+            paddingBottom:
+              30 + insets.bottom,
           }}
           keyboardShouldPersistTaps="handled"
-          showsVerticalScrollIndicator={false}
+          showsVerticalScrollIndicator={
+            false
+          }
         >
-
-          <View style={styles.mediaContainer}>
+          {/* MEDIA PREVIEW */}
+          <View
+            style={
+              styles.mediaContainer
+            }
+          >
             <Image
               source={{
                 uri: currentMedia.uri,
@@ -495,11 +661,19 @@ export default function CreatePostScreen() {
               style={styles.preview}
             />
 
-            <View style={styles.mediaTopControls}>
-              <View style={styles.mediaCount}>
+            <View
+              style={
+                styles.mediaTopControls
+              }
+            >
+              <View
+                style={styles.mediaCount}
+              >
                 <Ionicons
                   name={
-                    currentMedia.type === "video"
+                    isVideoMedia(
+                      currentMedia
+                    )
                       ? "videocam"
                       : "image"
                   }
@@ -507,14 +681,23 @@ export default function CreatePostScreen() {
                   color="#fff"
                 />
 
-                <Text style={styles.mediaCountText}>
-                  {currentIndex + 1}/{media.length}
+                <Text
+                  style={
+                    styles.mediaCountText
+                  }
+                >
+                  {currentIndex + 1}/
+                  {media.length}
                 </Text>
               </View>
 
               <TouchableOpacity
-                style={styles.deleteMediaButton}
-                onPress={removeCurrentMedia}
+                style={
+                  styles.deleteMediaButton
+                }
+                onPress={
+                  removeCurrentMedia
+                }
                 disabled={posting}
               >
                 <Ionicons
@@ -524,54 +707,102 @@ export default function CreatePostScreen() {
                 />
               </TouchableOpacity>
             </View>
+
+            {isVideoMedia(
+              currentMedia
+            ) && (
+              <View
+                style={
+                  styles.videoOverlay
+                }
+              >
+                <View
+                  style={
+                    styles.videoPlayCircle
+                  }
+                >
+                  <Ionicons
+                    name="play"
+                    size={24}
+                    color="#fff"
+                  />
+                </View>
+              </View>
+            )}
           </View>
 
+          {/* THUMBNAILS */}
           {media.length > 1 && (
             <ScrollView
               horizontal
-              showsHorizontalScrollIndicator={false}
+              showsHorizontalScrollIndicator={
+                false
+              }
               contentContainerStyle={
                 styles.thumbnailList
               }
             >
-              {media.map((item, index) => (
-                <TouchableOpacity
-                  key={`${item.uri}-${index}`}
-                  onPress={() =>
-                    setCurrentIndex(index)
-                  }
-                  activeOpacity={0.85}
-                  style={[
-                    styles.thumbnailWrapper,
-                    index === currentIndex &&
-                      styles.thumbnailSelected,
-                  ]}
-                >
-                  <Image
-                    source={{
-                      uri: item.uri,
-                    }}
-                    style={styles.thumbnail}
-                  />
+              {media.map(
+                (item, index) => (
+                  <TouchableOpacity
+                    key={`${item.uri}-${index}`}
+                    onPress={() =>
+                      !posting &&
+                      setCurrentIndex(
+                        index
+                      )
+                    }
+                    activeOpacity={0.85}
+                    style={[
+                      styles.thumbnailWrapper,
+                      index ===
+                        currentIndex &&
+                        styles.thumbnailSelected,
+                    ]}
+                  >
+                    <Image
+                      source={{
+                        uri: item.uri,
+                      }}
+                      style={
+                        styles.thumbnail
+                      }
+                    />
 
-                  {item.type === "video" && (
-                    <View style={styles.videoBadge}>
-                      <Ionicons
-                        name="play"
-                        size={10}
-                        color="#fff"
-                      />
-                    </View>
-                  )}
-                </TouchableOpacity>
-              ))}
+                    {isVideoMedia(
+                      item
+                    ) && (
+                      <View
+                        style={
+                          styles.videoBadge
+                        }
+                      >
+                        <Ionicons
+                          name="play"
+                          size={10}
+                          color="#fff"
+                        />
+                      </View>
+                    )}
+                  </TouchableOpacity>
+                )
+              )}
             </ScrollView>
           )}
 
+          {/* EDITOR */}
           <EditorToolbar
             activeTool={activeTool}
-            onToolChange={setActiveTool}
-            onRotate={handleRotate}
+            onToolChange={
+              posting
+                ? undefined
+                : setActiveTool
+            }
+            onRotate={
+              posting
+                ? undefined
+                : handleRotate
+            }
           />
 
           {activeTool === "crop" && (
@@ -584,40 +815,70 @@ export default function CreatePostScreen() {
           {activeTool === "filter" && (
             <FilterSelector
               selected={filter}
-              onSelect={setFilter}
-              previewUri={currentMedia.uri}
+              onSelect={
+                posting
+                  ? undefined
+                  : setFilter
+              }
+              previewUri={
+                currentMedia.uri
+              }
             />
           )}
 
           {activeTool === "adjust" && (
             <AdjustControls
               values={adjustments}
-              onChange={(key, value) => {
-                setAdjustments((previous) => ({
-                  ...previous,
-                  [key]: value,
-                }));
-              }}
+              onChange={
+                posting
+                  ? undefined
+                  : (key, value) => {
+                      setAdjustments(
+                        (previous) => ({
+                          ...previous,
+                          [key]: value,
+                        })
+                      );
+                    }
+              }
             />
           )}
 
+          {/* CAPTION */}
           <CaptionInput
             value={caption}
-            onChangeText={setCaption}
+            onChangeText={
+              posting
+                ? undefined
+                : setCaption
+            }
           />
 
-          <View style={styles.optionsCard}>
+          {/* POST OPTIONS */}
+          <View
+            style={styles.optionsCard}
+          >
+            {/* LOCATION */}
             <TouchableOpacity
               style={styles.optionRow}
               onPress={() => {
+                if (posting) {
+                  return;
+                }
+
                 setLocationText(
                   location?.name || ""
                 );
-                setLocationModal(true);
+
+                setLocationModal(
+                  true
+                );
               }}
               disabled={posting}
             >
-              <View style={styles.optionLeft}>
+              <View
+                style={styles.optionLeft}
+              >
                 <Ionicons
                   name="location-outline"
                   size={23}
@@ -625,12 +886,20 @@ export default function CreatePostScreen() {
                 />
 
                 <View>
-                  <Text style={styles.optionTitle}>
+                  <Text
+                    style={
+                      styles.optionTitle
+                    }
+                  >
                     Add location
                   </Text>
 
                   {location?.name && (
-                    <Text style={styles.optionValue}>
+                    <Text
+                      style={
+                        styles.optionValue
+                      }
+                    >
                       {location.name}
                     </Text>
                   )}
@@ -644,14 +913,34 @@ export default function CreatePostScreen() {
               />
             </TouchableOpacity>
 
-            <View style={styles.divider} />
+            <View
+              style={styles.divider}
+            />
 
+            {/* TAG PEOPLE */}
             <TouchableOpacity
               style={styles.optionRow}
-              onPress={() => setTagModal(true)}
+              onPress={() => {
+                if (posting) {
+                  return;
+                }
+
+                setTagText(
+                  taggedUsers
+                    .map(
+                      (username) =>
+                        `@${username}`
+                    )
+                    .join(", ")
+                );
+
+                setTagModal(true);
+              }}
               disabled={posting}
             >
-              <View style={styles.optionLeft}>
+              <View
+                style={styles.optionLeft}
+              >
                 <Ionicons
                   name="person-add-outline"
                   size={23}
@@ -659,12 +948,21 @@ export default function CreatePostScreen() {
                 />
 
                 <View>
-                  <Text style={styles.optionTitle}>
+                  <Text
+                    style={
+                      styles.optionTitle
+                    }
+                  >
                     Tag people
                   </Text>
 
-                  {taggedUsers.length > 0 && (
-                    <Text style={styles.optionValue}>
+                  {taggedUsers.length >
+                    0 && (
+                    <Text
+                      style={
+                        styles.optionValue
+                      }
+                    >
                       {taggedUsers
                         .map(
                           (username) =>
@@ -683,16 +981,27 @@ export default function CreatePostScreen() {
               />
             </TouchableOpacity>
 
-            <View style={styles.divider} />
+            <View
+              style={styles.divider}
+            />
 
+            {/* AUDIENCE */}
             <TouchableOpacity
               style={styles.optionRow}
-              onPress={() =>
-                setAudienceModal(true)
-              }
+              onPress={() => {
+                if (posting) {
+                  return;
+                }
+
+                setAudienceModal(
+                  true
+                );
+              }}
               disabled={posting}
             >
-              <View style={styles.optionLeft}>
+              <View
+                style={styles.optionLeft}
+              >
                 <Ionicons
                   name={
                     selectedAudience?.icon ||
@@ -703,11 +1012,19 @@ export default function CreatePostScreen() {
                 />
 
                 <View>
-                  <Text style={styles.optionTitle}>
+                  <Text
+                    style={
+                      styles.optionTitle
+                    }
+                  >
                     Audience
                   </Text>
 
-                  <Text style={styles.optionValue}>
+                  <Text
+                    style={
+                      styles.optionValue
+                    }
+                  >
                     {selectedAudience?.title ||
                       "Everyone"}
                   </Text>
@@ -724,6 +1041,7 @@ export default function CreatePostScreen() {
         </ScrollView>
       </KeyboardAvoidingView>
 
+      {/* LOCATION MODAL */}
       <Modal
         visible={locationModal}
         transparent
@@ -732,18 +1050,30 @@ export default function CreatePostScreen() {
           setLocationModal(false)
         }
       >
-        <View style={styles.modalOverlay}>
-          <View style={styles.bottomSheet}>
-            <View style={styles.sheetHandle} />
+        <View
+          style={styles.modalOverlay}
+        >
+          <View
+            style={styles.bottomSheet}
+          >
+            <View
+              style={styles.sheetHandle}
+            />
 
-            <View style={styles.sheetHeader}>
-              <Text style={styles.sheetTitle}>
+            <View
+              style={styles.sheetHeader}
+            >
+              <Text
+                style={styles.sheetTitle}
+              >
                 Add location
               </Text>
 
               <TouchableOpacity
                 onPress={() =>
-                  setLocationModal(false)
+                  setLocationModal(
+                    false
+                  )
                 }
               >
                 <Ionicons
@@ -756,7 +1086,9 @@ export default function CreatePostScreen() {
 
             <TextInput
               value={locationText}
-              onChangeText={setLocationText}
+              onChangeText={
+                setLocationText
+              }
               placeholder="Enter a location"
               placeholderTextColor="#8e8e8e"
               autoFocus
@@ -764,11 +1096,15 @@ export default function CreatePostScreen() {
             />
 
             <TouchableOpacity
-              style={styles.primaryModalButton}
+              style={
+                styles.primaryModalButton
+              }
               onPress={saveLocation}
             >
               <Text
-                style={styles.primaryModalButtonText}
+                style={
+                  styles.primaryModalButtonText
+                }
               >
                 Save location
               </Text>
@@ -777,6 +1113,7 @@ export default function CreatePostScreen() {
         </View>
       </Modal>
 
+      {/* TAG MODAL */}
       <Modal
         visible={tagModal}
         transparent
@@ -785,12 +1122,22 @@ export default function CreatePostScreen() {
           setTagModal(false)
         }
       >
-        <View style={styles.modalOverlay}>
-          <View style={styles.bottomSheet}>
-            <View style={styles.sheetHandle} />
+        <View
+          style={styles.modalOverlay}
+        >
+          <View
+            style={styles.bottomSheet}
+          >
+            <View
+              style={styles.sheetHandle}
+            />
 
-            <View style={styles.sheetHeader}>
-              <Text style={styles.sheetTitle}>
+            <View
+              style={styles.sheetHeader}
+            >
+              <Text
+                style={styles.sheetTitle}
+              >
                 Tag people
               </Text>
 
@@ -807,8 +1154,11 @@ export default function CreatePostScreen() {
               </TouchableOpacity>
             </View>
 
-            <Text style={styles.helperText}>
-              Enter usernames separated by commas.
+            <Text
+              style={styles.helperText}
+            >
+              Enter usernames separated
+              by commas.
             </Text>
 
             <TextInput
@@ -821,11 +1171,15 @@ export default function CreatePostScreen() {
             />
 
             <TouchableOpacity
-              style={styles.primaryModalButton}
+              style={
+                styles.primaryModalButton
+              }
               onPress={saveTags}
             >
               <Text
-                style={styles.primaryModalButtonText}
+                style={
+                  styles.primaryModalButtonText
+                }
               >
                 Done
               </Text>
@@ -834,6 +1188,7 @@ export default function CreatePostScreen() {
         </View>
       </Modal>
 
+      {/* AUDIENCE MODAL */}
       <Modal
         visible={audienceModal}
         transparent
@@ -852,26 +1207,36 @@ export default function CreatePostScreen() {
             style={styles.bottomSheet}
             onPress={() => {}}
           >
-            <View style={styles.sheetHandle} />
+            <View
+              style={styles.sheetHandle}
+            />
 
-            <Text style={styles.sheetTitle}>
+            <Text
+              style={styles.sheetTitle}
+            >
               Who can see this post?
             </Text>
 
             {VISIBILITY_OPTIONS.map(
               (option) => {
                 const selected =
-                  visibility === option.value;
+                  visibility ===
+                  option.value;
 
                 return (
                   <TouchableOpacity
                     key={option.value}
-                    style={styles.audienceRow}
+                    style={
+                      styles.audienceRow
+                    }
                     onPress={() => {
                       setVisibility(
                         option.value
                       );
-                      setAudienceModal(false);
+
+                      setAudienceModal(
+                        false
+                      );
                     }}
                   >
                     <View
@@ -952,7 +1317,8 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomWidth:
+      StyleSheet.hairlineWidth,
     borderBottomColor: "#dbdbdb",
     backgroundColor: "#fff",
   },
@@ -971,8 +1337,10 @@ const styles = StyleSheet.create({
   },
 
   shareButton: {
-    minWidth: 58,
+    minWidth: 70,
+    height: 42,
     alignItems: "flex-end",
+    justifyContent: "center",
   },
 
   shareText: {
@@ -1014,7 +1382,8 @@ const styles = StyleSheet.create({
     left: 12,
     right: 12,
     flexDirection: "row",
-    justifyContent: "space-between",
+    justifyContent:
+      "space-between",
     alignItems: "center",
   },
 
@@ -1022,7 +1391,8 @@ const styles = StyleSheet.create({
     height: 30,
     paddingHorizontal: 10,
     borderRadius: 15,
-    backgroundColor: "rgba(0,0,0,0.65)",
+    backgroundColor:
+      "rgba(0,0,0,0.65)",
     flexDirection: "row",
     alignItems: "center",
     gap: 5,
@@ -1038,7 +1408,29 @@ const styles = StyleSheet.create({
     width: 34,
     height: 34,
     borderRadius: 17,
-    backgroundColor: "rgba(0,0,0,0.65)",
+    backgroundColor:
+      "rgba(0,0,0,0.65)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  videoOverlay: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    alignItems: "center",
+    justifyContent: "center",
+    pointerEvents: "none",
+  },
+
+  videoPlayCircle: {
+    width: 58,
+    height: 58,
+    borderRadius: 29,
+    backgroundColor:
+      "rgba(0,0,0,0.55)",
     alignItems: "center",
     justifyContent: "center",
   },
@@ -1076,15 +1468,18 @@ const styles = StyleSheet.create({
     width: 19,
     height: 19,
     borderRadius: 10,
-    backgroundColor: "rgba(0,0,0,0.65)",
+    backgroundColor:
+      "rgba(0,0,0,0.65)",
     justifyContent: "center",
     alignItems: "center",
   },
 
   optionsCard: {
     marginTop: 8,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderTopWidth:
+      StyleSheet.hairlineWidth,
+    borderBottomWidth:
+      StyleSheet.hairlineWidth,
     borderColor: "#dbdbdb",
     backgroundColor: "#fff",
   },
@@ -1094,7 +1489,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "space-between",
+    justifyContent:
+      "space-between",
   },
 
   optionLeft: {
@@ -1117,14 +1513,16 @@ const styles = StyleSheet.create({
   },
 
   divider: {
-    height: StyleSheet.hairlineWidth,
+    height:
+      StyleSheet.hairlineWidth,
     backgroundColor: "#efefef",
     marginLeft: 53,
   },
 
   modalOverlay: {
     flex: 1,
-    backgroundColor: "rgba(0,0,0,0.45)",
+    backgroundColor:
+      "rgba(0,0,0,0.45)",
     justifyContent: "flex-end",
   },
 
@@ -1149,7 +1547,8 @@ const styles = StyleSheet.create({
   sheetHeader: {
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "space-between",
+    justifyContent:
+      "space-between",
     marginBottom: 18,
   },
 
@@ -1238,6 +1637,7 @@ const styles = StyleSheet.create({
     marginTop: 15,
     fontSize: 18,
     fontWeight: "700",
+    color: "#111",
   },
 
   emptyButton: {
