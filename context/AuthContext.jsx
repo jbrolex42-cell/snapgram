@@ -24,11 +24,11 @@ import {
 
 import {
   initializeDevice,
-} from "../services/e2eeService";
+} from "../services/e2ee/e2eeService";
 
 import {
   closeE2EEStore,
-} from "../services/e2eeStore";
+} from "../services/e2ee/e2eeStore";
 
 const TOKEN_KEY = "snapgram_token";
 

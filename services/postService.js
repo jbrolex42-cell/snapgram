@@ -1,73 +1,101 @@
 import api from "./api";
 
+/**
+ * Safely determine the MIME type for an uploaded media item.
+ */
 function getMimeType(item) {
-  if (item?.mimeType) {
-    return item.mimeType;
+  const mimeType =
+    item?.mimeType ||
+    item?.type ||
+    item?.file?.type ||
+    item?.asset?.mimeType ||
+    "";
+
+  if (mimeType === "image" || mimeType === "video") {
+    return mimeType === "image" ? "image/jpeg" : "video/mp4";
   }
 
-  if (item?.type === "video") {
+  if (mimeType.startsWith("image/")) {
+    return mimeType;
+  }
+
+  if (mimeType.startsWith("video/")) {
+    return mimeType;
+  }
+
+  const uri = String(item?.uri || "").toLowerCase();
+
+  if (uri.match(/\.(mp4|mov|m4v|avi|webm)$/)) {
     return "video/mp4";
   }
 
-  const uri = item?.uri || "";
-
-  const extension = uri
-    .split("?")[0]
-    .split(".")
-    .pop()
-    ?.toLowerCase();
-
-  switch (extension) {
-    case "png":
-      return "image/png";
-
-    case "webp":
-      return "image/webp";
-
-    case "heic":
-      return "image/heic";
-
-    case "mov":
-      return "video/quicktime";
-
-    case "mp4":
-      return "video/mp4";
-
-    default:
-      return "image/jpeg";
+  if (uri.match(/\.(png)$/)) {
+    return "image/png";
   }
+
+  if (uri.match(/\.(webp)$/)) {
+    return "image/webp";
+  }
+
+  return "image/jpeg";
 }
 
-function getFileName(item, index) {
-  if (item?.fileName) {
-    return item.fileName;
+/**
+ * Generate a safe filename for FormData uploads.
+ */
+function getFileName(item, index = 0) {
+  const originalName =
+    item?.fileName ||
+    item?.filename ||
+    item?.name ||
+    item?.file?.name ||
+    item?.asset?.fileName ||
+    "";
+
+  if (originalName) {
+    return originalName;
   }
 
   const mimeType = getMimeType(item);
 
-  let extension = "jpg";
-
-  if (mimeType === "video/mp4") {
-    extension = "mp4";
-  } else if (mimeType === "video/quicktime") {
-    extension = "mov";
-  } else if (mimeType === "image/png") {
-    extension = "png";
-  } else if (mimeType === "image/webp") {
-    extension = "webp";
+  if (mimeType.startsWith("video/")) {
+    return `video-${Date.now()}-${index}.mp4`;
   }
 
-  return `snapgram-${Date.now()}-${index}.${extension}`;
+  if (mimeType === "image/png") {
+    return `image-${Date.now()}-${index}.png`;
+  }
+
+  if (mimeType === "image/webp") {
+    return `image-${Date.now()}-${index}.webp`;
+  }
+
+  return `image-${Date.now()}-${index}.jpg`;
 }
 
+/**
+ * Add JSON data to FormData.
+ */
 function appendJsonField(formData, key, value) {
   if (value === undefined || value === null) {
     return;
   }
 
-  formData.append(key, JSON.stringify(value));
+  if (typeof value === "string") {
+    formData.append(key, value);
+    return;
+  }
+
+  try {
+    formData.append(key, JSON.stringify(value));
+  } catch (error) {
+    console.warn(`[POST SERVICE] Unable to stringify ${key}:`, error);
+  }
 }
 
+/**
+ * Extract an array of posts/reels from different possible API response shapes.
+ */
 function extractPosts(response) {
   const body = response?.data;
 
@@ -79,12 +107,20 @@ function extractPosts(response) {
     return body.posts;
   }
 
+  if (Array.isArray(body?.reels)) {
+    return body.reels;
+  }
+
   if (Array.isArray(body?.data)) {
     return body.data;
   }
 
   if (Array.isArray(body?.data?.posts)) {
     return body.data.posts;
+  }
+
+  if (Array.isArray(body?.data?.reels)) {
+    return body.data.reels;
   }
 
   if (Array.isArray(body?.data?.data)) {
@@ -102,20 +138,41 @@ function extractPosts(response) {
   return [];
 }
 
+/**
+ * Create a post or reel.
+ *
+ * postType:
+ * - "post"
+ * - "reel"
+ */
 export async function createPost({
   media = [],
   caption = "",
   location = null,
   taggedUsers = [],
-  visibility = "public",
   postType = "post",
-  edit = {},
+  visibility = "public",
   onUploadProgress,
-}) {
+} = {}) {
   if (!Array.isArray(media) || media.length === 0) {
-    throw new Error(
-      "At least one photo or video is required."
-    );
+    throw new Error("Please select at least one media file.");
+  }
+
+  if (media.length > 10) {
+    throw new Error("You can upload a maximum of 10 media files.");
+  }
+
+  const normalizedPostType = postType === "reel" ? "reel" : "post";
+
+  if (normalizedPostType === "reel") {
+    const hasVideo = media.some((item) => {
+      const mimeType = getMimeType(item);
+      return mimeType.startsWith("video/");
+    });
+
+    if (!hasVideo) {
+      throw new Error("A reel must contain at least one video.");
+    }
   }
 
   const formData = new FormData();
@@ -126,412 +183,522 @@ export async function createPost({
     }
 
     const mimeType = getMimeType(item);
-    const fileName = getFileName(item, index);
+    const name = getFileName(item, index);
 
     formData.append("media", {
       uri: item.uri,
-      name: fileName,
       type: mimeType,
+      name,
     });
   });
 
-  formData.append(
-    "caption",
-    String(caption || "").trim()
-  );
+  formData.append("postType", normalizedPostType);
 
-  formData.append(
-    "postType",
-    postType === "reel" ? "reel" : "post"
-  );
-
-  if (location) {
-    appendJsonField(
-      formData,
-      "location",
-      location
-    );
+  if (caption) {
+    formData.append("caption", String(caption));
   }
 
-  if (
-    Array.isArray(taggedUsers) &&
-    taggedUsers.length > 0
-  ) {
-    appendJsonField(
-      formData,
-      "taggedUsers",
-      taggedUsers
-    );
+  if (location !== null && location !== undefined) {
+    appendJsonField(formData, "location", location);
   }
 
-  formData.append(
-    "visibility",
-    visibility
-  );
+  if (taggedUsers !== null && taggedUsers !== undefined) {
+    appendJsonField(formData, "taggedUsers", taggedUsers);
+  }
 
-  appendJsonField(
-    formData,
-    "edit",
-    edit
-  );
+  if (visibility) {
+    formData.append("visibility", visibility);
+  }
 
-  const response = await api.post(
-    "/posts",
-    formData,
-    {
+  console.log("[POST SERVICE] CREATE POST:", {
+    postType: normalizedPostType,
+    mediaCount: media.length,
+    captionLength: String(caption || "").length,
+  });
+
+  try {
+    const response = await api.post("/posts", formData, {
+      timeout: 120000,
       headers: {
         "Content-Type": "multipart/form-data",
       },
+      onUploadProgress,
+    });
 
-      timeout: 120000,
+    console.log("[POST SERVICE] CREATE RESPONSE:", {
+      status: response?.status,
+      data: response?.data,
+    });
 
-      onUploadProgress: (event) => {
-        if (!event?.total || !onUploadProgress) {
-          return;
-        }
+    return response?.data?.post || response?.data;
+  } catch (error) {
+    console.error("[POST SERVICE] CREATE ERROR STATUS:", error?.response?.status);
+    console.error("[POST SERVICE] CREATE ERROR DATA:", error?.response?.data);
+    console.error("[POST SERVICE] CREATE ERROR MESSAGE:", error?.message);
 
-        const progress = Math.round(
-          (event.loaded / event.total) * 100
-        );
-
-        onUploadProgress(progress);
-      },
-    }
-  );
-
-  return response.data;
-}
-
-export async function getFeed(
-  page = 1,
-  limit = 10
-) {
-  const response = await api.get(
-    "/posts/feed",
-    {
-      params: {
-        page,
-        limit,
-      },
-    }
-  );
-
-  return extractPosts(response);
-}
-
-export async function getUserPosts(
-  page = 1,
-  limit = 50
-) {
-  const response = await api.get(
-    "/posts/mine",
-    {
-      params: {
-        page,
-        limit,
-      },
-    }
-  );
-
-  console.log(
-    "[POST SERVICE] /posts/mine RAW:",
-    response?.data
-  );
-
-  const posts = extractPosts(response);
-
-  console.log(
-    "[POST SERVICE] /posts/mine NORMALIZED:",
-    posts.length,
-    posts
-  );
-
-  return posts;
-}
-
-export async function getUserReels(
-  page = 1,
-  limit = 50
-) {
-  const response = await api.get(
-    "/posts/reels",
-    {
-      params: {
-        page,
-        limit,
-      },
-    }
-  );
-
-  return extractPosts(response);
-}
-
-export async function getSavedPosts(
-  page = 1,
-  limit = 50
-) {
-  const response = await api.get(
-    "/posts/saved",
-    {
-      params: {
-        page,
-        limit,
-      },
-    }
-  );
-
-  return extractPosts(response);
-}
-
-export async function getTaggedPosts(
-  page = 1,
-  limit = 50
-) {
-  const response = await api.get(
-    "/posts/tagged",
-    {
-      params: {
-        page,
-        limit,
-      },
-    }
-  );
-
-  return extractPosts(response);
-}
-
-export async function getUserReposts(
-  page = 1,
-  limit = 50
-) {
-  const response = await api.get(
-    "/posts/reposts",
-    {
-      params: {
-        page,
-        limit,
-      },
-    }
-  );
-
-  return extractPosts(response);
-}
-
-export async function getPost(id) {
-  if (!id) {
-    return null;
+    throw error;
   }
-
-  const response = await api.get(
-    `/posts/${id}`
-  );
-
-  return (
-    response.data?.post ||
-    response.data
-  );
 }
 
-export async function getPostById(id) {
-  return getPost(id);
-}
-
-export async function likePost(id) {
-  const response = await api.post(
-    `/posts/${id}/like`
-  );
-
-  return response.data;
-}
-
-export async function getLikedPosts(
-  page = 1,
-  limit = 30
-) {
-  const response = await api.get(
-    "/posts/liked",
-    {
-      params: {
-        page,
-        limit,
-      },
-    }
-  );
-
-  return {
-    posts:
-      response.data?.posts || [],
-
-    pagination:
-      response.data?.pagination || {
-        page,
-        limit,
-        total:
-          response.data?.total || 0,
-        hasMore:
-          response.data?.hasMore || false,
-      },
-  };
-}
-
-export async function unlikePost(id) {
-  const response = await api.delete(
-    `/posts/${id}/like`
-  );
-
-  return response.data;
-}
-
-export async function togglePostLike(id) {
-  const response = await api.post(
-    `/posts/${id}/toggle-like`
-  );
-
-  return response.data;
-}
-
-export async function toggleLike(id) {
-  return togglePostLike(id);
-}
-
-export async function savePost(id) {
-  const response = await api.post(
-    `/posts/${id}/save`
-  );
-
-  return response.data;
-}
-
-export async function unsavePost(id) {
-  const response = await api.delete(
-    `/posts/${id}/save`
-  );
-
-  return response.data;
-}
-
-export async function toggleSavePost(id) {
-  const response = await api.post(
-    `/posts/${id}/toggle-save`
-  );
-
-  return response.data;
-}
-
-export async function toggleSave(id) {
-  return toggleSavePost(id);
-}
-
-export async function repostPost(id) {
-  const response = await api.post(
-    `/posts/${id}/repost`
-  );
-
-  return response.data;
-}
-
-export async function unrepostPost(id) {
-  const response = await api.delete(
-    `/posts/${id}/repost`
-  );
-
-  return response.data;
-}
-
-export async function deletePost(id) {
-  const response = await api.delete(
-    `/posts/${id}`
-  );
-
-  return response.data;
-}
-
-export async function createComment(
-  postId,
-  text,
-  parentComment = null
-) {
-  const response = await api.post(
-    `/posts/${postId}/comments`,
-    {
-      text,
-      parentComment,
-    }
-  );
-
-  return response.data;
-}
-
-export async function getComments(
-  postId,
-  page = 1,
-  limit = 50
-) {
-  const response = await api.get(
-    `/posts/${postId}/comments`,
-    {
-      params: {
-        page,
-        limit,
-      },
-    }
-  );
-
-  return (
-    response.data?.comments ||
-    response.data ||
-    []
-  );
-}
-export async function getArchivedPosts(
-  page = 1,
-  limit = 50
-) {
-  const response = await api.get(
-    "/posts/archived",
-    {
-      params: {
-        page,
-        limit,
-      },
-    }
-  );
-
-  return {
-    posts: extractPosts(response),
-    page:
-      response.data?.page ||
+/**
+ * Get the main feed.
+ */
+export async function getFeed(page = 1, limit = 30) {
+  const response = await api.get("/posts/feed", {
+    params: {
       page,
-    limit:
-      response.data?.limit ||
       limit,
-    total:
-      response.data?.total ||
-      0,
-    hasMore:
-      response.data?.hasMore ||
-      false,
-  };
+    },
+  });
+
+  return extractPosts(response);
 }
 
-export async function restoreArchivedPost(
-  postId
-) {
-  if (!postId) {
-    throw new Error(
-      "Post ID is required."
+/**
+ * Get the current user's posts.
+ */
+export async function getUserPosts(page = 1, limit = 50) {
+  try {
+    console.log("[POST SERVICE] GET USER POSTS:", {
+      endpoint: "/posts/mine",
+      page,
+      limit,
+    });
+
+    const response = await api.get("/posts/mine", {
+      params: {
+        page,
+        limit,
+      },
+    });
+
+    console.log("[POST SERVICE] /posts/mine STATUS:", response?.status);
+    console.log("[POST SERVICE] /posts/mine DATA:", response?.data);
+
+    const posts = extractPosts(response);
+
+    console.log("[POST SERVICE] /posts/mine NORMALIZED:", posts.length);
+
+    return posts;
+  } catch (error) {
+    console.error(
+      "[POST SERVICE] /posts/mine ERROR STATUS:",
+      error?.response?.status
     );
+
+    console.error(
+      "[POST SERVICE] /posts/mine ERROR DATA:",
+      error?.response?.data
+    );
+
+    console.error(
+      "[POST SERVICE] /posts/mine ERROR MESSAGE:",
+      error?.message
+    );
+
+    throw error;
+  }
+}
+
+/**
+ * Get the current user's reels.
+ */
+export async function getUserReels(page = 1, limit = 50) {
+  try {
+    console.log("[POST SERVICE] GET USER REELS:", {
+      endpoint: "/posts/reels",
+      page,
+      limit,
+    });
+
+    const response = await api.get("/posts/reels", {
+      params: {
+        page,
+        limit,
+      },
+    });
+
+    console.log("[POST SERVICE] /posts/reels STATUS:", response?.status);
+    console.log("[POST SERVICE] /posts/reels DATA:", response?.data);
+
+    const reels = extractPosts(response);
+
+    console.log("[POST SERVICE] /posts/reels NORMALIZED:", reels.length);
+
+    return reels;
+  } catch (error) {
+    console.error(
+      "[POST SERVICE] /posts/reels ERROR STATUS:",
+      error?.response?.status
+    );
+
+    console.error(
+      "[POST SERVICE] /posts/reels ERROR DATA:",
+      error?.response?.data
+    );
+
+    console.error(
+      "[POST SERVICE] /posts/reels ERROR MESSAGE:",
+      error?.message
+    );
+
+    throw error;
+  }
+}
+
+/**
+ * Get saved posts.
+ */
+export async function getSavedPosts(page = 1, limit = 50) {
+  try {
+    const response = await api.get("/posts/saved", {
+      params: {
+        page,
+        limit,
+      },
+    });
+
+    return extractPosts(response);
+  } catch (error) {
+    console.error(
+      "[POST SERVICE] GET SAVED POSTS ERROR:",
+      error?.response?.data || error?.message
+    );
+
+    throw error;
+  }
+}
+
+/**
+ * Get liked posts.
+ */
+export async function getLikedPosts(page = 1, limit = 50) {
+  try {
+    const response = await api.get("/posts/liked", {
+      params: {
+        page,
+        limit,
+      },
+    });
+
+    return extractPosts(response);
+  } catch (error) {
+    console.error(
+      "[POST SERVICE] GET LIKED POSTS ERROR:",
+      error?.response?.data || error?.message
+    );
+
+    throw error;
+  }
+}
+
+/**
+ * Get tagged posts.
+ */
+export async function getTaggedPosts(page = 1, limit = 50) {
+  try {
+    const response = await api.get("/posts/tagged", {
+      params: {
+        page,
+        limit,
+      },
+    });
+
+    return extractPosts(response);
+  } catch (error) {
+    console.error(
+      "[POST SERVICE] GET TAGGED POSTS ERROR:",
+      error?.response?.data || error?.message
+    );
+
+    throw error;
+  }
+}
+
+/**
+ * Get the current user's reposts.
+ */
+export async function getUserReposts(page = 1, limit = 50) {
+  try {
+    const response = await api.get("/posts/reposts", {
+      params: {
+        page,
+        limit,
+      },
+    });
+
+    return extractPosts(response);
+  } catch (error) {
+    console.error(
+      "[POST SERVICE] GET REPOSTS ERROR:",
+      error?.response?.data || error?.message
+    );
+
+    throw error;
+  }
+}
+
+/**
+ * Get a single post.
+ */
+export async function getPost(postId) {
+  if (!postId) {
+    throw new Error("Post ID is required.");
   }
 
-  const response = await api.patch(
-    `/posts/${postId}/archive`,
-    {
-      isArchived: false,
-    }
-  );
+  const response = await api.get(`/posts/${postId}`);
 
-  return (
-    response.data?.post ||
-    response.data
-  );
+  return response?.data?.post || response?.data;
 }
+
+/**
+ * Delete a post.
+ */
+export async function deletePost(postId) {
+  if (!postId) {
+    throw new Error("Post ID is required.");
+  }
+
+  const response = await api.delete(`/posts/${postId}`);
+
+  return response?.data;
+}
+
+/**
+ * Like a post.
+ */
+export async function likePost(postId) {
+  if (!postId) {
+    throw new Error("Post ID is required.");
+  }
+
+  const response = await api.post(`/posts/${postId}/like`);
+
+  return response?.data;
+}
+
+/**
+ * Unlike a post.
+ */
+export async function unlikePost(postId) {
+  if (!postId) {
+    throw new Error("Post ID is required.");
+  }
+
+  const response = await api.delete(`/posts/${postId}/like`);
+
+  return response?.data;
+}
+
+/**
+ * Toggle post like.
+ */
+export async function togglePostLike(postId) {
+  if (!postId) {
+    throw new Error("Post ID is required.");
+  }
+
+  const response = await api.post(`/posts/${postId}/toggle-like`);
+
+  return response?.data;
+}
+
+/**
+ * Save a post.
+ */
+export async function savePost(postId) {
+  if (!postId) {
+    throw new Error("Post ID is required.");
+  }
+
+  const response = await api.post(`/posts/${postId}/save`);
+
+  return response?.data;
+}
+
+/**
+ * Unsave a post.
+ */
+export async function unsavePost(postId) {
+  if (!postId) {
+    throw new Error("Post ID is required.");
+  }
+
+  const response = await api.delete(`/posts/${postId}/save`);
+
+  return response?.data;
+}
+
+/**
+ * Toggle saved state.
+ */
+export async function toggleSave(postId) {
+  if (!postId) {
+    throw new Error("Post ID is required.");
+  }
+
+  const response = await api.post(`/posts/${postId}/toggle-save`);
+
+  return response?.data;
+}
+
+/**
+ * Repost a post.
+ */
+export async function repostPost(postId) {
+  if (!postId) {
+    throw new Error("Post ID is required.");
+  }
+
+  const response = await api.post(`/posts/${postId}/repost`);
+
+  return response?.data?.post || response?.data;
+}
+
+/**
+ * Remove a repost.
+ */
+export async function unrepostPost(postId) {
+  if (!postId) {
+    throw new Error("Post ID is required.");
+  }
+
+  const response = await api.delete(`/posts/${postId}/repost`);
+
+  return response?.data;
+}
+
+/**
+ * Create a comment.
+ */
+export async function createComment(postId, text) {
+  if (!postId) {
+    throw new Error("Post ID is required.");
+  }
+
+  if (!text || !String(text).trim()) {
+    throw new Error("Comment cannot be empty.");
+  }
+
+  const response = await api.post(`/posts/${postId}/comments`, {
+    text: String(text).trim(),
+  });
+
+  return response?.data?.comment || response?.data;
+}
+
+/**
+ * Get comments for a post.
+ */
+export async function getComments(postId, page = 1, limit = 50) {
+  if (!postId) {
+    throw new Error("Post ID is required.");
+  }
+
+  const response = await api.get(`/posts/${postId}/comments`, {
+    params: {
+      page,
+      limit,
+    },
+  });
+
+  const body = response?.data;
+
+  if (Array.isArray(body)) {
+    return body;
+  }
+
+  if (Array.isArray(body?.comments)) {
+    return body.comments;
+  }
+
+  if (Array.isArray(body?.data)) {
+    return body.data;
+  }
+
+  return [];
+}
+
+/**
+ * Get archived posts.
+ *
+ * These endpoints are kept here only if your backend implements them.
+ */
+export async function getArchivedPosts(page = 1, limit = 50) {
+  try {
+    const response = await api.get("/posts/archived", {
+      params: {
+        page,
+        limit,
+      },
+    });
+
+    return extractPosts(response);
+  } catch (error) {
+    console.error(
+      "[POST SERVICE] GET ARCHIVED POSTS ERROR:",
+      error?.response?.data || error?.message
+    );
+
+    throw error;
+  }
+}
+
+/**
+ * Restore an archived post.
+ */
+export async function restorePost(postId) {
+  if (!postId) {
+    throw new Error("Post ID is required.");
+  }
+
+  const response = await api.patch(`/posts/${postId}/archive`, {
+    archived: false,
+  });
+
+  return response?.data?.post || response?.data;
+}
+
+/**
+ * Archive a post.
+ */
+export async function archivePost(postId) {
+  if (!postId) {
+    throw new Error("Post ID is required.");
+  }
+
+  const response = await api.patch(`/posts/${postId}/archive`, {
+    archived: true,
+  });
+
+  return response?.data?.post || response?.data;
+}
+
+/**
+ * Default export.
+ */
+export default {
+  createPost,
+  getFeed,
+  getUserPosts,
+  getUserReels,
+  getSavedPosts,
+  getLikedPosts,
+  getTaggedPosts,
+  getUserReposts,
+  getPost,
+  deletePost,
+  likePost,
+  unlikePost,
+  togglePostLike,
+  savePost,
+  unsavePost,
+  toggleSave,
+  repostPost,
+  unrepostPost,
+  createComment,
+  getComments,
+  getArchivedPosts,
+  restorePost,
+  archivePost,
+};

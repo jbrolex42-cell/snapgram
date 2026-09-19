@@ -31,11 +31,9 @@ import {
   SafeAreaView,
 } from "react-native-safe-area-context";
 
-import {
-  useAuth,
-} from "../../../../context/AuthContext";
+import { useAuth } from "../../../context/AuthContext";
 
-import VerifiedBadge from "../../../../components/common/VerifiedBadge";
+import VerifiedBadge from "../../../components/common/VerifiedBadge";
 
 import {
   getConversationPreferences,
@@ -46,7 +44,7 @@ import {
   setDisappearingMessages,
   setConversationBlock,
   reportConversation,
-} from "../../../../services/conversationPreferenceService";
+} from "../../../services/conversationPreferenceService";
 
 function getId(value) {
   if (!value) {
@@ -1244,7 +1242,7 @@ export default function ConversationInfoScreen() {
                       uri: avatar,
                     }
                   : require(
-                      "../../../../assets/images/icon.png"
+                      "../../../assets/images/icon.png"
                     )
               }
               style={
