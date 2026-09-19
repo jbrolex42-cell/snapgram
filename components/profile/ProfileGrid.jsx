@@ -223,7 +223,6 @@ const ProfileGridItem = memo(function ProfileGridItem({
         </View>
       )}
 
-      {/* Video indicator */}
       {video && (
         <View style={styles.topRightBadge}>
           <Ionicons
@@ -234,7 +233,6 @@ const ProfileGridItem = memo(function ProfileGridItem({
         </View>
       )}
 
-      {/* Multiple media indicator */}
       {multiple && (
         <View
           style={[
@@ -250,7 +248,6 @@ const ProfileGridItem = memo(function ProfileGridItem({
         </View>
       )}
 
-      {/* Repost indicator */}
       {repost && (
         <View style={styles.repostBadge}>
           <Ionicons

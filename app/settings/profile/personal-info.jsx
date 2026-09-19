@@ -435,7 +435,6 @@ export default function PersonalInfoScreen() {
           : undefined
       }
     >
-      {/* Header */}
 
       <View style={styles.header}>
         <TouchableOpacity
@@ -477,7 +476,6 @@ export default function PersonalInfoScreen() {
           styles.scrollContent
         }
       >
-        {/* Intro */}
 
         <View style={styles.intro}>
           <View style={styles.introIcon}>
@@ -511,8 +509,6 @@ export default function PersonalInfoScreen() {
             </Text>
           </View>
         ) : null}
-
-        {/* Contact */}
 
         <Text style={styles.sectionTitle}>
           Contact information
@@ -621,8 +617,6 @@ export default function PersonalInfoScreen() {
             />
           )}
         </View>
-
-        {/* Personal details */}
 
         <Text style={styles.sectionTitle}>
           Personal details
@@ -767,8 +761,6 @@ export default function PersonalInfoScreen() {
           ) : null}
         </View>
 
-        {/* Save */}
-
         <TouchableOpacity
           activeOpacity={0.8}
           onPress={save}
@@ -789,8 +781,6 @@ export default function PersonalInfoScreen() {
             </Text>
           )}
         </TouchableOpacity>
-
-        {/* Privacy information */}
 
         <View style={styles.infoBox}>
           <Ionicons

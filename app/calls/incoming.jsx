@@ -14,646 +14,403 @@ import {
 } from "react-native";
 
 import {
-  router,
   useLocalSearchParams,
+  router,
 } from "expo-router";
 
-import {
-  MaterialCommunityIcons,
-} from "@expo/vector-icons";
-
-import {
-  useSafeAreaInsets,
-} from "react-native-safe-area-context";
-
-import { StatusBar } from "expo-status-bar";
-
-import CallAvatar from "../../components/calls/CallAvatar";
+import { SafeAreaView } from "react-native-safe-area-context";
+import { MaterialCommunityIcons } from "@expo/vector-icons";
 
 import { useAuth } from "../../context/AuthContext";
 
 import {
   waitForSocket,
+  onSocketEvent,
   acceptCall,
   rejectCall,
   missedCall,
 } from "../../services/socket";
 
-const RING_TIMEOUT = 90000;
+function normalizeId(value) {
+  if (!value) return null;
 
-export default function IncomingCall() {
+  if (typeof value === "object" && value._id) {
+    return String(value._id);
+  }
+
+  return String(value);
+}
+
+export default function IncomingCallScreen() {
+  const params = useLocalSearchParams();
   const { user } = useAuth();
 
-  const insets =
-    useSafeAreaInsets();
+  const callId = normalizeId(params.callId);
 
-  const params =
-    useLocalSearchParams();
-
-  const callId = String(
-    params?.callId || ""
+  const callerId = normalizeId(
+    params.callerId || params.fromUserId
   );
 
-  const callerId = String(
-    params?.callerId || ""
-  );
+  const type = String(params.type || "voice");
+  const isVideoCall = type === "video";
 
   const callerName =
-    String(
-      params?.callerName ||
-        params?.username ||
-        "Snapgram User"
-    ).trim() ||
-    "Snapgram User";
+    params.callerName ||
+    params.fullName ||
+    params.username ||
+    "Snapgram user";
 
-  const callerAvatar =
-    String(
-      params?.callerAvatar ||
-        params?.avatar ||
-        ""
-    ).trim();
+  const currentUserId = normalizeId(
+    user?._id || user?.id
+  );
 
-  const callType =
-    String(
-      params?.type || "voice"
-    ).toLowerCase() === "video"
-      ? "video"
-      : "voice";
+  const mountedRef = useRef(true);
+  const handledRef = useRef(false);
+  const timeoutRef = useRef(null);
 
-  const isVideo =
-    callType === "video";
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
 
-  const currentUserId =
-    String(
-      user?._id ||
-        user?.id ||
-        ""
-    );
+  const isValidCall =
+    Boolean(callId) &&
+    Boolean(callerId) &&
+    Boolean(currentUserId) &&
+    callerId !== currentUserId;
 
-  const [action, setAction] =
-    useState(null);
+  const cleanup = useCallback(() => {
+    if (timeoutRef.current) {
+      clearTimeout(timeoutRef.current);
+      timeoutRef.current = null;
+    }
+  }, []);
 
-  const [error, setError] =
-    useState("");
+  const leaveScreen = useCallback(() => {
+    cleanup();
 
-  const mountedRef =
-    useRef(true);
+    if (mountedRef.current) {
+      router.back();
+    }
+  }, [cleanup]);
 
-  const handledRef =
-    useRef(false);
+  const handleReject = useCallback(async () => {
+    if (handledRef.current) return;
 
-  const socketRef =
-    useRef(null);
-
-  const timeoutRef =
-    useRef(null);
-
-  const clearTimer =
-    useCallback(() => {
-      if (timeoutRef.current) {
-        clearTimeout(
-          timeoutRef.current
-        );
-
-        timeoutRef.current = null;
-      }
-    }, []);
-
-  const cleanupSocket =
-    useCallback(() => {
-      const socket =
-        socketRef.current;
-
-      if (!socket) {
-        return;
-      }
-
-      socket.off(
-        "call:cancelled"
-      );
-
-      socket.off(
-        "call:rejected"
-      );
-
-      socket.off(
-        "call:ended"
-      );
-
-      socket.off(
-        "call:missed"
-      );
-
-      socketRef.current = null;
-    }, []);
-
-  const leaveScreen =
-    useCallback(() => {
-      if (
-        mountedRef.current
-      ) {
-        router.back();
-      }
-    }, []);
-
-  const handleRemoteEnd =
-    useCallback(
-      (data) => {
-        if (
-          !mountedRef.current ||
-          handledRef.current
-        ) {
-          return;
-        }
-
-        if (
-          data?.callId &&
-          String(data.callId) !==
-            callId
-        ) {
-          return;
-        }
-
-        handledRef.current =
-          true;
-
-        clearTimer();
-        cleanupSocket();
-        leaveScreen();
-      },
-      [
-        callId,
-        clearTimer,
-        cleanupSocket,
-        leaveScreen,
-      ]
-    );
-
-  const handleMissed =
-    useCallback(() => {
-      if (
-        handledRef.current
-      ) {
-        return;
-      }
-
-      handledRef.current =
-        true;
-
-      clearTimer();
-
-      setAction("missed");
-
-      try {
-        if (
-          socketRef.current?.connected
-        ) {
-          missedCall({
-            callId,
-          });
-        }
-      } catch (error) {
-        console.warn(
-          "[CALL] Missed call:",
-          error?.message || error
-        );
-      }
-
-      cleanupSocket();
-
-      setTimeout(() => {
-        leaveScreen();
-      }, 300);
-    }, [
-      callId,
-      clearTimer,
-      cleanupSocket,
-      leaveScreen,
-    ]);
-
-  const handleAccept =
-    useCallback(async () => {
-      if (
-        handledRef.current
-      ) {
-        return;
-      }
-
-      if (!callId) {
-        setError(
-          "This call is invalid."
-        );
-        return;
-      }
-
-      if (!currentUserId) {
-        setError(
-          "Your account could not be identified."
-        );
-        return;
-      }
-
-      handledRef.current =
-        true;
-
-      clearTimer();
-
-      setAction("accepting");
-      setError("");
-
-      try {
-        const socket =
-          await waitForSocket(
-            currentUserId,
-            10000
-          );
-
-        if (
-          !socket?.connected
-        ) {
-          throw new Error(
-            "Snapgram connection is unavailable."
-          );
-        }
-
-        socketRef.current =
-          socket;
-
-        acceptCall({
-          callId,
-        });
-
-        router.replace({
-          pathname:
-            "/calls/[callId]",
-          params: {
-            callId,
-            username:
-              callerName,
-            avatar:
-              callerAvatar,
-            type:
-              callType,
-            callerId,
-            otherUserId:
-              callerId,
-            isCaller:
-              "false",
-          },
-        });
-      } catch (error) {
-        console.error(
-          "[CALL] Accept error:",
-          error
-        );
-
-        handledRef.current =
-          false;
-
-        if (
-          mountedRef.current
-        ) {
-          setAction(null);
-
-          setError(
-            error?.message ||
-              "Unable to answer the call."
-          );
-        }
-      }
-    }, [
-      callId,
-      callType,
-      callerAvatar,
-      callerId,
-      callerName,
-      clearTimer,
-      currentUserId,
-    ]);
-
-  const handleReject =
-    useCallback(async () => {
-      if (
-        handledRef.current
-      ) {
-        return;
-      }
-
-      handledRef.current =
-        true;
-
-      clearTimer();
-
-      setAction("rejecting");
-      setError("");
-
-      try {
-        const socket =
-          await waitForSocket(
-            currentUserId,
-            5000
-          );
-
-        socketRef.current =
-          socket;
-
-        rejectCall({
-          callId,
-        });
-      } catch (error) {
-        console.warn(
-          "[CALL] Reject error:",
-          error?.message || error
-        );
-      }
-
-      cleanupSocket();
+    if (!isValidCall) {
       leaveScreen();
-    }, [
-      callId,
-      cleanupSocket,
-      clearTimer,
-      currentUserId,
-      leaveScreen,
-    ]);
-
-  useEffect(() => {
-    mountedRef.current =
-      true;
-
-    handledRef.current =
-      false;
-
-    if (!currentUserId) {
-      setError(
-        "Your Snapgram account could not be identified."
-      );
-
       return;
     }
 
-    if (!callId) {
-      setError(
-        "This incoming call is invalid."
+    handledRef.current = true;
+    setLoading(true);
+    setError("");
+
+    try {
+      const socket = await waitForSocket();
+
+      if (!socket) {
+        throw new Error(
+          "Socket connection is unavailable."
+        );
+      }
+
+      rejectCall(callId);
+
+      leaveScreen();
+    } catch (rejectError) {
+      console.error(
+        "[INCOMING CALL] Reject failed:",
+        rejectError
       );
 
+      handledRef.current = false;
+
+      if (mountedRef.current) {
+        setLoading(false);
+        setError(
+          rejectError?.message ||
+            "Unable to reject the call."
+        );
+      }
+    }
+  }, [
+    callId,
+    isValidCall,
+    leaveScreen,
+  ]);
+
+  const handleAccept = useCallback(async () => {
+    if (handledRef.current) return;
+
+    if (!isValidCall) {
+      setError("This call is no longer valid.");
+      return;
+    }
+
+    handledRef.current = true;
+    setLoading(true);
+    setError("");
+
+    try {
+      const socket = await waitForSocket();
+
+      if (!socket) {
+        throw new Error(
+          "Socket connection is unavailable."
+        );
+      }
+
+      acceptCall(callId);
+
+      cleanup();
+
+      router.replace({
+        pathname: "/calls/[callId]",
+        params: {
+          callId,
+          callerId,
+          receiverId: currentUserId,
+          otherUserId: callerId,
+          type,
+        },
+      });
+    } catch (acceptError) {
+      console.error(
+        "[INCOMING CALL] Accept failed:",
+        acceptError
+      );
+
+      handledRef.current = false;
+
+      if (mountedRef.current) {
+        setLoading(false);
+        setError(
+          acceptError?.message ||
+            "Unable to accept the call."
+        );
+      }
+    }
+  }, [
+    callId,
+    callerId,
+    cleanup,
+    currentUserId,
+    isValidCall,
+    type,
+  ]);
+
+  const handleMissed = useCallback(() => {
+    if (handledRef.current) return;
+    if (!isValidCall) return;
+
+    handledRef.current = true;
+
+    try {
+      missedCall(callId);
+    } catch (missedError) {
+      console.warn(
+        "[INCOMING CALL] Missed call failed:",
+        missedError?.message || missedError
+      );
+    }
+
+    leaveScreen();
+  }, [
+    callId,
+    isValidCall,
+    leaveScreen,
+  ]);
+
+  useEffect(() => {
+    mountedRef.current = true;
+
+    if (!isValidCall) {
+      setError("Invalid incoming call.");
       return;
     }
 
     let cancelled = false;
+    const cleanupListeners = [];
 
-    async function setup() {
+    async function initialize() {
       try {
-        const socket =
-          await waitForSocket(
-            currentUserId,
-            10000
-          );
+        const socket = await waitForSocket();
 
-        if (
-          cancelled ||
-          !mountedRef.current
-        ) {
+        if (cancelled || !mountedRef.current) {
           return;
         }
 
-        socketRef.current =
-          socket;
+        cleanupListeners.push(
+          onSocketEvent(
+            "call:cancelled",
+            (data) => {
+              if (
+                normalizeId(data?.call?.id || data?.callId) !==
+                callId
+              ) {
+                return;
+              }
 
-        socket.on(
-          "call:cancelled",
-          handleRemoteEnd
+              leaveScreen();
+            }
+          )
         );
 
-        socket.on(
-          "call:rejected",
-          handleRemoteEnd
+        cleanupListeners.push(
+          onSocketEvent(
+            "call:ended",
+            (data) => {
+              if (
+                normalizeId(data?.call?.id || data?.callId) !==
+                callId
+              ) {
+                return;
+              }
+
+              leaveScreen();
+            }
+          )
         );
 
-        socket.on(
-          "call:ended",
-          handleRemoteEnd
+        cleanupListeners.push(
+          onSocketEvent(
+            "call:rejected",
+            (data) => {
+              if (
+                normalizeId(data?.call?.id || data?.callId) !==
+                callId
+              ) {
+                return;
+              }
+
+              leaveScreen();
+            }
+          )
         );
 
-        socket.on(
-          "call:missed",
-          handleRemoteEnd
+        timeoutRef.current = setTimeout(() => {
+          handleMissed();
+        }, 90000);
+      } catch (socketError) {
+        console.error(
+          "[INCOMING CALL] Socket setup failed:",
+          socketError
         );
-      } catch (error) {
-        if (
-          mountedRef.current
-        ) {
+
+        if (mountedRef.current) {
           setError(
-            "Unable to connect to Snapgram."
+            socketError?.message ||
+              "Unable to connect to the call."
           );
         }
       }
     }
 
-    setup();
-
-    timeoutRef.current =
-      setTimeout(
-        handleMissed,
-        RING_TIMEOUT
-      );
+    initialize();
 
     return () => {
       cancelled = true;
-      mountedRef.current =
-        false;
+      mountedRef.current = false;
 
-      clearTimer();
-      cleanupSocket();
+      cleanup();
+
+      for (const remove of cleanupListeners) {
+        try {
+          remove?.();
+        } catch {}
+      }
     };
   }, [
     callId,
-    currentUserId,
-    clearTimer,
-    cleanupSocket,
+    cleanup,
     handleMissed,
-    handleRemoteEnd,
+    isValidCall,
+    leaveScreen,
   ]);
 
-  const busy =
-    action === "accepting" ||
-    action === "rejecting" ||
-    action === "missed";
-
   return (
-    <View style={styles.container}>
-      <StatusBar
-        style="light"
-        backgroundColor="#000"
-      />
+    <SafeAreaView style={styles.container}>
+      <View style={styles.content}>
+        <Text style={styles.incoming}>
+          Incoming {isVideoCall ? "video" : "voice"} call
+        </Text>
 
-      <View
-        style={[
-          styles.content,
-          {
-            paddingTop:
-              insets.top + 18,
+        <View style={styles.avatar}>
+          <MaterialCommunityIcons
+            name={
+              isVideoCall
+                ? "video-account"
+                : "account"
+            }
+            size={64}
+            color="#fff"
+          />
+        </View>
 
-            paddingBottom:
-              insets.bottom + 24,
-          },
-        ]}
-      >
-        <View
-          style={styles.topSection}
-        >
-          <View
-            style={styles.iconCircle}
+        <Text style={styles.name}>
+          {callerName}
+        </Text>
+
+        <Text style={styles.subtitle}>
+          {isVideoCall
+            ? "Video call"
+            : "Voice call"}
+        </Text>
+
+        {error ? (
+          <Text style={styles.error}>
+            {error}
+          </Text>
+        ) : null}
+
+        <View style={styles.actions}>
+          <Pressable
+            style={[
+              styles.action,
+              styles.reject,
+            ]}
+            disabled={loading}
+            onPress={handleReject}
           >
             <MaterialCommunityIcons
-              name={
-                isVideo
-                  ? "video"
-                  : "phone"
-              }
-              size={22}
+              name="phone-hangup"
+              size={30}
               color="#fff"
             />
-          </View>
 
-          <Text
-            style={styles.title}
-          >
-            {isVideo
-              ? "Incoming video call"
-              : "Incoming voice call"}
-          </Text>
-
-          <Text
-            style={styles.ringing}
-          >
-            Ringing...
-          </Text>
-        </View>
-
-        <View
-          style={
-            styles.callerSection
-          }
-        >
-          <View
-            style={styles.avatarOuter}
-          >
-            <CallAvatar
-              username={callerName}
-              avatar={callerAvatar}
-            />
-          </View>
-
-          <Text
-            numberOfLines={1}
-            style={styles.callerName}
-          >
-            {callerName}
-          </Text>
-
-          <Text
-            style={styles.subtitle}
-          >
-            {isVideo
-              ? "Video call"
-              : "Voice call"}
-          </Text>
-
-          {error ? (
-            <Text
-              style={styles.error}
-            >
-              {error}
-            </Text>
-          ) : null}
-        </View>
-
-        <View
-          style={styles.actions}
-        >
-          <View
-            style={
-              styles.actionWrapper
-            }
-          >
-            <Pressable
-              disabled={busy}
-              onPress={
-                handleReject
-              }
-              style={[
-                styles.button,
-                styles.decline,
-                busy &&
-                  styles.disabled,
-              ]}
-            >
-              {action ===
-              "rejecting" ? (
-                <ActivityIndicator
-                  color="#fff"
-                />
-              ) : (
-                <MaterialCommunityIcons
-                  name="phone-hangup"
-                  size={31}
-                  color="#fff"
-                />
-              )}
-            </Pressable>
-
-            <Text
-              style={styles.label}
-            >
+            <Text style={styles.actionText}>
               Decline
             </Text>
-          </View>
+          </Pressable>
 
-          <View
-            style={
-              styles.actionWrapper
-            }
+          <Pressable
+            style={[
+              styles.action,
+              styles.accept,
+            ]}
+            disabled={loading}
+            onPress={handleAccept}
           >
-            <Pressable
-              disabled={busy}
-              onPress={
-                handleAccept
-              }
-              style={[
-                styles.button,
-                styles.answer,
-                busy &&
-                  styles.disabled,
-              ]}
-            >
-              {action ===
-              "accepting" ? (
-                <ActivityIndicator
-                  color="#fff"
-                />
-              ) : (
-                <MaterialCommunityIcons
-                  name={
-                    isVideo
-                      ? "video"
-                      : "phone"
-                  }
-                  size={30}
-                  color="#fff"
-                />
-              )}
-            </Pressable>
+            {loading ? (
+              <ActivityIndicator color="#fff" />
+            ) : (
+              <MaterialCommunityIcons
+                name={
+                  isVideoCall
+                    ? "video"
+                    : "phone"
+                }
+                size={30}
+                color="#fff"
+              />
+            )}
 
-            <Text
-              style={styles.label}
-            >
-              Answer
+            <Text style={styles.actionText}>
+              Accept
             </Text>
-          </View>
+          </Pressable>
         </View>
       </View>
-    </View>
+    </SafeAreaView>
   );
 }
 
@@ -665,111 +422,74 @@ const styles = StyleSheet.create({
 
   content: {
     flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
     paddingHorizontal: 24,
-    alignItems: "center",
-    justifyContent:
-      "space-between",
   },
 
-  topSection: {
-    alignItems: "center",
+  incoming: {
+    color: "#aaa",
+    fontSize: 16,
+    marginBottom: 28,
   },
 
-  iconCircle: {
-    width: 46,
-    height: 46,
-    borderRadius: 23,
-    backgroundColor: "#262626",
-    alignItems: "center",
-    justifyContent: "center",
-    marginBottom: 12,
-  },
-
-  title: {
-    color: "#fff",
-    fontSize: 17,
-    fontWeight: "600",
-  },
-
-  ringing: {
-    color: "#a8a8a8",
-    fontSize: 14,
-    marginTop: 5,
-  },
-
-  callerSection: {
-    width: "100%",
-    alignItems: "center",
-  },
-
-  avatarOuter: {
-    width: 158,
-    height: 158,
-    borderRadius: 79,
-    borderWidth: 2,
-    borderColor: "#fff",
+  avatar: {
+    width: 130,
+    height: 130,
+    borderRadius: 65,
+    backgroundColor: "#242424",
     alignItems: "center",
     justifyContent: "center",
-    padding: 5,
+    marginBottom: 24,
   },
 
-  callerName: {
-    maxWidth: "90%",
+  name: {
     color: "#fff",
-    fontSize: 27,
+    fontSize: 25,
     fontWeight: "700",
-    marginTop: 24,
   },
 
   subtitle: {
-    color: "#a8a8a8",
+    color: "#aaa",
     fontSize: 15,
-    marginTop: 7,
+    marginTop: 8,
   },
 
   error: {
-    color: "#ff6b6b",
-    fontSize: 13,
+    color: "#ff7676",
     textAlign: "center",
-    marginTop: 15,
-    maxWidth: "85%",
+    marginTop: 20,
   },
 
   actions: {
-    width: "100%",
+    position: "absolute",
+    bottom: 55,
+    left: 24,
+    right: 24,
     flexDirection: "row",
-    justifyContent:
-      "space-evenly",
+    justifyContent: "space-evenly",
   },
 
-  actionWrapper: {
-    alignItems: "center",
-  },
-
-  button: {
-    width: 72,
-    height: 72,
-    borderRadius: 36,
+  action: {
+    width: 82,
+    height: 82,
+    borderRadius: 41,
     alignItems: "center",
     justifyContent: "center",
   },
 
-  decline: {
+  reject: {
     backgroundColor: "#ff3b30",
   },
 
-  answer: {
-    backgroundColor: "#30d158",
+  accept: {
+    backgroundColor: "#34c759",
   },
 
-  disabled: {
-    opacity: 0.55,
-  },
-
-  label: {
+  actionText: {
     color: "#fff",
-    fontSize: 13,
+    fontSize: 12,
+    marginTop: 4,
     fontWeight: "600",
-    marginTop: 10,
   },
 });

@@ -218,9 +218,6 @@ function CommentItem({
 
   return (
     <View style={styles.comment}>
-      {/* ======================================================
-          AVATAR
-      ====================================================== */}
 
       <View style={styles.avatar}>
         <Text
@@ -232,20 +229,13 @@ function CommentItem({
         </Text>
       </View>
 
-      {/* ======================================================
-          COMMENT BODY
-      ====================================================== */}
-
       <View style={styles.commentBody}>
-        {/* USERNAME + VERIFIED BADGE */}
 
         <UsernameWithBadge
           username={username}
           verified={verified}
           size={14}
         />
-
-        {/* COMMENT TEXT */}
 
         {comment?.text ? (
           <TranslatableComment
@@ -255,8 +245,6 @@ function CommentItem({
             }
           />
         ) : null}
-
-        {/* COMMENT ACTIONS */}
 
         <View
           style={
@@ -317,10 +305,6 @@ function CommentItem({
           ) : null}
         </View>
 
-        {/* ====================================================
-            REPLIES
-        ==================================================== */}
-
         {replies.length > 0 ? (
           <View style={styles.replies}>
             {replies.map(
@@ -375,10 +359,6 @@ function CommentItem({
     </View>
   );
 }
-
-/* ============================================================
-   MAIN COMMENTS SCREEN
-============================================================ */
 
 export default function CommentsScreen() {
   const { id } =
@@ -601,9 +581,6 @@ export default function CommentsScreen() {
             : undefined
         }
       >
-        {/* ====================================================
-            HEADER
-        ==================================================== */}
 
         <View
           style={styles.header}
@@ -635,10 +612,6 @@ export default function CommentsScreen() {
             style={styles.headerSpacer}
           />
         </View>
-
-        {/* ====================================================
-            REPLY BAR
-        ==================================================== */}
 
         {replyTo ? (
           <View
@@ -686,10 +659,6 @@ export default function CommentsScreen() {
             </TouchableOpacity>
           </View>
         ) : null}
-
-        {/* ====================================================
-            COMMENTS LIST
-        ==================================================== */}
 
         <FlatList
           data={comments}
@@ -762,10 +731,6 @@ export default function CommentsScreen() {
             </View>
           }
         />
-
-        {/* ====================================================
-            COMMENT INPUT
-        ==================================================== */}
 
         <View
           style={styles.inputBar}

@@ -142,8 +142,6 @@ export default function ActivityScreen() {
       >
         <ActivitySummary />
 
-        {/* YOUR CONTENT */}
-
         <SectionTitle>YOUR CONTENT</SectionTitle>
 
         <View
@@ -201,8 +199,6 @@ export default function ActivityScreen() {
           />
         </View>
 
-        {/* INTERACTIONS */}
-
         <SectionTitle>INTERACTIONS</SectionTitle>
 
         <View
@@ -241,8 +237,6 @@ export default function ActivityScreen() {
             }
           />
         </View>
-
-        {/* HOW YOU USE SNAPGRAM */}
 
         <SectionTitle>HOW YOU USE SNAPGRAM</SectionTitle>
 
@@ -284,8 +278,6 @@ export default function ActivityScreen() {
             }
           />
         </View>
-
-        {/* RECENTLY DELETED */}
 
         <SectionTitle>REMOVED CONTENT</SectionTitle>
 

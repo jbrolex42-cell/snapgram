@@ -290,7 +290,7 @@ export default function ArchivedScreen() {
                   ]}
                 >
                   <View style={styles.row}>
-                    {/* MEDIA PREVIEW */}
+
                     <View
                       style={[
                         styles.thumbnail,
@@ -335,7 +335,6 @@ export default function ArchivedScreen() {
                       ) : null}
                     </View>
 
-                    {/* CONTENT */}
                     <View style={styles.details}>
                       <Text
                         numberOfLines={2}

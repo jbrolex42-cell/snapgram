@@ -194,7 +194,6 @@ export default function AccountStatusScreen() {
 
   return (
     <View style={styles.screen}>
-      {/* Header */}
 
       <View style={styles.header}>
         <TouchableOpacity
@@ -228,7 +227,6 @@ export default function AccountStatusScreen() {
           styles.content
         }
       >
-        {/* Hero */}
 
         <View style={styles.hero}>
           <View
@@ -265,8 +263,6 @@ export default function AccountStatusScreen() {
           </Text>
         </View>
 
-        {/* Error */}
-
         {error ? (
           <View style={styles.errorBox}>
             <Ionicons
@@ -297,8 +293,6 @@ export default function AccountStatusScreen() {
             </View>
           </View>
         ) : null}
-
-        {/* Current status */}
 
         <Text style={styles.sectionTitle}>
           Current status
@@ -350,8 +344,6 @@ export default function AccountStatusScreen() {
           </View>
         </View>
 
-        {/* Account standing */}
-
         <Text style={styles.sectionTitle}>
           Account information
         </Text>
@@ -387,8 +379,6 @@ export default function AccountStatusScreen() {
             description={removedContent}
           />
         </View>
-
-        {/* Information */}
 
         <View style={styles.infoBox}>
           <Ionicons

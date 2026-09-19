@@ -1,114 +1,123 @@
 {
-  "expo": {
-    "name": "snapgram",
-    "slug": "snapgram-app",
-    "version": "1.0.0",
-    "orientation": "portrait",
-    "icon": "./assets/images/icon.png",
-    "scheme": "mobile",
-    "userInterfaceStyle": "automatic",
+"expo": {
+"name": "snapgram",
+"slug": "snapgram-app",
+"version": "1.0.0",
+"orientation": "portrait",
+"icon": "./assets/images/icon.png",
+"scheme": "mobile",
+"userInterfaceStyle": "automatic",
 
-    "ios": {
-      "icon": "./assets/expo.icon",
-      "bundleIdentifier": "com.emsapp254.snapgramapp",
-      "infoPlist": {
-        "NSCameraUsageDescription": "Snapgram uses your camera for photos, videos, stories, and video calls.",
-        "NSMicrophoneUsageDescription": "Snapgram uses your microphone for voice messages, voice calls, and video calls.",
-        "NSPhotoLibraryUsageDescription": "Snapgram needs access to your photos and videos so you can share them.",
-        "NSPhotoLibraryAddUsageDescription": "Snapgram needs permission to save photos and videos to your library.",
-        "ITSAppUsesNonExemptEncryption": false
-      }
-    },
-
-    "android": {
-      "package": "com.emsapp254.snapgramapp",
-      "googleServicesFile": "./google-services.json",
-
-      "adaptiveIcon": {
-        "backgroundColor": "#E6F4FE",
-        "foregroundImage": "./assets/images/android-icon-foreground.png",
-        "backgroundImage": "./assets/images/android-icon-background.png",
-        "monochromeImage": "./assets/images/android-icon-monochrome.png"
-      },
-
-      "predictiveBackGestureEnabled": false,
-
-      "permissions": [
-        "android.permission.CAMERA",
-        "android.permission.RECORD_AUDIO",
-        "android.permission.INTERNET",
-        "android.permission.ACCESS_NETWORK_STATE",
-        "android.permission.MODIFY_AUDIO_SETTINGS",
-        "android.permission.FOREGROUND_SERVICE",
-        "android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK",
-        "android.permission.READ_MEDIA_IMAGES",
-        "android.permission.READ_MEDIA_VIDEO",
-        "android.permission.READ_EXTERNAL_STORAGE",
-        "android.permission.WRITE_EXTERNAL_STORAGE",
-        "android.permission.READ_MEDIA_VISUAL_USER_SELECTED"
-      ]
-    },
-
-    "web": {
-      "output": "static",
-      "favicon": "./assets/images/favicon.png"
-    },
-
-    "plugins": [
-      "expo-router",
-
-      [
-        "expo-splash-screen",
-        {
-          "backgroundColor": "#208AEF",
-          "image": "./assets/images/splash-icon.png",
-          "imageWidth": 76
-        }
-      ],
-
-      "expo-video",
-
-      [
-        "expo-camera",
-        {
-          "cameraPermission": "Snapgram needs access to your camera.",
-          "microphonePermission": "Snapgram needs access to your microphone for videos and calls."
-        }
-      ],
-
-      "expo-image-picker",
-      "expo-audio",
-
-      [
-        "expo-media-library",
-        {
-          "photosPermission": "Snapgram needs access to your photos so you can create posts and stories.",
-          "videosPermission": "Snapgram needs access to your videos so you can create posts and stories.",
-          "savePhotosPermission": "Snapgram needs access to save photos and videos.",
-          "granularPermissions": [
-            "photo",
-            "video"
-          ]
-        }
-      ],
-
-      "expo-asset",
-      "expo-image",
-      "@react-native-google-signin/google-signin",
-      "expo-web-browser",
-      "expo-secure-store"
-    ],
-
-    "experiments": {
-      "typedRoutes": true,
-      "reactCompiler": true
-    },
-
-    "extra": {
-      "router": {},
-      "eas": {
-        "projectId": "078b0a5a-4e0f-41d7-894c-33ac20e7d991"
-      }
-    }
+"ios": {
+  "icon": "./assets/expo.icon",
+  "bundleIdentifier": "com.emsapp254.snapgramapp",
+  "infoPlist": {
+    "NSCameraUsageDescription": "Snapgram uses your camera for photos, videos, stories, and video calls.",
+    "NSMicrophoneUsageDescription": "Snapgram uses your microphone for voice messages, voice calls, and video calls.",
+    "NSPhotoLibraryUsageDescription": "Snapgram needs access to your photos and videos so you can share them.",
+    "NSPhotoLibraryAddUsageDescription": "Snapgram needs permission to save photos and videos to your library.",
+    "ITSAppUsesNonExemptEncryption": false
   }
+},
+
+"android": {
+  "package": "com.emsapp254.snapgramapp",
+  "googleServicesFile": "./google-services.json",
+
+  "adaptiveIcon": {
+    "backgroundColor": "#E6F4FE",
+    "foregroundImage": "./assets/images/android-icon-foreground.png",
+    "backgroundImage": "./assets/images/android-icon-background.png",
+    "monochromeImage": "./assets/images/android-icon-monochrome.png"
+  },
+
+  "predictiveBackGestureEnabled": false,
+
+  "permissions": [
+    "android.permission.CAMERA",
+    "android.permission.RECORD_AUDIO",
+    "android.permission.INTERNET",
+    "android.permission.ACCESS_NETWORK_STATE",
+    "android.permission.MODIFY_AUDIO_SETTINGS",
+    "android.permission.FOREGROUND_SERVICE",
+    "android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK",
+    "android.permission.READ_MEDIA_IMAGES",
+    "android.permission.READ_MEDIA_VIDEO",
+    "android.permission.READ_EXTERNAL_STORAGE",
+    "android.permission.WRITE_EXTERNAL_STORAGE",
+    "android.permission.READ_MEDIA_VISUAL_USER_SELECTED"
+  ]
+},
+
+"web": {
+  "output": "static",
+  "favicon": "./assets/images/favicon.png"
+},
+
+"plugins": [
+  "expo-router",
+
+  [
+    "expo-splash-screen",
+    {
+      "backgroundColor": "#208AEF",
+      "image": "./assets/images/splash-icon.png",
+      "imageWidth": 76
+    }
+  ],
+
+  "expo-video",
+
+  [
+    "expo-camera",
+    {
+      "cameraPermission": "Snapgram needs access to your camera.",
+      "microphonePermission": "Snapgram needs access to your microphone for videos and calls."
+    }
+  ],
+
+  "expo-image-picker",
+  "expo-audio",
+
+  [
+    "expo-media-library",
+    {
+      "photosPermission": "Snapgram needs access to your photos so you can create posts and stories.",
+      "videosPermission": "Snapgram needs access to your videos so you can create posts and stories.",
+      "savePhotosPermission": "Snapgram needs access to save photos and videos.",
+      "granularPermissions": [
+        "photo",
+        "video"
+      ]
+    }
+  ],
+
+  "expo-asset",
+  "expo-image",
+  "@react-native-google-signin/google-signin",
+  "expo-web-browser",
+  "expo-secure-store",
+
+  [
+    "expo-sqlite",
+    {
+      "useSQLCipher": true
+    }
+  ],
+
+  "expo-libsignal"
+],
+
+"experiments": {
+  "typedRoutes": true,
+  "reactCompiler": true
+},
+
+"extra": {
+  "router": {},
+  "eas": {
+    "projectId": "078b0a5a-4e0f-41d7-894c-33ac20e7d991"
+  }
+}
+}
 }

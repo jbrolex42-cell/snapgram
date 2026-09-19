@@ -680,9 +680,6 @@ export default function UserProfileScreen() {
         "right",
       ]}
     >
-      {/* ------------------------------------------------------------------ */}
-      {/* HEADER                                                             */}
-      {/* ------------------------------------------------------------------ */}
 
       <View style={styles.header}>
         <Pressable
@@ -717,11 +714,6 @@ export default function UserProfileScreen() {
         </Pressable>
       </View>
 
-
-      {/* ------------------------------------------------------------------ */}
-      {/* CONTENT                                                            */}
-      {/* ------------------------------------------------------------------ */}
-
       <ScrollView
         style={styles.scroll}
         contentContainerStyle={
@@ -736,12 +728,8 @@ export default function UserProfileScreen() {
           />
         }
       >
-        {/* -------------------------------------------------------------- */}
-        {/* PROFILE HEADER                                                 */}
-        {/* -------------------------------------------------------------- */}
 
         <View style={styles.profileSection}>
-          {/* Avatar */}
 
           <View style={styles.avatarWrapper}>
             {avatar ? (
@@ -765,9 +753,6 @@ export default function UserProfileScreen() {
               </View>
             )}
           </View>
-
-
-          {/* Stats */}
 
           <View style={styles.stats}>
             <View style={styles.stat}>
@@ -828,13 +813,7 @@ export default function UserProfileScreen() {
           </View>
         </View>
 
-
-        {/* -------------------------------------------------------------- */}
-        {/* IDENTITY                                                        */}
-        {/* -------------------------------------------------------------- */}
-
         <View style={styles.identity}>
-          {/* Full name + verified badge */}
 
           <View style={styles.nameRow}>
             <Text
@@ -852,9 +831,6 @@ export default function UserProfileScreen() {
             )}
           </View>
 
-
-          {/* Username */}
-
           <Text
             style={styles.username}
             numberOfLines={1}
@@ -862,17 +838,11 @@ export default function UserProfileScreen() {
             @{displayUsername}
           </Text>
 
-
-          {/* Bio */}
-
           {!!bio && (
             <Text style={styles.bio}>
               {bio}
             </Text>
           )}
-
-
-          {/* Website */}
 
           {!!website && (
             <Pressable
@@ -894,11 +864,6 @@ export default function UserProfileScreen() {
             </Pressable>
           )}
         </View>
-
-
-        {/* -------------------------------------------------------------- */}
-        {/* ACTIONS                                                         */}
-        {/* -------------------------------------------------------------- */}
 
         <View style={styles.actions}>
           <Pressable
@@ -960,11 +925,6 @@ export default function UserProfileScreen() {
             />
           </Pressable>
         </View>
-
-
-        {/* -------------------------------------------------------------- */}
-        {/* TABS                                                            */}
-        {/* -------------------------------------------------------------- */}
 
         <View style={styles.tabs}>
           <Pressable
@@ -1043,11 +1003,6 @@ export default function UserProfileScreen() {
           </Pressable>
         </View>
 
-
-        {/* -------------------------------------------------------------- */}
-        {/* POSTS                                                           */}
-        {/* -------------------------------------------------------------- */}
-
         <View style={styles.gridContainer}>
           {visiblePosts.length > 0 ? (
             <ProfileGrid
@@ -1090,8 +1045,6 @@ export default function UserProfileScreen() {
             </View>
           )}
         </View>
-
-        {/* Bottom spacing */}
 
         <View style={styles.bottomSpace} />
       </ScrollView>

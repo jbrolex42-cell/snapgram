@@ -1,43 +1,33 @@
 import React, {
   useCallback,
   useEffect,
-  useMemo,
   useRef,
   useState,
 } from "react";
 
 import {
   ActivityIndicator,
-  Image,
   Pressable,
   StyleSheet,
   Text,
   View,
 } from "react-native";
 
-import {
-  router,
-  useLocalSearchParams,
-} from "expo-router";
-
-import { MaterialCommunityIcons } from "@expo/vector-icons";
-
+import { useLocalSearchParams, router } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
-
-import CallControls from "../../components/calls/CallControls";
-import LocalVideo from "../../components/calls/LocalVideo";
-import RemoteVideo from "../../components/calls/RemoteVideo";
+import { MaterialCommunityIcons } from "@expo/vector-icons";
 
 import { useAuth } from "../../context/AuthContext";
 
 import {
   waitForSocket,
+  onSocketEvent,
   sendCallReady,
-  endCall as sendEndCall,
-  cancelCall,
   sendWebRTCOffer,
   sendWebRTCAnswer,
   sendICECandidate,
+  endCall as socketEndCall,
+  cancelCall as socketCancelCall,
 } from "../../services/socket";
 
 import {
@@ -48,544 +38,412 @@ import {
   setRemoteDescription,
   addIceCandidate,
   stopLocalStream,
+  setMicrophoneEnabled,
+  setCameraEnabled,
+  switchCamera,
+  closePeerConnection,
+  startAudioRouting,
+  stopAudioRouting,
+  setSpeakerEnabled as setNativeSpeakerEnabled,
 } from "../../services/webrtcService";
 
-const CALL_SETUP_TIMEOUT = 30000;
+function normalizeId(value) {
+  if (!value) return null;
 
-export default function CallScreen() {
+  if (typeof value === "object" && value._id) {
+    return String(value._id);
+  }
+
+  return String(value);
+}
+
+export default function ActiveCallScreen() {
+  const params = useLocalSearchParams();
   const { user } = useAuth();
 
-  const params = useLocalSearchParams();
+  const callId = normalizeId(params.callId);
 
-  const callId = String(params?.callId || "");
-
-  const username = String(
-    params?.username || "Snapgram User"
+  const callerId = normalizeId(
+    params.callerId || params.fromUserId
   );
 
-  const avatar = String(params?.avatar || "");
+  const receiverId = normalizeId(
+    params.receiverId ||
+      params.toUserId ||
+      params.otherUserId
+  );
 
-  const type = String(
-    params?.type || "voice"
-  ).toLowerCase();
+  const type = String(params.type || "voice");
+
+  const isVideoCall = type === "video";
+
+  const currentUserId = normalizeId(
+    user?._id || user?.id
+  );
 
   const isCaller =
-    String(params?.isCaller) === "true";
+    Boolean(currentUserId && callerId) &&
+    currentUserId === callerId;
 
-  const isVideo = type === "video";
-
-  const callerId = String(
-    params?.callerId || ""
-  );
-
-  const otherUserId = String(
-    params?.otherUserId || ""
-  );
-
-  const remoteUserId =
-    otherUserId || callerId;
-
-  const currentUserId = String(
-    user?._id ||
-      user?.id ||
-      ""
-  );
-
-  /*
-   * ============================================================
-   * REFS
-   * ============================================================
-   */
+  const remoteUserId = isCaller
+    ? receiverId
+    : callerId;
 
   const mountedRef = useRef(true);
-
-  const initializingRef = useRef(false);
-
-  const cleanedUpRef = useRef(false);
-
-  const endingRef = useRef(false);
-
-  const offerSentRef = useRef(false);
-
-  const readySentRef = useRef(false);
-
-  /*
-   * Caller starts without acceptance.
-   *
-   * Receiver is already considered accepted from the
-   * call-screen perspective because the incoming-call screen
-   * should only navigate here after accepting.
-   */
-  const acceptedRef = useRef(!isCaller);
-
-  const remoteDescriptionSetRef =
-    useRef(false);
-
-  const peerRef = useRef(null);
+  const cleanedRef = useRef(false);
 
   const socketRef = useRef(null);
+  const peerRef = useRef(null);
 
   const localStreamRef = useRef(null);
-
   const remoteStreamRef = useRef(null);
 
-  const pendingIceCandidatesRef =
-    useRef([]);
+  const remoteDescriptionSetRef = useRef(false);
+  const offerSentRef = useRef(false);
+  const readySentRef = useRef(false);
 
-  const setupTimeoutRef =
-    useRef(null);
+  const callAcceptedRef = useRef(!isCaller);
 
-  /*
-   * ============================================================
-   * STATE
-   * ============================================================
-   */
+  const pendingIceRef = useRef([]);
 
-  const [localStream, setLocalStream] =
-    useState(null);
+  const connectionTimeoutRef = useRef(null);
 
-  const [remoteStream, setRemoteStream] =
-    useState(null);
+  const [localStream, setLocalStream] = useState(null);
+  const [remoteStream, setRemoteStream] = useState(null);
 
-  const [muted, setMuted] =
-    useState(false);
+  const [muted, setMuted] = useState(false);
 
-  const [speaker, setSpeaker] =
-    useState(false);
-
-  const [videoEnabled, setVideoEnabled] =
-    useState(isVideo);
-
-  const [connected, setConnected] =
-    useState(false);
-
-  const [initializing, setInitializing] =
-    useState(true);
-
-  const [callStatus, setCallStatus] =
-    useState(
-      isCaller
-        ? "Calling..."
-        : "Connecting..."
-    );
-
-  const [connectionError, setConnectionError] =
-    useState("");
-
-  /*
-   * ============================================================
-   * DISPLAY DATA
-   * ============================================================
-   */
-
-  const displayName =
-    username.trim() || "Snapgram User";
-
-  const avatarUri =
-    avatar.trim();
-
-  const initials = useMemo(() => {
-    const parts = displayName
-      .split(/\s+/)
-      .filter(Boolean);
-
-    if (!parts.length) {
-      return "S";
-    }
-
-    if (parts.length === 1) {
-      return parts[0]
-        .charAt(0)
-        .toUpperCase();
-    }
-
-    return (
-      parts[0].charAt(0) +
-      parts[parts.length - 1].charAt(0)
-    ).toUpperCase();
-  }, [displayName]);
-
-  const renderAvatar = useCallback(
-    (size = 120) => {
-      return (
-        <View
-          style={[
-            styles.avatar,
-            {
-              width: size,
-              height: size,
-              borderRadius: size / 2,
-            },
-          ]}
-        >
-          {avatarUri ? (
-            <Image
-              source={{ uri: avatarUri }}
-              style={[
-                styles.avatarImage,
-                {
-                  width: size,
-                  height: size,
-                  borderRadius: size / 2,
-                },
-              ]}
-            />
-          ) : (
-            <Text
-              style={[
-                styles.avatarInitials,
-                {
-                  fontSize: size * 0.31,
-                },
-              ]}
-            >
-              {initials}
-            </Text>
-          )}
-        </View>
-      );
-    },
-    [avatarUri, initials]
+  const [videoEnabled, setVideoEnabled] = useState(
+    isVideoCall
   );
 
-  /*
-   * ============================================================
-   * CALL VALIDATION
-   * ============================================================
-   */
+  const [speakerEnabled, setSpeakerEnabled] = useState(
+    isVideoCall
+  );
+
+  const [status, setStatus] = useState(
+    isCaller ? "Calling..." : "Connecting..."
+  );
+
+  const [connected, setConnected] = useState(false);
+
+  const [initializing, setInitializing] = useState(true);
+
+  const [error, setError] = useState("");
 
   const isCurrentCall = useCallback(
     (data) => {
-      if (!data) {
-        return false;
-      }
-
-      if (
-        data.callId &&
-        callId &&
-        String(data.callId) !== callId
-      ) {
-        return false;
-      }
-
-      return true;
+      return (
+        Boolean(callId) &&
+        normalizeId(data?.callId) === callId
+      );
     },
     [callId]
   );
 
-  /*
-   * ============================================================
-   * TIMEOUT
-   * ============================================================
-   */
-
-  const clearSetupTimeout =
-    useCallback(() => {
-      if (setupTimeoutRef.current) {
-        clearTimeout(
-          setupTimeoutRef.current
-        );
-
-        setupTimeoutRef.current = null;
-      }
-    }, []);
-
-  /*
-   * ============================================================
-   * CLEANUP
-   * ============================================================
-   */
+  const clearConnectionTimeout = useCallback(() => {
+    if (connectionTimeoutRef.current) {
+      clearTimeout(connectionTimeoutRef.current);
+      connectionTimeoutRef.current = null;
+    }
+  }, []);
 
   const cleanupCall = useCallback(() => {
-    if (cleanedUpRef.current) {
+    if (cleanedRef.current) {
       return;
     }
 
-    cleanedUpRef.current = true;
+    cleanedRef.current = true;
 
-    clearSetupTimeout();
+    clearConnectionTimeout();
 
-    offerSentRef.current = false;
-    acceptedRef.current = false;
-    readySentRef.current = false;
-
-    remoteDescriptionSetRef.current =
-      false;
-
-    pendingIceCandidatesRef.current = [];
-
-    const socket = socketRef.current;
-
-    if (socket) {
-      socket.off("call:accepted");
-      socket.off("call:ready");
-
-      socket.off("call:ended");
-      socket.off("call:cancelled");
-      socket.off("call:rejected");
-      socket.off("call:missed");
-
-      socket.off("webrtc:offer");
-      socket.off("webrtc:answer");
-      socket.off("webrtc:ice-candidate");
+    try {
+      stopLocalStream(localStreamRef.current);
+    } catch (error) {
+      console.warn(
+        "[CALL] Failed to stop local stream:",
+        error?.message || error
+      );
     }
-
-    socketRef.current = null;
-
-    const peer = peerRef.current;
-
-    peerRef.current = null;
-
-    if (peer) {
-      try {
-        peer.ontrack = null;
-        peer.onicecandidate = null;
-        peer.onconnectionstatechange = null;
-        peer.oniceconnectionstatechange = null;
-        peer.onicecandidateerror = null;
-      } catch {}
-
-      try {
-        peer.close?.();
-      } catch (error) {
-        console.warn(
-          "[CALL] Peer cleanup error:",
-          error?.message || error
-        );
-      }
-    }
-
-    const stream =
-      localStreamRef.current;
 
     localStreamRef.current = null;
 
-    if (stream) {
-      try {
-        stopLocalStream(stream);
-      } catch (error) {
-        console.warn(
-          "[CALL] Local stream cleanup error:",
-          error?.message || error
-        );
-      }
+    try {
+      closePeerConnection(peerRef.current);
+    } catch (error) {
+      console.warn(
+        "[CALL] Failed to close peer connection:",
+        error?.message || error
+      );
+    }
+
+    peerRef.current = null;
+
+    try {
+      stopAudioRouting();
+    } catch (error) {
+      console.warn(
+        "[CALL] Failed to stop audio routing:",
+        error?.message || error
+      );
     }
 
     remoteStreamRef.current = null;
 
+    pendingIceRef.current = [];
+
     if (mountedRef.current) {
       setLocalStream(null);
       setRemoteStream(null);
-      setConnected(false);
     }
-  }, [clearSetupTimeout]);
+  }, [clearConnectionTimeout]);
 
-  /*
-   * ============================================================
-   * REMOTE CALL EVENTS
-   * ============================================================
-   */
-
-  const handleRemoteEnd = useCallback(
-    (data) => {
-      if (
-        !mountedRef.current ||
-        endingRef.current
-      ) {
-        return;
-      }
-
-      if (!isCurrentCall(data)) {
-        return;
-      }
-
-      endingRef.current = true;
-
-      setCallStatus("Call ended");
-
+  const finishCall = useCallback(
+    (shouldNavigate = true) => {
       cleanupCall();
 
-      setTimeout(() => {
-        if (mountedRef.current) {
-          router.back();
-        }
-      }, 200);
+      if (
+        shouldNavigate &&
+        mountedRef.current
+      ) {
+        router.back();
+      }
     },
-    [cleanupCall, isCurrentCall]
+    [cleanupCall]
   );
 
-  const handleCallAccepted =
-    useCallback(
-      (data) => {
-        if (!isCurrentCall(data)) {
-          return;
-        }
+  const applyPendingIce = useCallback(async () => {
+    const peer = peerRef.current;
 
-        acceptedRef.current = true;
+    if (
+      !peer ||
+      !remoteDescriptionSetRef.current
+    ) {
+      return;
+    }
 
-        console.log(
-          "[CALL] Call accepted:",
-          callId
+    const pending = [
+      ...pendingIceRef.current,
+    ];
+
+    pendingIceRef.current = [];
+
+    for (const candidate of pending) {
+      try {
+        await addIceCandidate(
+          peer,
+          candidate
         );
-
-        if (mountedRef.current) {
-          setCallStatus(
-            "Connecting..."
-          );
-        }
-      },
-      [callId, isCurrentCall]
-    );
-
-  /*
-   * ============================================================
-   * SEND WEBRTC OFFER
-   * ============================================================
-   */
-
-  const createAndSendOffer =
-    useCallback(async () => {
-      if (
-        !isCaller ||
-        !acceptedRef.current ||
-        offerSentRef.current
-      ) {
-        return;
-      }
-
-      const peer = peerRef.current;
-
-      const socket = socketRef.current;
-
-      if (!peer || !socket) {
-        return;
-      }
-
-      if (!socket.connected) {
-        return;
-      }
-
-      if (
-        peer.signalingState !==
-        "stable"
-      ) {
-        console.log(
-          "[CALL] Offer skipped. Signaling state:",
-          peer.signalingState
+      } catch (error) {
+        console.warn(
+          "[CALL] Failed to apply ICE candidate:",
+          error?.message || error
         );
+      }
+    }
+  }, []);
 
+  const setupPeer = useCallback(async () => {
+    const peer =
+      await createPeerConnection();
+
+    peerRef.current = peer;
+
+    peer.ontrack = (event) => {
+      if (!mountedRef.current) {
         return;
       }
 
-      offerSentRef.current = true;
+      const stream =
+        event?.streams?.[0];
+
+      if (!stream) {
+        return;
+      }
+
+      remoteStreamRef.current = stream;
+
+      setRemoteStream(stream);
+    };
+
+    peer.onicecandidate = (event) => {
+      const candidate =
+        event?.candidate;
+
+      if (!candidate) {
+        return;
+      }
 
       try {
-        console.log(
-          "[CALL] Creating WebRTC offer..."
+        sendICECandidate(
+          callId,
+          candidate
         );
+      } catch (error) {
+        console.warn(
+          "[CALL] Failed to send ICE candidate:",
+          error?.message || error
+        );
+      }
+    };
 
-        const offer =
-          await createOffer(peer);
-
+    peer.onconnectionstatechange =
+      () => {
         if (!mountedRef.current) {
           return;
         }
 
-        sendWebRTCOffer({
-          callId,
-          offer,
-        });
+        const state =
+          peer.connectionState;
 
-        setCallStatus(
-          "Connecting..."
-        );
+        if (state === "connected") {
+          clearConnectionTimeout();
 
-        console.log(
-          "[CALL] WebRTC offer sent"
-        );
-      } catch (error) {
-        offerSentRef.current = false;
+          setConnected(true);
+          setStatus("Connected");
 
-        console.error(
-          "[CALL] Create offer error:",
-          error
-        );
-
-        if (mountedRef.current) {
-          setConnectionError(
-            error?.message ||
-              "Unable to start the call."
-          );
-        }
-      }
-    }, [callId, isCaller]);
-
-  /*
-   * ============================================================
-   * REMOTE READY
-   * ============================================================
-   */
-
-  const handleCallReady =
-    useCallback(
-      async (data) => {
-        if (
-          !isCaller ||
-          !isCurrentCall(data)
-        ) {
           return;
         }
 
-        console.log(
-          "[CALL] Remote call screen ready"
+        if (state === "connecting") {
+          setStatus("Connecting...");
+
+          return;
+        }
+
+        if (state === "disconnected") {
+          setStatus(
+            "Connection interrupted"
+          );
+
+          return;
+        }
+
+        if (state === "failed") {
+          setError(
+            "The call connection failed."
+          );
+
+          setStatus(
+            "Connection failed"
+          );
+
+          return;
+        }
+
+        if (state === "closed") {
+          setStatus("Call ended");
+        }
+      };
+
+    peer.oniceconnectionstatechange =
+      () => {
+        if (!mountedRef.current) {
+          return;
+        }
+
+        if (
+          peer.iceConnectionState ===
+          "failed"
+        ) {
+          setError(
+            "Unable to establish the call connection."
+          );
+        }
+      };
+
+    return peer;
+  }, [
+    callId,
+    clearConnectionTimeout,
+  ]);
+
+  const startLocalMedia =
+    useCallback(async () => {
+      const stream =
+        await getLocalStream(
+          isVideoCall
         );
 
-        acceptedRef.current = true;
+      localStreamRef.current =
+        stream;
 
-        await createAndSendOffer();
-      },
-      [
-        createAndSendOffer,
-        isCaller,
-        isCurrentCall,
-      ]
-    );
+      setLocalStream(stream);
 
-  /*
-   * ============================================================
-   * WEBRTC OFFER
-   * ============================================================
-   */
+      return stream;
+    }, [isVideoCall]);
+
+  const prepareWebRTC =
+    useCallback(async () => {
+      const stream =
+        await startLocalMedia();
+
+      try {
+        startAudioRouting({
+          video: isVideoCall,
+          speaker: isVideoCall,
+        });
+      } catch (error) {
+        console.warn(
+          "[CALL] Failed to start audio routing:",
+          error?.message || error
+        );
+      }
+
+      const peer =
+        await setupPeer();
+
+      if (stream) {
+        const tracks =
+          typeof stream.getTracks ===
+          "function"
+            ? stream.getTracks()
+            : [];
+
+        for (const track of tracks) {
+          try {
+            peer.addTrack(
+              track,
+              stream
+            );
+          } catch (error) {
+            console.warn(
+              "[CALL] Failed to add track:",
+              error?.message || error
+            );
+          }
+        }
+      }
+
+      return peer;
+    }, [
+      isVideoCall,
+      setupPeer,
+      startLocalMedia,
+    ]);
 
   const handleOffer =
     useCallback(
       async (data) => {
+        if (!isCurrentCall(data)) {
+          return;
+        }
+
+        if (isCaller) {
+          return;
+        }
+
+        const peer =
+          peerRef.current;
+
         if (
-          !mountedRef.current ||
-          !isCurrentCall(data)
+          !peer ||
+          !data.offer
         ) {
           return;
         }
 
-        if (!data?.offer) {
-          return;
-        }
-
-        const peer = peerRef.current;
-
-        if (!peer) {
-          console.warn(
-            "[CALL] Offer received before peer was ready"
-          );
-
-          return;
-        }
-
         try {
-          setCallStatus(
-            "Connecting..."
-          );
-
           await setRemoteDescription(
             peer,
             data.offer
@@ -594,92 +452,56 @@ export default function CallScreen() {
           remoteDescriptionSetRef.current =
             true;
 
-          /*
-           * Apply ICE candidates that arrived before
-           * the remote description.
-           */
-          const queued =
-            pendingIceCandidatesRef.current;
-
-          pendingIceCandidatesRef.current =
-            [];
-
-          for (
-            const candidate of queued
-          ) {
-            try {
-              await addIceCandidate(
-                peer,
-                candidate
-              );
-            } catch (error) {
-              console.warn(
-                "[CALL] Queued ICE error:",
-                error?.message || error
-              );
-            }
-          }
+          await applyPendingIce();
 
           const answer =
-            await createAnswer(peer);
-
-          const socket =
-            socketRef.current;
-
-          if (!socket?.connected) {
-            throw new Error(
-              "Snapgram connection was lost."
+            await createAnswer(
+              peer
             );
-          }
 
-          sendWebRTCAnswer({
+          sendWebRTCAnswer(
             callId,
-            answer,
-          });
-
-          console.log(
-            "[CALL] WebRTC answer sent"
+            answer
           );
         } catch (error) {
           console.error(
-            "[CALL] Handle offer error:",
+            "[CALL] Offer handling failed:",
             error
           );
 
           if (mountedRef.current) {
-            setConnectionError(
-              error?.message ||
-                "Unable to connect the call."
+            setError(
+              "Unable to establish the call."
             );
           }
         }
       },
-      [callId, isCurrentCall]
+      [
+        applyPendingIce,
+        callId,
+        isCaller,
+        isCurrentCall,
+      ]
     );
-
-  /*
-   * ============================================================
-   * WEBRTC ANSWER
-   * ============================================================
-   */
 
   const handleAnswer =
     useCallback(
       async (data) => {
+        if (!isCurrentCall(data)) {
+          return;
+        }
+
+        if (!isCaller) {
+          return;
+        }
+
+        const peer =
+          peerRef.current;
+
         if (
-          !mountedRef.current ||
-          !isCurrentCall(data)
+          !peer ||
+          !data.answer
         ) {
-          return;
-        }
-
-        if (!data?.answer) {
-          return;
-        }
-
-        const peer = peerRef.current;
-
-        if (!peer) {
           return;
         }
 
@@ -692,93 +514,63 @@ export default function CallScreen() {
           remoteDescriptionSetRef.current =
             true;
 
-          const queued =
-            pendingIceCandidatesRef.current;
-
-          pendingIceCandidatesRef.current =
-            [];
-
-          for (
-            const candidate of queued
-          ) {
-            try {
-              await addIceCandidate(
-                peer,
-                candidate
-              );
-            } catch (error) {
-              console.warn(
-                "[CALL] Queued answer ICE error:",
-                error?.message || error
-              );
-            }
-          }
-
-          console.log(
-            "[CALL] Remote answer installed"
-          );
+          await applyPendingIce();
         } catch (error) {
           console.error(
-            "[CALL] Handle answer error:",
+            "[CALL] Answer handling failed:",
             error
           );
 
           if (mountedRef.current) {
-            setConnectionError(
-              error?.message ||
-                "Unable to complete the call."
+            setError(
+              "Unable to complete the call connection."
             );
           }
         }
       },
-      [isCurrentCall]
+      [
+        applyPendingIce,
+        isCaller,
+        isCurrentCall,
+      ]
     );
-
-  /*
-   * ============================================================
-   * ICE CANDIDATES
-   * ============================================================
-   */
 
   const handleIceCandidate =
     useCallback(
       async (data) => {
-        if (
-          !mountedRef.current ||
-          !isCurrentCall(data) ||
-          !data?.candidate
-        ) {
+        if (!isCurrentCall(data)) {
           return;
         }
 
-        const peer = peerRef.current;
+        if (!data.candidate) {
+          return;
+        }
+
+        const peer =
+          peerRef.current;
 
         if (!peer) {
           return;
         }
 
+        if (
+          !remoteDescriptionSetRef.current
+        ) {
+          pendingIceRef.current.push(
+            data.candidate
+          );
+
+          return;
+        }
+
         try {
-          /*
-           * ICE candidates must wait until the remote
-           * description exists.
-           */
-          if (
-            !remoteDescriptionSetRef.current
-          ) {
-            pendingIceCandidatesRef.current.push(
-              data.candidate
-            );
-
-            return;
-          }
-
           await addIceCandidate(
             peer,
             data.candidate
           );
         } catch (error) {
           console.warn(
-            "[CALL] ICE candidate error:",
+            "[CALL] Failed to add ICE candidate:",
             error?.message || error
           );
         }
@@ -786,736 +578,504 @@ export default function CallScreen() {
       [isCurrentCall]
     );
 
-  /*
-   * ============================================================
-   * SEND CALL READY
-   * ============================================================
-   */
-
-  const sendReady = useCallback(() => {
-    if (
-      isCaller ||
-      readySentRef.current
-    ) {
-      return;
-    }
-
-    const socket =
-      socketRef.current;
-
-    if (!socket?.connected) {
-      return;
-    }
-
-    readySentRef.current = true;
-
-    sendCallReady({
-      callId,
-    });
-
-    console.log(
-      "[CALL] Call ready sent"
-    );
-  }, [callId, isCaller]);
-
-  /*
-   * ============================================================
-   * SOCKET LISTENERS
-   * ============================================================
-   */
-
-  const registerListeners =
-    useCallback(() => {
-      const socket =
-        socketRef.current;
-
-      if (!socket) {
-        return;
-      }
-
-      /*
-       * Prevent duplicate listeners.
-       */
-      socket.off(
-        "call:accepted",
-        handleCallAccepted
-      );
-
-      socket.off(
-        "call:ready",
-        handleCallReady
-      );
-
-      socket.off(
-        "call:ended",
-        handleRemoteEnd
-      );
-
-      socket.off(
-        "call:cancelled",
-        handleRemoteEnd
-      );
-
-      socket.off(
-        "call:rejected",
-        handleRemoteEnd
-      );
-
-      socket.off(
-        "call:missed",
-        handleRemoteEnd
-      );
-
-      socket.off(
-        "webrtc:offer",
-        handleOffer
-      );
-
-      socket.off(
-        "webrtc:answer",
-        handleAnswer
-      );
-
-      socket.off(
-        "webrtc:ice-candidate",
-        handleIceCandidate
-      );
-
-      /*
-       * Register listeners.
-       */
-      socket.on(
-        "call:accepted",
-        handleCallAccepted
-      );
-
-      socket.on(
-        "call:ready",
-        handleCallReady
-      );
-
-      socket.on(
-        "call:ended",
-        handleRemoteEnd
-      );
-
-      socket.on(
-        "call:cancelled",
-        handleRemoteEnd
-      );
-
-      socket.on(
-        "call:rejected",
-        handleRemoteEnd
-      );
-
-      socket.on(
-        "call:missed",
-        handleRemoteEnd
-      );
-
-      socket.on(
-        "webrtc:offer",
-        handleOffer
-      );
-
-      socket.on(
-        "webrtc:answer",
-        handleAnswer
-      );
-
-      socket.on(
-        "webrtc:ice-candidate",
-        handleIceCandidate
-      );
-
-      console.log(
-        "[CALL] WebRTC listeners ready"
-      );
-    }, [
-      handleCallAccepted,
-      handleCallReady,
-      handleRemoteEnd,
-      handleOffer,
-      handleAnswer,
-      handleIceCandidate,
-    ]);
-
-  /*
-   * ============================================================
-   * INITIALIZE CALL
-   * ============================================================
-   */
-
-  const initializeCall =
+  const createCallerOffer =
     useCallback(async () => {
-      if (
-        initializingRef.current ||
-        cleanedUpRef.current
-      ) {
+      if (!isCaller) {
         return;
       }
 
-      initializingRef.current = true;
+      if (offerSentRef.current) {
+        return;
+      }
+
+      const peer =
+        peerRef.current;
+
+      if (!peer) {
+        return;
+      }
+
+      if (!callAcceptedRef.current) {
+        return;
+      }
+
+      offerSentRef.current = true;
 
       try {
-        if (!currentUserId) {
-          throw new Error(
-            "Your Snapgram account could not be identified."
-          );
-        }
+        const offer =
+          await createOffer(peer);
 
-        if (!remoteUserId) {
-          throw new Error(
-            "The other caller could not be identified."
-          );
-        }
-
-        if (!callId) {
-          throw new Error(
-            "This call is missing its call ID."
-          );
-        }
-
-        setInitializing(true);
-        setConnectionError("");
-
-        console.log(
-          "[CALL] Initializing:",
-          {
-            callId,
-            currentUserId,
-            remoteUserId,
-            isCaller,
-            isVideo,
-          }
+        sendWebRTCOffer(
+          callId,
+          offer
         );
 
-        /*
-         * Socket identity comes from authenticated socket
-         * authentication. We do not trust a client-supplied
-         * user ID for call authorization.
-         */
-        const socket =
-          await waitForSocket(
-            currentUserId,
-            10000
-          );
-
-        if (!mountedRef.current) {
-          return;
-        }
-
-        if (
-          !socket ||
-          !socket.connected
-        ) {
-          throw new Error(
-            "Snapgram connection is not available."
-          );
-        }
-
-        socketRef.current = socket;
-
-        registerListeners();
-
-        /*
-         * Get microphone/camera.
-         */
-        const stream =
-          await getLocalStream(
-            isVideo
-          );
-
-        if (!mountedRef.current) {
-          stopLocalStream(stream);
-          return;
-        }
-
-        localStreamRef.current =
-          stream;
-
-        setLocalStream(stream);
-
-        /*
-         * Create peer connection.
-         */
-        const peer =
-          await createPeerConnection();
-
-        if (!mountedRef.current) {
-          peer?.close?.();
-          stopLocalStream(stream);
-          return;
-        }
-
-        peerRef.current = peer;
-
-        /*
-         * Add local tracks.
-         */
-        const tracks =
-          typeof stream.getTracks ===
-          "function"
-            ? stream.getTracks()
-            : [];
-
-        for (
-          const track of tracks
-        ) {
-          try {
-            peer.addTrack(
-              track,
-              stream
-            );
-          } catch (error) {
-            console.warn(
-              "[CALL] Add track error:",
-              error?.message || error
-            );
-          }
-        }
-
-        /*
-         * Remote media.
-         */
-        peer.ontrack = (event) => {
-          if (!mountedRef.current) {
-            return;
-          }
-
-          const incomingStream =
-            event?.streams?.[0];
-
-          if (!incomingStream) {
-            return;
-          }
-
-          remoteStreamRef.current =
-            incomingStream;
-
-          setRemoteStream(
-            incomingStream
-          );
-
-          setConnected(true);
-          setCallStatus("Connected");
-          setConnectionError("");
-        };
-
-        /*
-         * Local ICE -> authenticated socket server ->
-         * authorized remote participant.
-         */
-        peer.onicecandidate = (
-          event
-        ) => {
-          const candidate =
-            event?.candidate;
-
-          if (!candidate) {
-            return;
-          }
-
-          const socket =
-            socketRef.current;
-
-          if (!socket?.connected) {
-            return;
-          }
-
-          try {
-            sendICECandidate({
-              callId,
-              candidate,
-            });
-          } catch (error) {
-            console.warn(
-              "[CALL] Send ICE error:",
-              error?.message || error
-            );
-          }
-        };
-
-        /*
-         * Connection state.
-         */
-        peer.onconnectionstatechange =
-          () => {
-            if (!mountedRef.current) {
-              return;
-            }
-
-            const state =
-              peer.connectionState;
-
-            console.log(
-              "[CALL] WebRTC connection state:",
-              state
-            );
-
-            switch (state) {
-              case "new":
-                setConnected(false);
-                break;
-
-              case "connecting":
-                setConnected(false);
-                setCallStatus(
-                  "Connecting..."
-                );
-                break;
-
-              case "connected":
-                setConnected(true);
-                setConnectionError("");
-                setCallStatus(
-                  "Connected"
-                );
-                clearSetupTimeout();
-                break;
-
-              case "disconnected":
-                setConnected(false);
-                setCallStatus(
-                  "Reconnecting..."
-                );
-                break;
-
-              case "failed":
-                setConnected(false);
-                setConnectionError(
-                  "The call connection failed."
-                );
-                break;
-
-              case "closed":
-                setConnected(false);
-                break;
-
-              default:
-                break;
-            }
-          };
-
-        peer.oniceconnectionstatechange =
-          () => {
-            console.log(
-              "[CALL] ICE state:",
-              peer.iceConnectionState
-            );
-          };
-
-        peer.onicecandidateerror =
-          (event) => {
-            console.warn(
-              "[CALL] ICE error:",
-              event
-            );
-          };
-
-        /*
-         * Receiver tells caller that their call screen
-         * and WebRTC peer are ready.
-         */
-        if (!isCaller) {
-          sendReady();
-        }
-
-        /*
-         * Caller can create an offer immediately if the
-         * remote side was already accepted.
-         */
-        if (isCaller) {
-          setCallStatus(
-            acceptedRef.current
-              ? "Connecting..."
-              : "Calling..."
-          );
-
-          if (
-            acceptedRef.current
-          ) {
-            await createAndSendOffer();
-          }
-        } else {
-          setCallStatus(
+        if (mountedRef.current) {
+          setStatus(
             "Connecting..."
           );
         }
-
-        if (mountedRef.current) {
-          setInitializing(false);
-        }
       } catch (error) {
+        offerSentRef.current =
+          false;
+
         console.error(
-          "[CALL] Initialization error:",
+          "[CALL] Failed to create offer:",
           error
         );
 
         if (mountedRef.current) {
-          setInitializing(false);
-
-          setConnectionError(
-            error?.message ||
-              "Unable to start the call."
+          setError(
+            "Unable to start the call."
           );
         }
-      } finally {
-        initializingRef.current =
-          false;
       }
     }, [
       callId,
-      clearSetupTimeout,
-      createAndSendOffer,
-      currentUserId,
       isCaller,
-      isVideo,
-      registerListeners,
-      remoteUserId,
-      sendReady,
     ]);
-
-  /*
-   * ============================================================
-   * INITIAL EFFECT
-   * ============================================================
-   */
 
   useEffect(() => {
     mountedRef.current = true;
-
-    cleanedUpRef.current = false;
-    endingRef.current = false;
-    initializingRef.current = false;
-
-    acceptedRef.current = !isCaller;
-
-    offerSentRef.current = false;
-    readySentRef.current = false;
-
-    remoteDescriptionSetRef.current =
-      false;
-
-    pendingIceCandidatesRef.current =
-      [];
-
-    setupTimeoutRef.current =
-      setTimeout(() => {
-        if (
-          mountedRef.current &&
-          !connected
-        ) {
-          setConnectionError(
-            "The call took too long to connect."
-          );
-        }
-      }, CALL_SETUP_TIMEOUT);
-
-    initializeCall();
 
     return () => {
       mountedRef.current = false;
 
       cleanupCall();
     };
+  }, [cleanupCall]);
+
+  useEffect(() => {
+    if (
+      !callId ||
+      !currentUserId
+    ) {
+      setError("Invalid call.");
+      setInitializing(false);
+
+      return;
+    }
+
+    let cancelled = false;
+
+    const cleanupListeners = [];
+
+    async function initialize() {
+      try {
+        setInitializing(true);
+        setError("");
+
+        const socket =
+          await waitForSocket();
+
+        if (
+          cancelled ||
+          !mountedRef.current
+        ) {
+          return;
+        }
+
+        socketRef.current =
+          socket;
+
+        cleanupListeners.push(
+          onSocketEvent(
+            "call:accepted",
+            async (data) => {
+              if (
+                !isCurrentCall(data)
+              ) {
+                return;
+              }
+
+              if (!isCaller) {
+                return;
+              }
+
+              callAcceptedRef.current =
+                true;
+
+              if (
+                mountedRef.current
+              ) {
+                setStatus(
+                  "Connecting..."
+                );
+              }
+
+              await createCallerOffer();
+            }
+          )
+        );
+
+        cleanupListeners.push(
+          onSocketEvent(
+            "call:ready",
+            async (data) => {
+              if (
+                !isCurrentCall(data)
+              ) {
+                return;
+              }
+
+              if (isCaller) {
+                callAcceptedRef.current =
+                  true;
+
+                await createCallerOffer();
+              }
+            }
+          )
+        );
+
+        cleanupListeners.push(
+          onSocketEvent(
+            "webrtc:offer",
+            handleOffer
+          )
+        );
+
+        cleanupListeners.push(
+          onSocketEvent(
+            "webrtc:answer",
+            handleAnswer
+          )
+        );
+
+        cleanupListeners.push(
+          onSocketEvent(
+            "webrtc:ice-candidate",
+            handleIceCandidate
+          )
+        );
+
+        cleanupListeners.push(
+          onSocketEvent(
+            "call:rejected",
+            (data) => {
+              if (
+                !isCurrentCall(data)
+              ) {
+                return;
+              }
+
+              if (
+                mountedRef.current
+              ) {
+                setStatus(
+                  "Call declined"
+                );
+              }
+
+              finishCall();
+            }
+          )
+        );
+
+        cleanupListeners.push(
+          onSocketEvent(
+            "call:cancelled",
+            (data) => {
+              if (
+                !isCurrentCall(data)
+              ) {
+                return;
+              }
+
+              if (
+                mountedRef.current
+              ) {
+                setStatus(
+                  "Call cancelled"
+                );
+              }
+
+              finishCall();
+            }
+          )
+        );
+
+        cleanupListeners.push(
+          onSocketEvent(
+            "call:missed",
+            (data) => {
+              if (
+                !isCurrentCall(data)
+              ) {
+                return;
+              }
+
+              if (
+                mountedRef.current
+              ) {
+                setStatus(
+                  "Call missed"
+                );
+              }
+
+              finishCall();
+            }
+          )
+        );
+
+        cleanupListeners.push(
+          onSocketEvent(
+            "call:ended",
+            (data) => {
+              if (
+                !isCurrentCall(data)
+              ) {
+                return;
+              }
+
+              if (
+                mountedRef.current
+              ) {
+                setStatus(
+                  "Call ended"
+                );
+              }
+
+              finishCall();
+            }
+          )
+        );
+
+        await prepareWebRTC();
+
+        if (
+          cancelled ||
+          !mountedRef.current
+        ) {
+          return;
+        }
+
+        if (
+          !isCaller &&
+          !readySentRef.current
+        ) {
+          readySentRef.current =
+            true;
+
+          sendCallReady(callId);
+
+          setStatus(
+            "Connecting..."
+          );
+        }
+
+        setInitializing(false);
+
+        connectionTimeoutRef.current =
+          setTimeout(() => {
+            if (
+              !mountedRef.current ||
+              connected
+            ) {
+              return;
+            }
+
+            setError(
+              "The call could not establish a connection."
+            );
+
+            setStatus(
+              "Connection timed out"
+            );
+          }, 30000);
+      } catch (error) {
+        console.error(
+          "[CALL] Initialization failed:",
+          error
+        );
+
+        cleanupCall();
+
+        if (
+          mountedRef.current
+        ) {
+          setInitializing(false);
+
+          setError(
+            error?.message ||
+              "Unable to start the call."
+          );
+        }
+      }
+    }
+
+    initialize();
+
+    return () => {
+      cancelled = true;
+
+      for (
+        const remove of cleanupListeners
+      ) {
+        try {
+          remove?.();
+        } catch {}
+      }
+    };
   }, [
-    initializeCall,
+    callId,
+    currentUserId,
     cleanupCall,
+    createCallerOffer,
+    finishCall,
+    handleAnswer,
+    handleIceCandidate,
+    handleOffer,
+    isCaller,
+    isCurrentCall,
+    prepareWebRTC,
   ]);
 
-  /*
-   * ============================================================
-   * CONTROLS
-   * ============================================================
-   */
+  const handleEnd = useCallback(() => {
+    if (!callId) {
+      finishCall();
+
+      return;
+    }
+
+    try {
+      if (
+        connected ||
+        callAcceptedRef.current
+      ) {
+        socketEndCall(callId);
+      } else if (isCaller) {
+        socketCancelCall(callId);
+      }
+    } catch (error) {
+      console.warn(
+        "[CALL] End request failed:",
+        error?.message || error
+      );
+    }
+
+    finishCall();
+  }, [
+    callId,
+    connected,
+    finishCall,
+    isCaller,
+  ]);
 
   const toggleMute = useCallback(() => {
-    const stream =
-      localStreamRef.current;
-
-    if (!stream) {
-      return;
-    }
-
-    const tracks =
-      stream.getAudioTracks?.() || [];
-
-    if (!tracks.length) {
-      return;
-    }
-
     const nextMuted = !muted;
 
-    tracks.forEach((track) => {
-      track.enabled = !nextMuted;
-    });
+    try {
+      setMicrophoneEnabled(
+        localStreamRef.current,
+        !nextMuted
+      );
+    } catch (error) {
+      console.warn(
+        "[CALL] Microphone toggle failed:",
+        error?.message || error
+      );
+
+      return;
+    }
 
     setMuted(nextMuted);
   }, [muted]);
 
   const toggleVideo = useCallback(() => {
-    if (!isVideo) {
-      return;
-    }
-
-    const stream =
-      localStreamRef.current;
-
-    if (!stream) {
-      return;
-    }
-
-    const tracks =
-      stream.getVideoTracks?.() || [];
-
-    if (!tracks.length) {
+    if (!isVideoCall) {
       return;
     }
 
     const nextEnabled =
       !videoEnabled;
 
-    tracks.forEach((track) => {
-      track.enabled = nextEnabled;
-    });
-
-    setVideoEnabled(nextEnabled);
-  }, [isVideo, videoEnabled]);
-
-  const toggleSpeaker = useCallback(() => {
-    setSpeaker((value) => !value);
-  }, []);
-
-  const switchCamera = useCallback(() => {
-    if (!isVideo) {
-      return;
-    }
-
-    const stream =
-      localStreamRef.current;
-
-    if (!stream) {
-      return;
-    }
-
-    const track =
-      stream
-        .getVideoTracks?.()
-        ?.find(Boolean);
-
-    if (!track) {
-      return;
-    }
-
     try {
-      if (
-        typeof track._switchCamera ===
-        "function"
-      ) {
-        track._switchCamera();
-      }
+      setCameraEnabled(
+        localStreamRef.current,
+        nextEnabled
+      );
     } catch (error) {
       console.warn(
-        "[CALL] Switch camera error:",
+        "[CALL] Camera toggle failed:",
         error?.message || error
       );
-    }
-  }, [isVideo]);
 
-  /*
-   * ============================================================
-   * END CALL
-   * ============================================================
-   *
-   * Call state changes happen through Socket.IO.
-   * No REST PATCH/updateCall is used here.
-   */
-
-  const endCall = useCallback(() => {
-    if (endingRef.current) {
       return;
     }
 
-    endingRef.current = true;
-
-    const socket =
-      socketRef.current;
-
-    try {
-      if (
-        socket?.connected &&
-        callId
-      ) {
-        if (isCaller && !connected) {
-          cancelCall({
-            callId,
-          });
-        } else {
-          sendEndCall({
-            callId,
-          });
-        }
-      }
-    } catch (error) {
-      console.warn(
-        "[CALL] End call error:",
-        error?.message || error
-      );
-    }
-
-    cleanupCall();
-
-    if (mountedRef.current) {
-      router.back();
-    }
+    setVideoEnabled(
+      nextEnabled
+    );
   }, [
-    callId,
-    cleanupCall,
-    connected,
-    isCaller,
+    isVideoCall,
+    videoEnabled,
   ]);
 
-  /*
-   * ============================================================
-   * ERROR SCREEN
-   * ============================================================
-   */
+  const handleSwitchCamera =
+    useCallback(() => {
+      if (!isVideoCall) {
+        return;
+      }
 
-  if (connectionError) {
+      try {
+        switchCamera(
+          localStreamRef.current
+        );
+      } catch (error) {
+        console.warn(
+          "[CALL] Camera switch failed:",
+          error?.message || error
+        );
+      }
+    }, [isVideoCall]);
+
+  const toggleSpeaker =
+    useCallback(() => {
+      const next =
+        !speakerEnabled;
+
+      try {
+        const success =
+          setNativeSpeakerEnabled(
+            next
+          );
+
+        if (success === false) {
+          console.warn(
+            "[CALL] Native speaker routing failed."
+          );
+
+          return;
+        }
+
+        setSpeakerEnabled(next);
+      } catch (error) {
+        console.warn(
+          "[CALL] Speaker toggle failed:",
+          error?.message || error
+        );
+      }
+    }, [speakerEnabled]);
+
+  if (!callId || !currentUserId) {
     return (
       <SafeAreaView
-        style={styles.blackScreen}
+        style={styles.container}
       >
-        <View
-          style={styles.errorContent}
-        >
-          {renderAvatar(96)}
-
+        <View style={styles.center}>
           <Text
-            style={styles.errorTitle}
+            style={styles.errorText}
           >
-            Call failed
-          </Text>
-
-          <Text
-            style={styles.errorMessage}
-          >
-            {connectionError}
+            Invalid call.
           </Text>
 
           <Pressable
-            style={styles.errorButton}
-            onPress={() => {
-              cleanupCall();
-              router.back();
-            }}
+            style={styles.backButton}
+            onPress={() => router.back()}
           >
             <Text
-              style={
-                styles.errorButtonText
-              }
+              style={styles.backButtonText}
             >
               Go back
             </Text>
@@ -1525,691 +1085,324 @@ export default function CallScreen() {
     );
   }
 
-  /*
-   * ============================================================
-   * INITIALIZING SCREEN
-   * ============================================================
-   */
-
   if (initializing) {
     return (
       <SafeAreaView
-        style={styles.blackScreen}
+        style={styles.container}
       >
-        <View
-          style={styles.connectingScreen}
-        >
-          {renderAvatar(120)}
-
-          <Text
-            style={styles.connectingName}
-          >
-            {displayName}
-          </Text>
-
-          <Text
-            style={
-              styles.connectingStatus
-            }
-          >
-            {callStatus}
-          </Text>
-
+        <View style={styles.center}>
           <ActivityIndicator
-            size="small"
-            color="#ffffff"
-            style={
-              styles.connectingSpinner
-            }
+            size="large"
+            color="#fff"
           />
 
-          <Pressable
-            onPress={endCall}
-            accessibilityRole="button"
-            accessibilityLabel="End call"
-            style={
-              styles.cancelCallButton
-            }
+          <Text
+            style={styles.statusText}
           >
-            <MaterialCommunityIcons
-              name="phone-hangup"
-              size={26}
-              color="#ffffff"
-            />
-          </Pressable>
+            {status}
+          </Text>
         </View>
       </SafeAreaView>
     );
   }
-
-  /*
-   * ============================================================
-   * VIDEO CALL
-   * ============================================================
-   */
-
-  if (isVideo) {
-    return (
-      <View style={styles.videoRoot}>
-        <SafeAreaView
-          style={styles.videoSafeArea}
-          edges={["top", "bottom"]}
-        >
-          <View
-            style={styles.videoStage}
-          >
-            {remoteStream ? (
-              <RemoteVideo
-                stream={remoteStream}
-              />
-            ) : (
-              <View
-                style={
-                  styles.videoWaiting
-                }
-              >
-                {renderAvatar(110)}
-
-                <Text
-                  style={styles.videoName}
-                >
-                  {displayName}
-                </Text>
-
-                <Text
-                  style={
-                    styles.videoStatus
-                  }
-                >
-                  {callStatus}
-                </Text>
-              </View>
-            )}
-
-            {/* HEADER */}
-            <View
-              style={
-                styles.videoTopHeader
-              }
-            >
-              <Pressable
-                onPress={endCall}
-                accessibilityRole="button"
-                accessibilityLabel="End call"
-                style={
-                  styles.headerButton
-                }
-              >
-                <MaterialCommunityIcons
-                  name="chevron-down"
-                  size={28}
-                  color="#ffffff"
-                />
-              </Pressable>
-
-              <View
-                style={
-                  styles.videoHeaderCenter
-                }
-              >
-                <Text
-                  numberOfLines={1}
-                  style={
-                    styles.videoHeaderName
-                  }
-                >
-                  {displayName}
-                </Text>
-
-                <Text
-                  style={
-                    styles.videoHeaderStatus
-                  }
-                >
-                  {connected
-                    ? "Connected"
-                    : callStatus}
-                </Text>
-              </View>
-
-              <View
-                style={
-                  styles.headerPlaceholder
-                }
-              />
-            </View>
-
-            {/* LOCAL VIDEO */}
-            {localStream &&
-            videoEnabled ? (
-              <View
-                style={
-                  styles.localVideoContainer
-                }
-              >
-                <LocalVideo
-                  stream={localStream}
-                />
-
-                <View
-                  style={
-                    styles.localVideoBorder
-                  }
-                />
-              </View>
-            ) : (
-              <View
-                style={
-                  styles.localVideoOff
-                }
-              >
-                <MaterialCommunityIcons
-                  name="video-off"
-                  size={23}
-                  color="#ffffff"
-                />
-              </View>
-            )}
-
-            {/* CONNECTED BADGE */}
-            {connected && (
-              <View
-                style={
-                  styles.connectedBadge
-                }
-              >
-                <View
-                  style={
-                    styles.connectedDot
-                  }
-                />
-
-                <Text
-                  style={
-                    styles.connectedText
-                  }
-                >
-                  Connected
-                </Text>
-              </View>
-            )}
-
-            {/* CONTROLS */}
-            <View
-              style={
-                styles.callControls
-              }
-            >
-              <CallControls
-                muted={muted}
-                speaker={speaker}
-                videoEnabled={
-                  videoEnabled
-                }
-                isVideo
-                connected={connected}
-                onToggleMute={
-                  toggleMute
-                }
-                onToggleSpeaker={
-                  toggleSpeaker
-                }
-                onToggleVideo={
-                  toggleVideo
-                }
-                onSwitchCamera={
-                  switchCamera
-                }
-                onEndCall={endCall}
-              />
-            </View>
-          </View>
-        </SafeAreaView>
-      </View>
-    );
-  }
-
-  /*
-   * ============================================================
-   * VOICE CALL
-   * ============================================================
-   */
 
   return (
-    <View style={styles.voiceRoot}>
-      <SafeAreaView
-        style={styles.voiceSafeArea}
-        edges={["top", "bottom"]}
-      >
-        {/* HEADER */}
-        <View
-          style={styles.voiceTopBar}
+    <SafeAreaView
+      style={styles.container}
+    >
+      <View style={styles.header}>
+        <Text
+          style={styles.title}
         >
-          <Pressable
-            onPress={endCall}
-            accessibilityRole="button"
-            accessibilityLabel="End call"
-            style={
-              styles.voiceBackButton
-            }
-          >
-            <MaterialCommunityIcons
-              name="chevron-down"
-              size={29}
-              color="#ffffff"
-            />
-          </Pressable>
+          {isVideoCall
+            ? "Video call"
+            : "Voice call"}
+        </Text>
 
-          <Text
-            style={styles.voiceTopTitle}
-          >
-            Snapgram
-          </Text>
+        <Text
+          style={styles.status}
+        >
+          {status}
+        </Text>
+      </View>
 
+      <View style={styles.callArea}>
+        {remoteStream ? (
           <View
-            style={styles.topBarSpacer}
-          />
-        </View>
-
-        {/* PROFILE */}
-        <View
-          style={styles.voiceProfile}
-        >
-          {renderAvatar(138)}
-
-          <Text
-            numberOfLines={1}
-            style={styles.voiceName}
+            style={styles.remoteVideo}
           >
-            {displayName}
-          </Text>
-
-          <Text
-            style={styles.voiceStatus}
+            <Text
+              style={styles.videoLabel}
+            >
+              Remote video connected
+            </Text>
+          </View>
+        ) : (
+          <View
+            style={styles.avatarArea}
           >
-            {connected
-              ? "Connected"
-              : callStatus}
-          </Text>
-
-          {connected && (
             <View
-              style={
-                styles.voiceConnected
+              style={styles.avatarCircle}
+            >
+              <MaterialCommunityIcons
+                name={
+                  isVideoCall
+                    ? "video-outline"
+                    : "phone-outline"
+                }
+                size={54}
+                color="#fff"
+              />
+            </View>
+
+            <Text
+              style={styles.callingText}
+            >
+              {connected
+                ? "Connected"
+                : status}
+            </Text>
+          </View>
+        )}
+
+        {error ? (
+          <View
+            style={styles.errorBox}
+          >
+            <Text
+              style={styles.errorText}
+            >
+              {error}
+            </Text>
+          </View>
+        ) : null}
+      </View>
+
+      <View
+        style={styles.controls}
+      >
+        <Pressable
+          style={[
+            styles.control,
+            muted &&
+              styles.controlActive,
+          ]}
+          onPress={toggleMute}
+        >
+          <MaterialCommunityIcons
+            name={
+              muted
+                ? "microphone-off"
+                : "microphone"
+            }
+            size={26}
+            color="#fff"
+          />
+        </Pressable>
+
+        {isVideoCall ? (
+          <>
+            <Pressable
+              style={[
+                styles.control,
+                !videoEnabled &&
+                  styles.controlActive,
+              ]}
+              onPress={
+                toggleVideo
               }
             >
-              <View
-                style={
-                  styles.connectedDot
+              <MaterialCommunityIcons
+                name={
+                  videoEnabled
+                    ? "video"
+                    : "video-off"
                 }
+                size={26}
+                color="#fff"
               />
+            </Pressable>
 
-              <Text
-                style={
-                  styles.voiceConnectedText
-                }
-              >
-                Connected
-              </Text>
-            </View>
-          )}
-        </View>
+            <Pressable
+              style={styles.control}
+              onPress={
+                handleSwitchCamera
+              }
+            >
+              <MaterialCommunityIcons
+                name="camera-flip"
+                size={26}
+                color="#fff"
+              />
+            </Pressable>
+          </>
+        ) : null}
 
-        {/* CONTROLS */}
-        <View
-          style={styles.voiceControls}
+        <Pressable
+          style={[
+            styles.control,
+            speakerEnabled &&
+              styles.controlActive,
+          ]}
+          onPress={
+            toggleSpeaker
+          }
         >
-          <CallControls
-            muted={muted}
-            speaker={speaker}
-            videoEnabled={false}
-            isVideo={false}
-            connected={connected}
-            onToggleMute={toggleMute}
-            onToggleSpeaker={
-              toggleSpeaker
+          <MaterialCommunityIcons
+            name={
+              speakerEnabled
+                ? "volume-high"
+                : "volume-off"
             }
-            onToggleVideo={() => {}}
-            onSwitchCamera={() => {}}
-            onEndCall={endCall}
+            size={26}
+            color="#fff"
           />
-        </View>
-      </SafeAreaView>
-    </View>
+        </Pressable>
+
+        <Pressable
+          style={styles.endButton}
+          onPress={handleEnd}
+        >
+          <MaterialCommunityIcons
+            name="phone-hangup"
+            size={30}
+            color="#fff"
+          />
+        </Pressable>
+      </View>
+    </SafeAreaView>
   );
 }
 
-/*
- * ============================================================
- * STYLES
- * ============================================================
- */
-
 const styles = StyleSheet.create({
-  blackScreen: {
+  container: {
     flex: 1,
-    backgroundColor: "#000000",
+    backgroundColor: "#000",
   },
 
-  avatar: {
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: "#262626",
-    overflow: "hidden",
-  },
-
-  avatarImage: {
-    resizeMode: "cover",
-  },
-
-  avatarInitials: {
-    color: "#ffffff",
-    fontWeight: "700",
-  },
-
-  connectingScreen: {
+  center: {
     flex: 1,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-
-  connectingName: {
-    color: "#ffffff",
-    fontSize: 22,
-    fontWeight: "700",
-    marginTop: 22,
-    maxWidth: "80%",
-  },
-
-  connectingStatus: {
-    color: "#a8a8a8",
-    fontSize: 14,
-    marginTop: 8,
-  },
-
-  connectingSpinner: {
-    marginTop: 18,
-  },
-
-  cancelCallButton: {
-    width: 58,
-    height: 58,
-    borderRadius: 29,
-    backgroundColor: "#ff3b30",
-    alignItems: "center",
-    justifyContent: "center",
-    marginTop: 40,
-  },
-
-  errorContent: {
-    flex: 1,
-    alignItems: "center",
-    justifyContent: "center",
-    paddingHorizontal: 30,
-  },
-
-  errorTitle: {
-    color: "#ffffff",
-    fontSize: 22,
-    fontWeight: "700",
-    marginTop: 22,
-  },
-
-  errorMessage: {
-    color: "#a8a8a8",
-    fontSize: 14,
-    textAlign: "center",
-    lineHeight: 21,
-    marginTop: 10,
-    maxWidth: 340,
-  },
-
-  errorButton: {
-    minWidth: 130,
-    height: 44,
-    borderRadius: 10,
-    backgroundColor: "#ffffff",
     alignItems: "center",
     justifyContent: "center",
     paddingHorizontal: 24,
-    marginTop: 28,
   },
 
-  errorButtonText: {
-    color: "#000000",
-    fontSize: 14,
-    fontWeight: "700",
-  },
-
-  videoRoot: {
-    flex: 1,
-    backgroundColor: "#000000",
-  },
-
-  videoSafeArea: {
-    flex: 1,
-    backgroundColor: "#000000",
-  },
-
-  videoStage: {
-    flex: 1,
-    backgroundColor: "#000000",
-  },
-
-  videoWaiting: {
-    flex: 1,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: "#111111",
-  },
-
-  videoName: {
-    color: "#ffffff",
-    fontSize: 21,
-    fontWeight: "700",
-    marginTop: 18,
-    maxWidth: "80%",
-  },
-
-  videoStatus: {
-    color: "#aaaaaa",
-    fontSize: 14,
-    marginTop: 7,
-  },
-
-  videoTopHeader: {
-    position: "absolute",
-    top: 8,
-    left: 0,
-    right: 0,
-    height: 58,
-    paddingHorizontal: 12,
-    flexDirection: "row",
-    alignItems: "center",
-    zIndex: 50,
-  },
-
-  headerButton: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor:
-      "rgba(0,0,0,0.32)",
-  },
-
-  videoHeaderCenter: {
-    flex: 1,
-    alignItems: "center",
-    paddingHorizontal: 15,
-  },
-
-  videoHeaderName: {
-    color: "#ffffff",
+  statusText: {
+    marginTop: 16,
+    color: "#fff",
     fontSize: 16,
+  },
+
+  header: {
+    alignItems: "center",
+    paddingTop: 12,
+  },
+
+  title: {
+    color: "#fff",
+    fontSize: 18,
     fontWeight: "700",
-    maxWidth: "100%",
   },
 
-  videoHeaderStatus: {
-    color: "#dddddd",
-    fontSize: 12,
-    marginTop: 2,
+  status: {
+    color: "#aaa",
+    marginTop: 5,
+    fontSize: 14,
   },
 
-  headerPlaceholder: {
-    width: 44,
-    height: 44,
-  },
-
-  localVideoContainer: {
-    position: "absolute",
-    top: 78,
-    right: 14,
-    width: 112,
-    height: 158,
-    borderRadius: 14,
-    overflow: "hidden",
-    backgroundColor: "#202020",
-    zIndex: 100,
-    elevation: 10,
-  },
-
-  localVideoBorder: {
-    ...StyleSheet.absoluteFillObject,
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor:
-      "rgba(255,255,255,0.25)",
-  },
-
-  localVideoOff: {
-    position: "absolute",
-    top: 78,
-    right: 14,
-    width: 112,
-    height: 158,
-    borderRadius: 14,
-    backgroundColor: "#202020",
+  callArea: {
+    flex: 1,
     alignItems: "center",
     justifyContent: "center",
-    zIndex: 100,
   },
 
-  connectedBadge: {
-    position: "absolute",
-    top: 250,
-    alignSelf: "center",
-    flexDirection: "row",
+  avatarArea: {
     alignItems: "center",
-    paddingHorizontal: 12,
-    height: 28,
-    borderRadius: 14,
-    backgroundColor:
-      "rgba(0,0,0,0.45)",
-    zIndex: 40,
   },
 
-  connectedDot: {
-    width: 7,
-    height: 7,
-    borderRadius: 4,
-    backgroundColor: "#34c759",
-    marginRight: 6,
+  avatarCircle: {
+    width: 120,
+    height: 120,
+    borderRadius: 60,
+    backgroundColor: "#222",
+    alignItems: "center",
+    justifyContent: "center",
   },
 
-  connectedText: {
-    color: "#ffffff",
-    fontSize: 11,
+  callingText: {
+    color: "#fff",
+    fontSize: 17,
+    marginTop: 20,
+  },
+
+  remoteVideo: {
+    flex: 1,
+    width: "100%",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  videoLabel: {
+    color: "#aaa",
+  },
+
+  errorBox: {
+    position: "absolute",
+    left: 24,
+    right: 24,
+    bottom: 30,
+    padding: 12,
+    borderRadius: 10,
+    backgroundColor: "#251010",
+  },
+
+  errorText: {
+    color: "#ff8a8a",
+    textAlign: "center",
+  },
+
+  backButton: {
+    marginTop: 20,
+    paddingHorizontal: 22,
+    paddingVertical: 12,
+    borderRadius: 10,
+    backgroundColor: "#252525",
+  },
+
+  backButtonText: {
+    color: "#fff",
+    fontSize: 15,
     fontWeight: "600",
   },
 
-  callControls: {
-    position: "absolute",
-    left: 0,
-    right: 0,
-    bottom: 0,
-    alignItems: "center",
-    zIndex: 200,
-  },
-
-  voiceRoot: {
-    flex: 1,
-    backgroundColor: "#000000",
-  },
-
-  voiceSafeArea: {
-    flex: 1,
-    backgroundColor: "#000000",
-  },
-
-  voiceTopBar: {
-    height: 58,
-    paddingHorizontal: 14,
+  controls: {
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "space-between",
+    justifyContent: "center",
+    gap: 14,
+    paddingHorizontal: 20,
+    paddingBottom: 24,
   },
 
-  voiceBackButton: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
+  control: {
+    width: 54,
+    height: 54,
+    borderRadius: 27,
+    backgroundColor: "#252525",
     alignItems: "center",
     justifyContent: "center",
   },
 
-  voiceTopTitle: {
-    color: "#ffffff",
-    fontSize: 16,
-    fontWeight: "700",
+  controlActive: {
+    backgroundColor: "#3d3d3d",
   },
 
-  topBarSpacer: {
-    width: 44,
-    height: 44,
-  },
-
-  voiceProfile: {
-    flex: 1,
+  endButton: {
+    width: 62,
+    height: 62,
+    borderRadius: 31,
+    backgroundColor: "#ff3b30",
     alignItems: "center",
     justifyContent: "center",
-    paddingBottom: 80,
-  },
-
-  voiceName: {
-    color: "#ffffff",
-    fontSize: 23,
-    fontWeight: "700",
-    marginTop: 22,
-    maxWidth: "80%",
-  },
-
-  voiceStatus: {
-    color: "#a8a8a8",
-    fontSize: 14,
-    marginTop: 8,
-  },
-
-  voiceConnected: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginTop: 12,
-  },
-
-  voiceConnectedText: {
-    color: "#34c759",
-    fontSize: 12,
-    fontWeight: "600",
-    marginLeft: 6,
-  },
-
-  voiceControls: {
-    position: "absolute",
-    left: 0,
-    right: 0,
-    bottom: 0,
-    alignItems: "center",
   },
 });

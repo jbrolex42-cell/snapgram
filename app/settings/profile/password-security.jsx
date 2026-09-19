@@ -98,7 +98,6 @@ export default function PasswordSecurityScreen() {
 
   return (
     <View style={styles.screen}>
-      {/* Header */}
 
       <View style={styles.header}>
         <TouchableOpacity
@@ -124,7 +123,6 @@ export default function PasswordSecurityScreen() {
         showsVerticalScrollIndicator={false}
         contentContainerStyle={styles.content}
       >
-        {/* Security intro */}
 
         <View style={styles.intro}>
           <View style={styles.securityIcon}>
@@ -144,8 +142,6 @@ export default function PasswordSecurityScreen() {
             your Snapgram account.
           </Text>
         </View>
-
-        {/* Security status */}
 
         <View style={styles.statusCard}>
           <View style={styles.statusIcon}>
@@ -167,8 +163,6 @@ export default function PasswordSecurityScreen() {
             </Text>
           </View>
         </View>
-
-        {/* Login */}
 
         <SectionTitle>
           Login & recovery
@@ -203,8 +197,6 @@ export default function PasswordSecurityScreen() {
           />
         </View>
 
-        {/* Saved login */}
-
         <SectionTitle>
           Login information
         </SectionTitle>
@@ -217,8 +209,6 @@ export default function PasswordSecurityScreen() {
             onPress={openSavedLogin}
           />
         </View>
-
-        {/* Recommended security */}
 
         <SectionTitle>
           Recommended
@@ -263,8 +253,6 @@ export default function PasswordSecurityScreen() {
             />
           </TouchableOpacity>
         </View>
-
-        {/* Security warning */}
 
         <View style={styles.warningCard}>
           <Ionicons

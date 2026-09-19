@@ -294,9 +294,6 @@ export default function UserRow({
 
   return (
     <View style={styles.container}>
-      {/* ------------------------------------------------------------------ */}
-      {/* USER                                                                */}
-      {/* ------------------------------------------------------------------ */}
 
       <TouchableOpacity
         style={styles.userInfo}
@@ -304,7 +301,6 @@ export default function UserRow({
         activeOpacity={0.7}
         disabled={!username}
       >
-        {/* Avatar */}
 
         <View
           style={styles.avatar}
@@ -331,13 +327,9 @@ export default function UserRow({
           )}
         </View>
 
-
-        {/* Identity */}
-
         <View
           style={styles.details}
         >
-          {/* Full name + blue tick */}
 
           <View
             style={styles.nameRow}
@@ -359,9 +351,6 @@ export default function UserRow({
             )}
           </View>
 
-
-          {/* Username */}
-
           {!!username && (
             <Text
               style={styles.username}
@@ -372,11 +361,6 @@ export default function UserRow({
           )}
         </View>
       </TouchableOpacity>
-
-
-      {/* ------------------------------------------------------------------ */}
-      {/* FOLLOW BUTTON                                                       */}
-      {/* ------------------------------------------------------------------ */}
 
       {showFollow &&
         !isOwnProfile &&

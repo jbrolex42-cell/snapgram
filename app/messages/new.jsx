@@ -128,12 +128,6 @@ export default function NewMessageScreen() {
   const [loading, setLoading] = useState(false);
   const [starting, setStarting] = useState(false);
 
-  /**
-   * ---------------------------------------------------------
-   * SEARCH USERS
-   * ---------------------------------------------------------
-   */
-
   const handleSearch = useCallback(
     async (value) => {
       const trimmed = value.trim();
@@ -177,12 +171,6 @@ export default function NewMessageScreen() {
     []
   );
 
-  /**
-   * ---------------------------------------------------------
-   * DEBOUNCED SEARCH
-   * ---------------------------------------------------------
-   */
-
   useEffect(() => {
     const trimmed = query.trim();
 
@@ -201,12 +189,6 @@ export default function NewMessageScreen() {
     };
   }, [query, handleSearch]);
 
-  /**
-   * ---------------------------------------------------------
-   * OPEN / CREATE CONVERSATION
-   * ---------------------------------------------------------
-   */
-
   const handleUserPress = useCallback(
     async (selectedUser) => {
       if (starting) {
@@ -219,10 +201,6 @@ export default function NewMessageScreen() {
       const existingConversationId =
         getConversationId(selectedUser);
 
-      /**
-       * If the search result already contains
-       * a conversation, open it immediately.
-       */
       if (existingConversationId) {
         router.push(
           `/messages/${existingConversationId}`
@@ -295,12 +273,6 @@ export default function NewMessageScreen() {
     [starting]
   );
 
-  /**
-   * ---------------------------------------------------------
-   * RENDER USER
-   * ---------------------------------------------------------
-   */
-
   const renderUser = useCallback(
     ({ item }) => {
       const avatar = getAvatar(item);
@@ -350,12 +322,6 @@ export default function NewMessageScreen() {
     [handleUserPress, starting]
   );
 
-  /**
-   * ---------------------------------------------------------
-   * LIST KEY
-   * ---------------------------------------------------------
-   */
-
   const keyExtractor = useCallback(
     (item, index) => {
       return String(
@@ -366,12 +332,6 @@ export default function NewMessageScreen() {
     },
     []
   );
-
-  /**
-   * ---------------------------------------------------------
-   * EMPTY STATE
-   * ---------------------------------------------------------
-   */
 
   const emptyMessage = useMemo(() => {
     if (loading) {
@@ -384,12 +344,6 @@ export default function NewMessageScreen() {
 
     return "No users found.";
   }, [loading, query]);
-
-  /**
-   * ---------------------------------------------------------
-   * SCREEN
-   * ---------------------------------------------------------
-   */
 
   return (
     <SafeAreaView
@@ -404,7 +358,6 @@ export default function NewMessageScreen() {
             : undefined
         }
       >
-        {/* HEADER */}
 
         <View style={styles.header}>
           <Pressable
@@ -429,8 +382,6 @@ export default function NewMessageScreen() {
 
           <View style={styles.headerRight} />
         </View>
-
-        {/* SEARCH */}
 
         <View style={styles.searchContainer}>
           <Ionicons
@@ -467,8 +418,6 @@ export default function NewMessageScreen() {
             </Pressable>
           ) : null}
         </View>
-
-        {/* CONTENT */}
 
         {loading ? (
           <View style={styles.center}>
@@ -516,8 +465,6 @@ export default function NewMessageScreen() {
           </View>
         )}
 
-        {/* STARTING OVERLAY */}
-
         {starting ? (
           <View
             pointerEvents="auto"
@@ -552,10 +499,6 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: "#FFFFFF",
   },
-
-  /**
-   * HEADER
-   */
 
   header: {
     height: 56,
@@ -593,10 +536,6 @@ const styles = StyleSheet.create({
     color: "#111111",
   },
 
-  /**
-   * SEARCH
-   */
-
   searchContainer: {
     height: 44,
     marginHorizontal: 16,
@@ -626,10 +565,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-
-  /**
-   * USER LIST
-   */
 
   listContent: {
     paddingBottom: 24,
@@ -703,10 +638,6 @@ const styles = StyleSheet.create({
     marginLeft: 10,
   },
 
-  /**
-   * EMPTY STATE
-   */
-
   center: {
     flex: 1,
     alignItems: "center",
@@ -746,10 +677,6 @@ const styles = StyleSheet.create({
     textAlign: "center",
     color: "#777777",
   },
-
-  /**
-   * STARTING OVERLAY
-   */
 
   startingOverlay: {
     ...StyleSheet.absoluteFillObject,

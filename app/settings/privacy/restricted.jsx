@@ -281,7 +281,6 @@ export default function RestrictedAccountsScreen() {
 
       return (
         <View style={styles.userRow}>
-          {/* PROFILE BUTTON */}
 
           <TouchableOpacity
             activeOpacity={0.7}
@@ -291,7 +290,6 @@ export default function RestrictedAccountsScreen() {
             }
             disabled={isRemoving}
           >
-            {/* AVATAR */}
 
             <View style={styles.avatar}>
               {avatar ? (
@@ -318,8 +316,6 @@ export default function RestrictedAccountsScreen() {
               )}
             </View>
 
-            {/* USER DETAILS */}
-
             <View style={styles.userDetails}>
               <Text
                 style={styles.username}
@@ -338,8 +334,6 @@ export default function RestrictedAccountsScreen() {
               ) : null}
             </View>
           </TouchableOpacity>
-
-          {/* REMOVE BUTTON */}
 
           <TouchableOpacity
             activeOpacity={0.75}
@@ -442,7 +436,6 @@ export default function RestrictedAccountsScreen() {
         }
         ListHeaderComponent={
           <View>
-            {/* INTRO */}
 
             <View style={styles.intro}>
               <View style={styles.introIcon}>
@@ -466,8 +459,6 @@ export default function RestrictedAccountsScreen() {
               </Text>
             </View>
 
-            {/* ERROR */}
-
             {error ? (
               <View style={styles.errorWrapper}>
                 <Notice
@@ -477,8 +468,6 @@ export default function RestrictedAccountsScreen() {
                 />
               </View>
             ) : null}
-
-            {/* COUNT */}
 
             {restrictedUsers.length > 0 ? (
               <Text style={styles.sectionTitle}>

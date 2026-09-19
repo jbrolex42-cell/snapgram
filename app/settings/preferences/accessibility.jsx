@@ -219,9 +219,6 @@ export default function AccessibilityScreen() {
           styles.content
         }
       >
-        {/* =================================================
-            HEADER
-        ================================================= */}
 
         <View style={styles.header}>
           <View style={styles.headerIcon}>
@@ -243,10 +240,6 @@ export default function AccessibilityScreen() {
           </Text>
         </View>
 
-        {/* =================================================
-            ERROR
-        ================================================= */}
-
         {error ? (
           <View
             style={styles.errorContainer}
@@ -267,10 +260,6 @@ export default function AccessibilityScreen() {
             />
           </View>
         ) : null}
-
-        {/* =================================================
-            DISPLAY
-        ================================================= */}
 
         <Text style={styles.sectionTitle}>
           Display
@@ -306,10 +295,6 @@ export default function AccessibilityScreen() {
             </Text>
           ) : null}
         </View>
-
-        {/* =================================================
-            ASSISTIVE TECHNOLOGY
-        ================================================= */}
 
         <Text
           style={[
@@ -353,10 +338,6 @@ export default function AccessibilityScreen() {
             </Text>
           ) : null}
         </View>
-
-        {/* =================================================
-            INFORMATION
-        ================================================= */}
 
         <View style={styles.infoCard}>
           <View style={styles.infoIcon}>

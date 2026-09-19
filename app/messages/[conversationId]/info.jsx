@@ -9,10 +9,12 @@ import {
   ActivityIndicator,
   Alert,
   Image,
+  Modal,
   Pressable,
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   View,
 } from "react-native";
 
@@ -34,6 +36,17 @@ import {
 } from "../../../../context/AuthContext";
 
 import VerifiedBadge from "../../../../components/common/VerifiedBadge";
+
+import {
+  getConversationPreferences,
+  setConversationMute,
+  setConversationRestriction,
+  setConversationTheme,
+  setConversationNickname,
+  setDisappearingMessages,
+  setConversationBlock,
+  reportConversation,
+} from "../../../../services/conversationPreferenceService";
 
 function getId(value) {
   if (!value) {
@@ -59,16 +72,6 @@ function normalizeParam(value) {
   return value || null;
 }
 
-/**
- * Identity rule:
- *
- * Verified:
- *   John Doe ✓
- *
- * Unverified:
- *   John Doe
- *   @johndoe
- */
 function getDisplayName(user) {
   return (
     user?.fullName?.trim() ||
@@ -96,6 +99,87 @@ function getAvatar(user) {
   );
 }
 
+function formatMuteDuration(
+  mutedUntil
+) {
+  if (!mutedUntil) {
+    return "Until turned back on";
+  }
+
+  const date =
+    new Date(mutedUntil);
+
+  if (
+    Number.isNaN(
+      date.getTime()
+    )
+  ) {
+    return "Muted";
+  }
+
+  const remaining =
+    date.getTime() -
+    Date.now();
+
+  if (remaining <= 0) {
+    return "Muted";
+  }
+
+  const minutes = Math.ceil(
+    remaining / 60000
+  );
+
+  if (minutes < 60) {
+    return `${minutes} minute${
+      minutes === 1
+        ? ""
+        : "s"
+    }`;
+  }
+
+  const hours = Math.ceil(
+    minutes / 60
+  );
+
+  if (hours < 24) {
+    return `${hours} hour${
+      hours === 1
+        ? ""
+        : "s"
+    }`;
+  }
+
+  const days = Math.ceil(
+    hours / 24
+  );
+
+  return `${days} day${
+    days === 1
+      ? ""
+      : "s"
+  }`;
+}
+
+function formatDisappearingDuration(
+  duration
+) {
+  switch (
+    Number(duration)
+  ) {
+    case 86400:
+      return "24 hours";
+
+    case 604800:
+      return "7 days";
+
+    case 2592000:
+      return "30 days";
+
+    default:
+      return "Off";
+  }
+}
+
 export default function ConversationInfoScreen() {
   const params =
     useLocalSearchParams();
@@ -115,6 +199,9 @@ export default function ConversationInfoScreen() {
     );
 
   const [loading, setLoading] =
+    useState(true);
+
+  const [saving, setSaving] =
     useState(false);
 
   const [otherUser, setOtherUser] =
@@ -123,105 +210,196 @@ export default function ConversationInfoScreen() {
   const [muted, setMuted] =
     useState(false);
 
-  const [muteDuration, setMuteDuration] =
+  const [muteUntil, setMuteUntil] =
     useState(null);
 
   const [restricted, setRestricted] =
     useState(false);
 
-  const [theme, setTheme] =
-    useState("Default");
+  const [blocked, setBlocked] =
+    useState(false);
 
-  const [disappearingDuration, setDisappearingDuration] =
-    useState("Off");
+  const [theme, setTheme] =
+    useState("default");
 
   const [nickname, setNickname] =
     useState("");
 
-  /**
-   * Read user passed from ConversationScreen.
-   */
-  useEffect(() => {
-    let mounted = true;
+  const [
+    disappearingDuration,
+    setDisappearingDuration,
+  ] = useState(0);
 
-    const loadUser = async () => {
-      setLoading(true);
+  const [
+    nicknameModalVisible,
+    setNicknameModalVisible,
+  ] = useState(false);
 
-      try {
-        if (params?.user) {
-          try {
-            const parsed =
-              JSON.parse(
-                String(params.user)
-              );
-
-            if (
-              mounted &&
-              parsed
-            ) {
-              setOtherUser(parsed);
-              return;
-            }
-          } catch (error) {
-            console.warn(
-              "[CONVERSATION INFO] Invalid user parameter:",
-              error
-            );
-          }
-        }
-
-        /**
-         * Fallback object.
-         *
-         * If ConversationScreen does not pass the complete
-         * user object, we still keep the screen usable.
-         *
-         * A dedicated user-profile API can later hydrate
-         * this object with the full profile.
-         */
-        if (
-          mounted &&
-          routeUserId
-        ) {
-          setOtherUser({
-            _id: String(routeUserId),
-            id: String(routeUserId),
-            fullName: "User",
-            username: "",
-            avatar: null,
-            isVerified: false,
-          });
-        }
-      } finally {
-        if (mounted) {
-          setLoading(false);
-        }
-      }
-    };
-
-    loadUser();
-
-    return () => {
-      mounted = false;
-    };
-  }, [
-    params?.user,
-    routeUserId,
-  ]);
+  const [
+    nicknameInput,
+    setNicknameInput,
+  ] = useState("");
 
   const profileUsername =
-    getUsername(otherUser);
+    useMemo(
+      () =>
+        getUsername(
+          otherUser
+        ),
+      [otherUser]
+    );
 
   const displayName =
-    getDisplayName(otherUser);
+    useMemo(
+      () =>
+        getDisplayName(
+          otherUser
+        ),
+      [otherUser]
+    );
 
   const avatar =
-    getAvatar(otherUser);
+    useMemo(
+      () =>
+        getAvatar(
+          otherUser
+        ),
+      [otherUser]
+    );
 
   const verified =
     Boolean(
       otherUser?.isVerified
     );
+
+  const loadData =
+    useCallback(
+      async () => {
+        if (!conversationId) {
+          setLoading(false);
+          return;
+        }
+
+        setLoading(true);
+
+        try {
+
+          if (params?.user) {
+            try {
+              const parsed =
+                JSON.parse(
+                  String(
+                    params.user
+                  )
+                );
+
+              if (parsed) {
+                setOtherUser(
+                  parsed
+                );
+              }
+            } catch (error) {
+              console.warn(
+                "[CONVERSATION INFO] Invalid user parameter:",
+                error
+              );
+            }
+          }
+
+          const result =
+            await getConversationPreferences(
+              conversationId
+            );
+
+          const preference =
+            result?.preference ||
+            {};
+
+          if (
+            result?.user
+          ) {
+            setOtherUser(
+              result.user
+            );
+          } else if (
+            routeUserId &&
+            !otherUser
+          ) {
+            setOtherUser({
+              _id: String(
+                routeUserId
+              ),
+              id: String(
+                routeUserId
+              ),
+              fullName: "User",
+              username: "",
+              avatar: null,
+              isVerified: false,
+            });
+          }
+
+          setMuted(
+            Boolean(
+              preference.isMuted
+            )
+          );
+
+          setMuteUntil(
+            preference.mutedUntil ||
+              null
+          );
+
+          setRestricted(
+            Boolean(
+              preference.restricted
+            )
+          );
+
+          setTheme(
+            preference.theme ||
+              "default"
+          );
+
+          setNickname(
+            preference.nickname ||
+              ""
+          );
+
+          setDisappearingDuration(
+            Number(
+              preference.disappearingDuration ||
+                0
+            )
+          );
+        } catch (error) {
+          console.error(
+            "[CONVERSATION INFO] LOAD ERROR:",
+            error
+          );
+
+          Alert.alert(
+            "Couldn't load details",
+            error?.response?.data
+              ?.message ||
+              error?.message ||
+              "Please try again."
+          );
+        } finally {
+          setLoading(false);
+        }
+      },
+      [
+        conversationId,
+        params?.user,
+        routeUserId,
+        otherUser,
+      ]
+    );
+
+  useEffect(() => {
+    loadData();
+  }, [loadData]);
 
   const openProfile =
     useCallback(() => {
@@ -237,7 +415,6 @@ export default function ConversationInfoScreen() {
       router.push({
         pathname:
           "/profile/[username]",
-
         params: {
           username:
             profileUsername,
@@ -261,190 +438,316 @@ export default function ConversationInfoScreen() {
       router.push({
         pathname:
           "/messages/[conversationId]/search",
-
         params: {
           conversationId:
-            String(conversationId),
+            String(
+              conversationId
+            ),
         },
       });
     }, [
       conversationId,
     ]);
 
-  /**
-   * Mute
-   *
-   * This currently updates local UI state.
-   * Connect these actions to your notification/mute API
-   * when the backend mute endpoint is ready.
-   */
   const applyMute =
     useCallback(
-      (duration) => {
-        setMuted(true);
-        setMuteDuration(duration);
+      async (duration) => {
+        if (!conversationId) {
+          return;
+        }
+
+        try {
+          setSaving(true);
+
+          const result =
+            await setConversationMute(
+              conversationId,
+              duration
+            );
+
+          setMuted(
+            Boolean(
+              result?.isMuted
+            )
+          );
+
+          setMuteUntil(
+            result?.mutedUntil ||
+              null
+          );
+        } catch (error) {
+          console.error(
+            "[CONVERSATION INFO] MUTE ERROR:",
+            error
+          );
+
+          Alert.alert(
+            "Couldn't update mute",
+            error?.response?.data
+              ?.message ||
+              error?.message ||
+              "Please try again."
+          );
+        } finally {
+          setSaving(false);
+        }
       },
-      []
+      [
+        conversationId,
+      ]
     );
 
   const unmute =
-    useCallback(() => {
-      setMuted(false);
-      setMuteDuration(null);
-    }, []);
+    useCallback(
+      async () => {
+        await applyMute(
+          0
+        );
+      },
+      [
+        applyMute,
+      ]
+    );
 
   const showMuteOptions =
     useCallback(() => {
-      const options = [
+      const buttons = [
         {
-          label: "1 hour",
-          value: "1 hour",
+          text: "1 hour",
+          onPress: () =>
+            applyMute(
+              3600
+            ),
         },
         {
-          label: "8 hours",
-          value: "8 hours",
+          text: "8 hours",
+          onPress: () =>
+            applyMute(
+              28800
+            ),
         },
         {
-          label: "24 hours",
-          value: "24 hours",
-        },
-        {
-          label: "Until turned back on",
-          value: "Until turned back on",
+          text: "24 hours",
+          onPress: () =>
+            applyMute(
+              86400
+            ),
         },
       ];
+
+      if (muted) {
+        buttons.push({
+          text: "Turn notifications back on",
+          onPress:
+            unmute,
+        });
+      }
+
+      buttons.push({
+        text: "Cancel",
+        style: "cancel",
+      });
 
       Alert.alert(
         "Mute messages",
         muted
-          ? `Messages are muted ${
-              muteDuration
-                ? `for ${muteDuration.toLowerCase()}`
+          ? `Notifications are muted${
+              muteUntil
+                ? ` for ${formatMuteDuration(
+                    muteUntil
+                  )}`
                 : ""
             }.`
           : "Choose how long you want to mute this conversation.",
-        [
-          ...options.map(
-            (option) => ({
-              text:
-                option.label,
-              onPress: () =>
-                applyMute(
-                  option.value
-                ),
-            })
-          ),
-
-          ...(muted
-            ? [
-                {
-                  text: "Turn notifications back on",
-                  onPress:
-                    unmute,
-                },
-              ]
-            : []),
-
-          {
-            text: "Cancel",
-            style: "cancel",
-          },
-        ]
+        buttons
       );
     }, [
       applyMute,
       muted,
-      muteDuration,
+      muteUntil,
       unmute,
     ]);
 
-  /**
-   * Restrict
-   *
-   * Replace the local state update with your
-   * restriction API once the backend endpoint is connected.
-   */
   const handleRestrict =
     useCallback(() => {
+      const nextValue =
+        !restricted;
+
       Alert.alert(
-        restricted
-          ? "Unrestrict account"
-          : "Restrict account",
-        restricted
-          ? `Allow ${displayName} to interact with you normally again?`
-          : `Restrict ${displayName}?`,
+        nextValue
+          ? "Restrict account"
+          : "Unrestrict account",
+        nextValue
+          ? `Restrict ${displayName}?`
+          : `Allow ${displayName} to interact with you normally again?`,
         [
           {
             text: "Cancel",
             style: "cancel",
           },
           {
-            text:
-              restricted
-                ? "Unrestrict"
-                : "Restrict",
-            onPress: () => {
-              setRestricted(
-                (current) =>
-                  !current
-              );
-            },
+            text: nextValue
+              ? "Restrict"
+              : "Unrestrict",
+            onPress:
+              async () => {
+                try {
+                  setSaving(true);
+
+                  const result =
+                    await setConversationRestriction(
+                      conversationId,
+                      nextValue
+                    );
+
+                  setRestricted(
+                    Boolean(
+                      result?.restricted
+                    )
+                  );
+                } catch (error) {
+                  console.error(
+                    "[CONVERSATION INFO] RESTRICT ERROR:",
+                    error
+                  );
+
+                  Alert.alert(
+                    "Couldn't update restriction",
+                    error?.response
+                      ?.data
+                      ?.message ||
+                      error?.message ||
+                      "Please try again."
+                  );
+                } finally {
+                  setSaving(
+                    false
+                  );
+                }
+              },
           },
         ]
       );
     }, [
+      conversationId,
       displayName,
       restricted,
     ]);
 
-  /**
-   * Block
-   *
-   * The confirmation is intentionally separate from
-   * the actual backend action.
-   */
   const handleBlock =
     useCallback(() => {
+      const nextValue =
+        !blocked;
+
       Alert.alert(
-        `Block ${displayName}?`,
-        "This person will no longer be able to message or interact with you.",
+        nextValue
+          ? `Block ${displayName}?`
+          : `Unblock ${displayName}?`,
+        nextValue
+          ? "This person will no longer be able to message or interact with you."
+          : "Allow this person to interact with you again?",
         [
           {
             text: "Cancel",
             style: "cancel",
           },
           {
-            text: "Block",
-            style: "destructive",
-            onPress: () => {
-              /**
-               * Connect your blockUser service here.
-               */
-              Alert.alert(
-                "Block",
-                `${displayName} can now be connected to your block system.`
-              );
-            },
+            text: nextValue
+              ? "Block"
+              : "Unblock",
+            style: nextValue
+              ? "destructive"
+              : "default",
+            onPress:
+              async () => {
+                try {
+                  setSaving(true);
+
+                  const result =
+                    await setConversationBlock(
+                      conversationId,
+                      nextValue
+                    );
+
+                  setBlocked(
+                    Boolean(
+                      result?.blocked
+                    )
+                  );
+
+                  if (
+                    nextValue
+                  ) {
+                    Alert.alert(
+                      "Blocked",
+                      `${displayName} has been blocked.`
+                    );
+                  }
+                } catch (error) {
+                  console.error(
+                    "[CONVERSATION INFO] BLOCK ERROR:",
+                    error
+                  );
+
+                  Alert.alert(
+                    "Couldn't update block",
+                    error?.response
+                      ?.data
+                      ?.message ||
+                      error?.message ||
+                      "Please try again."
+                  );
+                } finally {
+                  setSaving(
+                    false
+                  );
+                }
+              },
           },
         ]
       );
     }, [
+      blocked,
+      conversationId,
       displayName,
     ]);
 
   const submitReport =
     useCallback(
-      (reason) => {
-        /**
-         * Connect reportConversation/reportUser service here.
-         */
-        Alert.alert(
-          "Report submitted",
-          `Thanks. Your report for ${displayName} was submitted as "${reason}".`
-        );
+      async (reason) => {
+        try {
+          setSaving(true);
+
+          await reportConversation(
+            conversationId,
+            {
+              reason,
+            }
+          );
+
+          Alert.alert(
+            "Report submitted",
+            "Thanks. Your report has been submitted."
+          );
+        } catch (error) {
+          console.error(
+            "[CONVERSATION INFO] REPORT ERROR:",
+            error
+          );
+
+          Alert.alert(
+            "Couldn't submit report",
+            error?.response?.data
+              ?.message ||
+              error?.message ||
+              "Please try again."
+          );
+        } finally {
+          setSaving(false);
+        }
       },
       [
-        displayName,
+        conversationId,
       ]
     );
 
@@ -458,42 +761,42 @@ export default function ConversationInfoScreen() {
             text: "Spam",
             onPress: () =>
               submitReport(
-                "Spam"
+                "spam"
               ),
           },
           {
             text: "Harassment",
             onPress: () =>
               submitReport(
-                "Harassment"
+                "harassment"
               ),
           },
           {
             text: "Scam or fraud",
             onPress: () =>
               submitReport(
-                "Scam or fraud"
+                "scam"
               ),
           },
           {
             text: "Inappropriate content",
             onPress: () =>
               submitReport(
-                "Inappropriate content"
+                "inappropriate"
               ),
           },
           {
             text: "Hate or abusive content",
             onPress: () =>
               submitReport(
-                "Hate or abusive content"
+                "hate"
               ),
           },
           {
             text: "Something else",
             onPress: () =>
               submitReport(
-                "Something else"
+                "other"
               ),
           },
           {
@@ -521,7 +824,9 @@ export default function ConversationInfoScreen() {
               handleRestrict,
           },
           {
-            text: "Block",
+            text: blocked
+              ? "Unblock"
+              : "Block",
             style: "destructive",
             onPress:
               handleBlock,
@@ -539,6 +844,7 @@ export default function ConversationInfoScreen() {
         ]
       );
     }, [
+      blocked,
       handleBlock,
       handleRestrict,
       restricted,
@@ -547,85 +853,76 @@ export default function ConversationInfoScreen() {
 
   const showThemeOptions =
     useCallback(() => {
+      const themes = [
+        {
+          label: "Default",
+          value: "default",
+        },
+        {
+          label: "Blue",
+          value: "blue",
+        },
+        {
+          label: "Purple",
+          value: "purple",
+        },
+        {
+          label: "Pink",
+          value: "pink",
+        },
+        {
+          label: "Green",
+          value: "green",
+        },
+      ];
+
       Alert.alert(
         "Theme",
         "Choose a conversation theme.",
         [
-          {
-            text: "Default",
-            onPress: () =>
-              setTheme(
-                "Default"
-              ),
-          },
-          {
-            text: "Blue",
-            onPress: () =>
-              setTheme(
-                "Blue"
-              ),
-          },
-          {
-            text: "Purple",
-            onPress: () =>
-              setTheme(
-                "Purple"
-              ),
-          },
-          {
-            text: "Pink",
-            onPress: () =>
-              setTheme(
-                "Pink"
-              ),
-          },
-          {
-            text: "Green",
-            onPress: () =>
-              setTheme(
-                "Green"
-              ),
-          },
-          {
-            text: "Cancel",
-            style: "cancel",
-          },
-        ]
-      );
-    }, []);
+          ...themes.map(
+            (item) => ({
+              text:
+                item.label,
+              onPress:
+                async () => {
+                  try {
+                    setSaving(
+                      true
+                    );
 
-  const showNicknameOptions =
-    useCallback(() => {
-      Alert.alert(
-        "Nicknames",
-        nickname
-          ? `Nickname: ${nickname}`
-          : "No nickname has been set.",
-        [
-          {
-            text: "Set nickname",
-            onPress: () => {
-              /**
-               * Replace with a real nickname editor/modal.
-               */
-              Alert.alert(
-                "Nicknames",
-                "Nickname editing can be connected to your conversation settings API."
-              );
-            },
-          },
-          ...(nickname
-            ? [
-                {
-                  text: "Remove nickname",
-                  style: "destructive",
-                  onPress: () =>
-                    setNickname(
-                      ""
-                    ),
+                    const result =
+                      await setConversationTheme(
+                        conversationId,
+                        item.value
+                      );
+
+                    setTheme(
+                      result?.theme ||
+                        item.value
+                    );
+                  } catch (error) {
+                    console.error(
+                      "[CONVERSATION INFO] THEME ERROR:",
+                      error
+                    );
+
+                    Alert.alert(
+                      "Couldn't update theme",
+                      error?.response
+                        ?.data
+                        ?.message ||
+                        error?.message ||
+                        "Please try again."
+                    );
+                  } finally {
+                    setSaving(
+                      false
+                    );
+                  }
                 },
-              ]
-            : []),
+            })
+          ),
           {
             text: "Cancel",
             style: "cancel",
@@ -633,8 +930,104 @@ export default function ConversationInfoScreen() {
         ]
       );
     }, [
+      conversationId,
+    ]);
+
+  const openNicknameEditor =
+    useCallback(() => {
+      setNicknameInput(
+        nickname || ""
+      );
+
+      setNicknameModalVisible(
+        true
+      );
+    }, [
       nickname,
     ]);
+
+  const saveNickname =
+    useCallback(
+      async () => {
+        try {
+          setSaving(true);
+
+          const result =
+            await setConversationNickname(
+              conversationId,
+              nicknameInput.trim()
+            );
+
+          setNickname(
+            result?.nickname ||
+              ""
+          );
+
+          setNicknameModalVisible(
+            false
+          );
+        } catch (error) {
+          console.error(
+            "[CONVERSATION INFO] NICKNAME ERROR:",
+            error
+          );
+
+          Alert.alert(
+            "Couldn't save nickname",
+            error?.response?.data
+              ?.message ||
+              error?.message ||
+              "Please try again."
+          );
+        } finally {
+          setSaving(false);
+        }
+      },
+      [
+        conversationId,
+        nicknameInput,
+      ]
+    );
+
+  const applyDisappearing =
+    useCallback(
+      async (duration) => {
+        try {
+          setSaving(true);
+
+          const result =
+            await setDisappearingMessages(
+              conversationId,
+              duration
+            );
+
+          setDisappearingDuration(
+            Number(
+              result?.disappearingDuration ||
+                0
+            )
+          );
+        } catch (error) {
+          console.error(
+            "[CONVERSATION INFO] DISAPPEARING ERROR:",
+            error
+          );
+
+          Alert.alert(
+            "Couldn't update disappearing messages",
+            error?.response?.data
+              ?.message ||
+              error?.message ||
+              "Please try again."
+          );
+        } finally {
+          setSaving(false);
+        }
+      },
+      [
+        conversationId,
+      ]
+    );
 
   const showDisappearingOptions =
     useCallback(() => {
@@ -645,29 +1038,29 @@ export default function ConversationInfoScreen() {
           {
             text: "Off",
             onPress: () =>
-              setDisappearingDuration(
-                "Off"
+              applyDisappearing(
+                0
               ),
           },
           {
             text: "24 hours",
             onPress: () =>
-              setDisappearingDuration(
-                "24 hours"
+              applyDisappearing(
+                86400
               ),
           },
           {
             text: "7 days",
             onPress: () =>
-              setDisappearingDuration(
-                "7 days"
+              applyDisappearing(
+                604800
               ),
           },
           {
-            text: "90 days",
+            text: "30 days",
             onPress: () =>
-              setDisappearingDuration(
-                "90 days"
+              applyDisappearing(
+                2592000
               ),
           },
           {
@@ -676,17 +1069,18 @@ export default function ConversationInfoScreen() {
           },
         ]
       );
-    }, []);
+    }, [
+      applyDisappearing,
+    ]);
 
   const openPrivacySafety =
     useCallback(() => {
       Alert.alert(
         "Privacy & safety",
-        "Snapgram uses encrypted messaging and encrypted call transport. Your private encryption keys should remain on your device.",
+        "Messages use end-to-end encryption. Your private encryption keys remain on your device. Snapgram's server stores encrypted message envelopes rather than readable message text.",
         [
           {
             text: "OK",
-            style: "default",
           },
         ]
       );
@@ -701,9 +1095,6 @@ export default function ConversationInfoScreen() {
           {
             text: "Continue",
             onPress: () => {
-              /**
-               * Connect this to your group creation route.
-               */
               router.push(
                 "/messages/new"
               );
@@ -721,38 +1112,38 @@ export default function ConversationInfoScreen() {
     useCallback(() => {
       Alert.alert(
         "Something isn't working",
-        "What would you like to report?",
+        "What would you like help with?",
         [
           {
             text: "Messages aren't sending",
             onPress: () =>
               Alert.alert(
-                "Thanks",
-                "Your problem report can be connected to the support system."
+                "Messages",
+                "Check your connection and encryption session. If the problem continues, use Snapgram Support."
               ),
           },
           {
             text: "Calls aren't working",
             onPress: () =>
               Alert.alert(
-                "Thanks",
-                "Your problem report can be connected to the support system."
+                "Calls",
+                "Check microphone/camera permissions and your connection. If the problem continues, use Snapgram Support."
               ),
           },
           {
             text: "Encryption problem",
             onPress: () =>
               Alert.alert(
-                "Thanks",
-                "Your encryption problem can be connected to the support system."
+                "Encryption",
+                "Your private encryption keys remain on this device. If a session cannot be established, the conversation may need to establish a new secure session."
               ),
           },
           {
             text: "Something else",
             onPress: () =>
               Alert.alert(
-                "Thanks",
-                "Your problem report can be connected to the support system."
+                "Support",
+                "Support reporting can be connected here."
               ),
           },
           {
@@ -763,9 +1154,7 @@ export default function ConversationInfoScreen() {
       );
     }, []);
 
-  if (
-    loading
-  ) {
+  if (loading) {
     return (
       <SafeAreaView
         style={
@@ -792,7 +1181,6 @@ export default function ConversationInfoScreen() {
         styles.safeArea
       }
     >
-      {/* HEADER */}
 
       <View
         style={
@@ -838,7 +1226,6 @@ export default function ConversationInfoScreen() {
           false
         }
       >
-        {/* PROFILE */}
 
         <View
           style={
@@ -856,7 +1243,9 @@ export default function ConversationInfoScreen() {
                   ? {
                       uri: avatar,
                     }
-                  : require("../../../../assets/images/icon.png")
+                  : require(
+                      "../../../../assets/images/icon.png"
+                    )
               }
               style={
                 styles.avatar
@@ -895,10 +1284,6 @@ export default function ConversationInfoScreen() {
               ) : null}
             </View>
 
-            {/* IMPORTANT:
-                Verified users never show @username here.
-            */}
-
             {!verified &&
             profileUsername ? (
               <Text
@@ -914,7 +1299,27 @@ export default function ConversationInfoScreen() {
             ) : null}
           </Pressable>
 
-          {restricted ? (
+          {blocked ? (
+            <View
+              style={
+                styles.statusBadge
+              }
+            >
+              <Ionicons
+                name="ban-outline"
+                size={14}
+                color="#666666"
+              />
+
+              <Text
+                style={
+                  styles.statusBadgeText
+                }
+              >
+                Blocked
+              </Text>
+            </View>
+          ) : restricted ? (
             <View
               style={
                 styles.statusBadge
@@ -936,8 +1341,6 @@ export default function ConversationInfoScreen() {
             </View>
           ) : null}
         </View>
-
-        {/* QUICK ACTIONS */}
 
         <View
           style={
@@ -988,8 +1391,6 @@ export default function ConversationInfoScreen() {
           />
         </View>
 
-        {/* MUTE STATUS */}
-
         {muted ? (
           <View
             style={
@@ -1020,14 +1421,20 @@ export default function ConversationInfoScreen() {
                   styles.infoBannerSubtitle
                 }
               >
-                {muteDuration ||
-                  "Until turned back on"}
+                {muteUntil
+                  ? formatMuteDuration(
+                      muteUntil
+                    )
+                  : "Until turned back on"}
               </Text>
             </View>
 
             <Pressable
               onPress={
                 unmute
+              }
+              disabled={
+                saving
               }
             >
               <Text
@@ -1041,8 +1448,6 @@ export default function ConversationInfoScreen() {
           </View>
         ) : null}
 
-        {/* CONVERSATION */}
-
         <SectionTitle
           title="Conversation"
         />
@@ -1051,7 +1456,15 @@ export default function ConversationInfoScreen() {
           icon="color-palette-outline"
           title="Theme"
           subtitle={
-            theme
+            theme ===
+            "default"
+              ? "Default"
+              : theme
+                  .charAt(0)
+                  .toUpperCase() +
+                theme.slice(
+                  1
+                )
           }
           onPress={
             showThemeOptions
@@ -1064,25 +1477,23 @@ export default function ConversationInfoScreen() {
           subtitle={
             nickname
               ? nickname
-              : "Set nicknames for people in this chat"
+              : "Set a nickname for this person"
           }
           onPress={
-            showNicknameOptions
+            openNicknameEditor
           }
         />
 
         <SettingRow
           icon="timer-outline"
           title="Disappearing messages"
-          subtitle={
+          subtitle={formatDisappearingDuration(
             disappearingDuration
-          }
+          )}
           onPress={
             showDisappearingOptions
           }
         />
-
-        {/* PRIVACY */}
 
         <SectionTitle
           title="Privacy & safety"
@@ -1091,13 +1502,11 @@ export default function ConversationInfoScreen() {
         <SettingRow
           icon="lock-closed-outline"
           title="Privacy and safety"
-          subtitle="End-to-end encrypted messages and calls"
+          subtitle="End-to-end encrypted messages"
           onPress={
             openPrivacySafety
           }
         />
-
-        {/* MORE */}
 
         <SectionTitle
           title="More"
@@ -1115,13 +1524,11 @@ export default function ConversationInfoScreen() {
         <SettingRow
           icon="help-circle-outline"
           title="Something isn't working"
-          subtitle="Report a problem with this conversation"
+          subtitle="Get help with this conversation"
           onPress={
             showProblemOptions
           }
         />
-
-        {/* ACCOUNT ACTIONS */}
 
         <SectionTitle
           title="Account"
@@ -1149,10 +1556,24 @@ export default function ConversationInfoScreen() {
         />
 
         <SettingRow
-          icon="ban-outline"
-          title="Block"
-          subtitle="Stop this person from messaging or interacting with you"
-          danger
+          icon={
+            blocked
+              ? "lock-open-outline"
+              : "ban-outline"
+          }
+          title={
+            blocked
+              ? "Unblock"
+              : "Block"
+          }
+          subtitle={
+            blocked
+              ? "Allow this person to interact with you again"
+              : "Stop this person from messaging or interacting with you"
+          }
+          danger={
+            !blocked
+          }
           onPress={
             handleBlock
           }
@@ -1174,6 +1595,160 @@ export default function ConversationInfoScreen() {
           }
         />
       </ScrollView>
+
+      {saving ? (
+        <View
+          pointerEvents="auto"
+          style={
+            styles.savingOverlay
+          }
+        >
+          <View
+            style={
+              styles.savingBox
+            }
+          >
+            <ActivityIndicator
+              size="small"
+              color="#111111"
+            />
+
+            <Text
+              style={
+                styles.savingText
+              }
+            >
+              Saving...
+            </Text>
+          </View>
+        </View>
+      ) : null}
+
+      <Modal
+        visible={
+          nicknameModalVisible
+        }
+        transparent
+        animationType="fade"
+        onRequestClose={() =>
+          setNicknameModalVisible(
+            false
+          )
+        }
+      >
+        <View
+          style={
+            styles.modalBackdrop
+          }
+        >
+          <View
+            style={
+              styles.nicknameModal
+            }
+          >
+            <Text
+              style={
+                styles.modalTitle
+              }
+            >
+              Nickname
+            </Text>
+
+            <Text
+              style={
+                styles.modalSubtitle
+              }
+            >
+              Set a nickname for{" "}
+              {displayName}.
+            </Text>
+
+            <TextInput
+              value={
+                nicknameInput
+              }
+              onChangeText={
+                setNicknameInput
+              }
+              placeholder="Nickname"
+              placeholderTextColor="#999999"
+              maxLength={50}
+              autoFocus
+              style={
+                styles.nicknameInput
+              }
+              returnKeyType="done"
+              onSubmitEditing={
+                saveNickname
+              }
+            />
+
+            <View
+              style={
+                styles.modalButtons
+              }
+            >
+              <Pressable
+                onPress={() =>
+                  setNicknameModalVisible(
+                    false
+                  )
+                }
+                style={
+                  styles.modalButton
+                }
+              >
+                <Text
+                  style={
+                    styles.modalCancel
+                  }
+                >
+                  Cancel
+                </Text>
+              </Pressable>
+
+              {nickname ? (
+                <Pressable
+                  onPress={() => {
+                    setNicknameInput(
+                      ""
+                    );
+                  }}
+                  style={
+                    styles.modalButton
+                  }
+                >
+                  <Text
+                    style={
+                      styles.modalRemove
+                    }
+                  >
+                    Clear
+                  </Text>
+                </Pressable>
+              ) : null}
+
+              <Pressable
+                onPress={
+                  saveNickname
+                }
+                style={[
+                  styles.modalButton,
+                  styles.modalSaveButton,
+                ]}
+              >
+                <Text
+                  style={
+                    styles.modalSave
+                  }
+                >
+                  Save
+                </Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -1578,5 +2153,140 @@ const styles =
 
     bottomSpace: {
       height: 25,
+    },
+
+    savingOverlay: {
+      ...StyleSheet.absoluteFillObject,
+      alignItems:
+        "center",
+      justifyContent:
+        "center",
+      backgroundColor:
+        "rgba(0,0,0,0.08)",
+    },
+
+    savingBox: {
+      minWidth: 130,
+      paddingHorizontal: 20,
+      paddingVertical: 16,
+      flexDirection:
+        "row",
+      alignItems:
+        "center",
+      justifyContent:
+        "center",
+      borderRadius: 14,
+      backgroundColor:
+        "#FFFFFF",
+      shadowColor:
+        "#000000",
+      shadowOpacity: 0.12,
+      shadowRadius: 12,
+      shadowOffset: {
+        width: 0,
+        height: 4,
+      },
+      elevation: 5,
+    },
+
+    savingText: {
+      marginLeft: 9,
+      fontSize: 14,
+      fontWeight:
+        "600",
+      color: "#222222",
+    },
+
+    modalBackdrop: {
+      flex: 1,
+      alignItems:
+        "center",
+      justifyContent:
+        "center",
+      paddingHorizontal: 22,
+      backgroundColor:
+        "rgba(0,0,0,0.45)",
+    },
+
+    nicknameModal: {
+      width: "100%",
+      paddingTop: 22,
+      paddingHorizontal: 20,
+      paddingBottom: 12,
+      borderRadius: 18,
+      backgroundColor:
+        "#FFFFFF",
+    },
+
+    modalTitle: {
+      fontSize: 19,
+      fontWeight:
+        "700",
+      color: "#111111",
+    },
+
+    modalSubtitle: {
+      marginTop: 5,
+      marginBottom: 16,
+      fontSize: 13,
+      lineHeight: 18,
+      color: "#777777",
+    },
+
+    nicknameInput: {
+      height: 48,
+      paddingHorizontal: 14,
+      borderWidth: 1,
+      borderColor:
+        "#D8D8D8",
+      borderRadius: 10,
+      fontSize: 15,
+      color: "#111111",
+      backgroundColor:
+        "#FAFAFA",
+    },
+
+    modalButtons: {
+      marginTop: 15,
+      flexDirection:
+        "row",
+      justifyContent:
+        "flex-end",
+      alignItems:
+        "center",
+    },
+
+    modalButton: {
+      minHeight: 40,
+      paddingHorizontal: 11,
+      alignItems:
+        "center",
+      justifyContent:
+        "center",
+    },
+
+    modalSaveButton: {
+      marginLeft: 4,
+    },
+
+    modalCancel: {
+      fontSize: 14,
+      fontWeight:
+        "600",
+      color: "#666666",
+    },
+
+    modalRemove: {
+      fontSize: 14,
+      fontWeight:
+        "600",
+      color: "#ED4956",
+    },
+
+    modalSave: {
+      fontSize: 14,
+      fontWeight:
+        "700",
+      color: "#0095F6",
     },
   });

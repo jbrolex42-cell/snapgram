@@ -1303,7 +1303,7 @@ export default function ExploreScreen() {
 
       return (
         <View>
-          {/* PEOPLE */}
+          
           {users.length > 0 && (
             <View>
               <SearchSectionTitle>
@@ -1326,7 +1326,6 @@ export default function ExploreScreen() {
             </View>
           )}
 
-          {/* HASHTAGS */}
           {hashtags.length > 0 && (
             <View>
               <SearchSectionTitle>
@@ -1437,7 +1436,6 @@ export default function ExploreScreen() {
             </View>
           )}
 
-          {/* POSTS */}
           {searchPosts.length > 0 && (
             <SearchSectionTitle>
               Posts

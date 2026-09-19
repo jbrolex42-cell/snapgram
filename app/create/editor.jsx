@@ -500,11 +500,6 @@ export default function CreatePostScreen() {
 
       setUploadProgress(100);
 
-      /*
-       * Replace the create screen immediately.
-       * Home uses useFocusEffect, so it will reload
-       * automatically when it receives focus.
-       */
       router.replace("/(tabs)");
     } catch (error) {
       console.error(
@@ -578,7 +573,6 @@ export default function CreatePostScreen() {
             : undefined
         }
       >
-        {/* HEADER */}
         <View style={styles.header}>
           <TouchableOpacity
             onPress={() =>
@@ -619,7 +613,6 @@ export default function CreatePostScreen() {
           </TouchableOpacity>
         </View>
 
-        {/* UPLOAD PROGRESS */}
         {posting && (
           <View
             style={
@@ -648,7 +641,6 @@ export default function CreatePostScreen() {
             false
           }
         >
-          {/* MEDIA PREVIEW */}
           <View
             style={
               styles.mediaContainer
@@ -731,7 +723,6 @@ export default function CreatePostScreen() {
             )}
           </View>
 
-          {/* THUMBNAILS */}
           {media.length > 1 && (
             <ScrollView
               horizontal
@@ -790,7 +781,6 @@ export default function CreatePostScreen() {
             </ScrollView>
           )}
 
-          {/* EDITOR */}
           <EditorToolbar
             activeTool={activeTool}
             onToolChange={
@@ -844,7 +834,6 @@ export default function CreatePostScreen() {
             />
           )}
 
-          {/* CAPTION */}
           <CaptionInput
             value={caption}
             onChangeText={
@@ -854,11 +843,10 @@ export default function CreatePostScreen() {
             }
           />
 
-          {/* POST OPTIONS */}
           <View
             style={styles.optionsCard}
           >
-            {/* LOCATION */}
+
             <TouchableOpacity
               style={styles.optionRow}
               onPress={() => {
@@ -917,7 +905,6 @@ export default function CreatePostScreen() {
               style={styles.divider}
             />
 
-            {/* TAG PEOPLE */}
             <TouchableOpacity
               style={styles.optionRow}
               onPress={() => {
@@ -985,7 +972,6 @@ export default function CreatePostScreen() {
               style={styles.divider}
             />
 
-            {/* AUDIENCE */}
             <TouchableOpacity
               style={styles.optionRow}
               onPress={() => {
@@ -1041,7 +1027,6 @@ export default function CreatePostScreen() {
         </ScrollView>
       </KeyboardAvoidingView>
 
-      {/* LOCATION MODAL */}
       <Modal
         visible={locationModal}
         transparent
@@ -1113,7 +1098,6 @@ export default function CreatePostScreen() {
         </View>
       </Modal>
 
-      {/* TAG MODAL */}
       <Modal
         visible={tagModal}
         transparent
@@ -1188,7 +1172,6 @@ export default function CreatePostScreen() {
         </View>
       </Modal>
 
-      {/* AUDIENCE MODAL */}
       <Modal
         visible={audienceModal}
         transparent

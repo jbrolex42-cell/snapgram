@@ -215,19 +215,12 @@ export default function TagsMentionsScreen() {
           styles.content
         }
       >
-        {/* =================================================
-            INTRO
-        ================================================= */}
 
         <InfoCard
           icon="at-outline"
           title="Tags & mentions"
           text="Control who can tag or mention you on Snapgram."
         />
-
-        {/* =================================================
-            ERROR
-        ================================================= */}
 
         {error ? (
           <View
@@ -249,10 +242,6 @@ export default function TagsMentionsScreen() {
             />
           </View>
         ) : null}
-
-        {/* =================================================
-            TAG SETTINGS
-        ================================================= */}
 
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>
@@ -279,10 +268,6 @@ export default function TagsMentionsScreen() {
             </Text>
           ) : null}
         </View>
-
-        {/* =================================================
-            MENTION SETTINGS
-        ================================================= */}
 
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>
@@ -312,10 +297,6 @@ export default function TagsMentionsScreen() {
             </Text>
           ) : null}
         </View>
-
-        {/* =================================================
-            INFORMATION
-        ================================================= */}
 
         <View style={styles.infoBox}>
           <Text style={styles.infoTitle}>

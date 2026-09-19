@@ -302,7 +302,6 @@ export default function MutedAccountsScreen() {
               styles.userRow
             }
           >
-            {/* PROFILE AREA */}
 
             <TouchableOpacity
               activeOpacity={0.7}
@@ -316,7 +315,6 @@ export default function MutedAccountsScreen() {
                 isRemoving
               )}
             >
-              {/* AVATAR */}
 
               {avatar ? (
                 <Image
@@ -345,8 +343,6 @@ export default function MutedAccountsScreen() {
                 </View>
               )}
 
-              {/* USER INFO */}
-
               <View
                 style={
                   styles.userInfo
@@ -373,8 +369,6 @@ export default function MutedAccountsScreen() {
                 ) : null}
               </View>
             </TouchableOpacity>
-
-            {/* UNMUTE BUTTON */}
 
             <TouchableOpacity
               activeOpacity={0.8}

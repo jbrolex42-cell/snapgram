@@ -1,15 +1,11 @@
 import { io } from "socket.io-client";
-
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
 const API_URL =
   process.env.EXPO_PUBLIC_API_URL ||
   "http://10.0.2.2:5000/api";
 
-const SOCKET_URL = API_URL.replace(
-  /\/api\/?$/,
-  ""
-);
+const SOCKET_URL = API_URL.replace(/\/api\/?$/, "");
 
 const TOKEN_KEYS = [
   "snapgram_token",
@@ -17,428 +13,246 @@ const TOKEN_KEYS = [
   "authToken",
 ];
 
-const DEFAULT_CONNECT_TIMEOUT = 10000;
-
 let socket = null;
+let connectingPromise = null;
 
-let currentUserId = null;
-
-let connectPromise = null;
-
-let connectingUserId = null;
-
-/*
- * ============================================================
- * AUTH TOKEN
- * ============================================================
- */
-
-async function getAuthToken() {
+async function getStoredToken() {
   for (const key of TOKEN_KEYS) {
-    try {
-      const token =
-        await AsyncStorage.getItem(key);
+    const value = await AsyncStorage.getItem(key);
 
-      if (token) {
-        return token;
-      }
-    } catch (error) {
-      console.warn(
-        "[SOCKET] Token read error:",
-        error?.message || error
-      );
+    if (value) {
+      return value;
     }
   }
 
   return null;
 }
 
-export async function connectSocket(
-  userId
-) {
-  const normalizedUserId =
-    String(userId || "").trim();
-
-  if (!normalizedUserId) {
-    throw new Error(
-      "User ID is required to connect socket."
-    );
+export async function connectSocket(userId) {
+  if (!userId) {
+    throw new Error("User ID is required to connect socket.");
   }
 
-  /*
-   * Already connected for this account.
-   */
-  if (
-    socket?.connected &&
-    currentUserId === normalizedUserId
-  ) {
+  const token = await getStoredToken();
+
+  if (!token) {
+    throw new Error("Authentication token is missing.");
+  }
+
+  if (socket?.connected) {
     return socket;
   }
 
-  /*
-   * If another account is currently connected,
-   * disconnect it first.
-   */
-  if (
-    socket &&
-    currentUserId &&
-    currentUserId !== normalizedUserId
-  ) {
-    try {
-      socket.removeAllListeners();
-      socket.disconnect();
-    } catch {}
-
-    socket = null;
-    connectPromise = null;
+  if (connectingPromise) {
+    return connectingPromise;
   }
 
-  /*
-   * If the same account is already connecting,
-   * reuse that connection promise.
-   */
-  if (
-    connectPromise &&
-    connectingUserId === normalizedUserId
-  ) {
-    return connectPromise;
-  }
-
-  currentUserId =
-    normalizedUserId;
-
-  connectingUserId =
-    normalizedUserId;
-
-  connectPromise = new Promise(
-    async (resolve, reject) => {
-      try {
-        const token =
-          await getAuthToken();
-
-        if (!token) {
-          throw new Error(
-            "Authentication token is missing."
-          );
-        }
-
-        /*
-         * Create a fresh authenticated socket.
-         */
-        const nextSocket = io(
-          SOCKET_URL,
-          {
-            transports: [
-              "websocket",
-              "polling",
-            ],
-
-            auth: {
-              token,
-            },
-
-            reconnection: true,
-
-            reconnectionAttempts: 10,
-
-            reconnectionDelay: 1000,
-
-            reconnectionDelayMax: 5000,
-
-            timeout: DEFAULT_CONNECT_TIMEOUT,
-          }
-        );
-
-        socket = nextSocket;
-
-        const handleConnect =
-          () => {
-            if (
-              connectingUserId !==
-              normalizedUserId
-            ) {
-              return;
-            }
-
-            /*
-             * Compatibility event.
-             *
-             * The backend should NOT trust this ID.
-             * It should use the authenticated socket user.
-             */
-            nextSocket.emit(
-              "user:join",
-              {
-                userId:
-                  normalizedUserId,
-              }
-            );
-
-            console.log(
-              "[SOCKET] Connected:",
-              nextSocket.id
-            );
-
-            resolve(nextSocket);
-          };
-
-        const handleConnectError =
-          (error) => {
-            console.error(
-              "[SOCKET] Connection error:",
-              error?.message || error
-            );
-
-            reject(error);
-          };
-
-        nextSocket.once(
-          "connect",
-          handleConnect
-        );
-
-        nextSocket.once(
-          "connect_error",
-          handleConnectError
-        );
-      } catch (error) {
-        reject(error);
-      }
-    }
-  );
-
-  try {
-    return await connectPromise;
-  } finally {
-    connectPromise = null;
-    connectingUserId = null;
-  }
-}
-
-/*
- * ============================================================
- * WAIT FOR SOCKET
- * ============================================================
- */
-
-export async function waitForSocket(
-  userId,
-  timeout = DEFAULT_CONNECT_TIMEOUT
-) {
-  const connectionPromise =
-    connectSocket(userId);
-
-  let timeoutId = null;
-
-  const timeoutPromise =
-    new Promise((_, reject) => {
-      timeoutId = setTimeout(() => {
-        reject(
-          new Error(
-            "Socket connection timed out."
-          )
-        );
-      }, timeout);
+  connectingPromise = new Promise((resolve, reject) => {
+    const nextSocket = io(SOCKET_URL, {
+      transports: ["websocket"],
+      autoConnect: false,
+      forceNew: false,
+      reconnection: true,
+      reconnectionAttempts: Infinity,
+      reconnectionDelay: 1000,
+      reconnectionDelayMax: 5000,
+      auth: {
+        token,
+      },
     });
 
-  try {
-    return await Promise.race([
-      connectionPromise,
-      timeoutPromise,
-    ]);
-  } finally {
-    if (timeoutId) {
-      clearTimeout(timeoutId);
-    }
-  }
+    socket = nextSocket;
+
+    const handleConnect = () => {
+      nextSocket.emit("user:join", {
+        userId: String(userId),
+      });
+
+      nextSocket.off("connect", handleConnect);
+      nextSocket.off("connect_error", handleInitialError);
+
+      connectingPromise = null;
+      resolve(nextSocket);
+    };
+
+    const handleInitialError = (error) => {
+      nextSocket.off("connect", handleConnect);
+      nextSocket.off("connect_error", handleInitialError);
+
+      connectingPromise = null;
+
+      reject(
+        error instanceof Error
+          ? error
+          : new Error("Socket connection failed.")
+      );
+    };
+
+    nextSocket.once("connect", handleConnect);
+    nextSocket.once("connect_error", handleInitialError);
+
+    nextSocket.connect();
+  });
+
+  return connectingPromise;
 }
 
-/*
- * ============================================================
- * SOCKET ACCESS
- * ============================================================
- */
+export async function waitForSocket(timeout = 10000) {
+  if (socket?.connected) {
+    return socket;
+  }
+
+  const token = await getStoredToken();
+
+  if (!token) {
+    throw new Error("Authentication token is missing.");
+  }
+
+  if (!socket) {
+    throw new Error("Socket is not initialized.");
+  }
+
+  return new Promise((resolve, reject) => {
+    let finished = false;
+
+    const cleanup = () => {
+      clearTimeout(timer);
+      socket?.off("connect", handleConnect);
+      socket?.off("connect_error", handleError);
+    };
+
+    const finish = (callback, value) => {
+      if (finished) return;
+
+      finished = true;
+      cleanup();
+      callback(value);
+    };
+
+    const handleConnect = () => {
+      finish(resolve, socket);
+    };
+
+    const handleError = (error) => {
+      finish(
+        reject,
+        error instanceof Error
+          ? error
+          : new Error("Socket connection failed.")
+      );
+    };
+
+    const timer = setTimeout(() => {
+      finish(
+        reject,
+        new Error("Timed out waiting for socket connection.")
+      );
+    }, timeout);
+
+    socket.once("connect", handleConnect);
+    socket.once("connect_error", handleError);
+
+    if (!socket.connected) {
+      socket.connect();
+    }
+  });
+}
 
 export function getSocket() {
   return socket;
 }
 
 export function isSocketConnected() {
-  return Boolean(
-    socket?.connected
-  );
+  return Boolean(socket?.connected);
 }
 
-/*
- * ============================================================
- * DISCONNECT
- * ============================================================
- */
-
 export function disconnectSocket() {
+  if (!socket) return;
+
   try {
-    socket?.removeAllListeners();
-    socket?.disconnect();
+    socket.disconnect();
   } catch {}
 
   socket = null;
-
-  currentUserId = null;
-
-  connectPromise = null;
-
-  connectingUserId = null;
+  connectingPromise = null;
 }
 
-/*
- * ============================================================
- * CONVERSATIONS
- * ============================================================
- */
-
-export function joinConversation(
-  conversationId
-) {
-  if (!socket?.connected) {
-    return false;
+export function onSocketEvent(event, handler) {
+  if (!socket || typeof handler !== "function") {
+    return () => {};
   }
 
-  if (!conversationId) {
-    return false;
-  }
+  socket.on(event, handler);
 
-  socket.emit(
-    "conversation:join",
-    {
-      conversationId:
-        String(conversationId),
-    }
-  );
+  return () => {
+    socket?.off(event, handler);
+  };
+}
+
+export function offSocketEvent(event, handler) {
+  if (!socket) return;
+
+  if (handler) {
+    socket.off(event, handler);
+  } else {
+    socket.off(event);
+  }
+}
+
+export function joinConversation(conversationId) {
+  if (!socket?.connected || !conversationId) return false;
+
+  socket.emit("conversation:join", {
+    conversationId: String(conversationId),
+  });
 
   return true;
 }
 
-export function leaveConversation(
-  conversationId
-) {
-  if (!socket?.connected) {
-    return false;
-  }
+export function leaveConversation(conversationId) {
+  if (!socket?.connected || !conversationId) return false;
 
-  if (!conversationId) {
-    return false;
-  }
-
-  socket.emit(
-    "conversation:leave",
-    {
-      conversationId:
-        String(conversationId),
-    }
-  );
+  socket.emit("conversation:leave", {
+    conversationId: String(conversationId),
+  });
 
   return true;
 }
 
-/*
- * ============================================================
- * TYPING
- * ============================================================
- */
+export function sendTyping(conversationId, receiverId) {
+  if (!socket?.connected || !conversationId) return false;
 
-export function startTyping(
-  conversationId
-) {
-  if (!socket?.connected) {
-    return false;
-  }
-
-  if (!conversationId) {
-    return false;
-  }
-
-  socket.emit(
-    "typing:start",
-    {
-      conversationId:
-        String(conversationId),
-    }
-  );
+  socket.emit("typing:start", {
+    conversationId: String(conversationId),
+    receiverId: receiverId ? String(receiverId) : undefined,
+  });
 
   return true;
 }
 
-export function stopTyping(
-  conversationId
-) {
-  if (!socket?.connected) {
-    return false;
-  }
+export function stopTyping(conversationId, receiverId) {
+  if (!socket?.connected || !conversationId) return false;
 
-  if (!conversationId) {
-    return false;
-  }
-
-  socket.emit(
-    "typing:stop",
-    {
-      conversationId:
-        String(conversationId),
-    }
-  );
+  socket.emit("typing:stop", {
+    conversationId: String(conversationId),
+    receiverId: receiverId ? String(receiverId) : undefined,
+  });
 
   return true;
 }
 
-/*
- * ============================================================
- * MESSAGE SEEN
- * ============================================================
- */
+export function sendMessageSeen(conversationId, messageIds = []) {
+  if (!socket?.connected || !conversationId) return false;
 
-export function markSocketMessageSeen(
-  conversationId,
-  messageId
-) {
-  if (!socket?.connected) {
-    return false;
-  }
-
-  if (
-    !conversationId ||
-    !messageId
-  ) {
-    return false;
-  }
-
-  socket.emit(
-    "message:seen",
-    {
-      conversationId:
-        String(conversationId),
-
-      messageId:
-        String(messageId),
-    }
-  );
+  socket.emit("message:seen", {
+    conversationId: String(conversationId),
+    messageIds: Array.isArray(messageIds)
+      ? messageIds.map(String)
+      : [],
+  });
 
   return true;
 }
-
-/*
- * ============================================================
- * ENCRYPTED MESSAGE EVENTS
- * ============================================================
- *
- * IMPORTANT:
- *
- * Never send plaintext message text through Socket.IO.
- *
- * `ciphertext` is already encrypted by messageService/e2eeService.
- *
- * The server should only forward/store ciphertext and metadata.
- * ============================================================
- */
 
 export function sendSocketMessage({
   conversationId,
@@ -451,418 +265,122 @@ export function sendSocketMessage({
   replyTo = null,
 }) {
   if (!socket?.connected) {
-    throw new Error(
-      "Socket is not connected."
-    );
+    throw new Error("Socket connection is not available.");
   }
 
   if (!conversationId) {
-    throw new Error(
-      "conversationId is required."
-    );
+    throw new Error("Conversation ID is required.");
   }
 
   if (!ciphertext) {
-    throw new Error(
-      "Encrypted message ciphertext is required."
-    );
+    throw new Error("Ciphertext is required.");
   }
 
-  socket.emit(
-    "message:send",
-    {
-      conversationId:
-        String(conversationId),
-
-      receiverId:
-        receiverId
-          ? String(receiverId)
-          : undefined,
-
-      ciphertext,
-
-      envelopeType,
-
-      encryptionVersion,
-
-      senderDeviceId:
-        Number(senderDeviceId) || 1,
-
-      receiverDeviceId:
-        receiverDeviceId
-          ? Number(receiverDeviceId)
-          : undefined,
-
-      replyTo:
-        replyTo
-          ? String(replyTo)
-          : null,
-    }
-  );
+  socket.emit("message:send", {
+    conversationId: String(conversationId),
+    receiverId: receiverId ? String(receiverId) : undefined,
+    ciphertext,
+    envelopeType,
+    encryptionVersion,
+    senderDeviceId,
+    receiverDeviceId,
+    replyTo: replyTo ? String(replyTo) : null,
+  });
 
   return true;
 }
 
-/*
- * ============================================================
- * CALL INITIATION
- * ============================================================
- */
-
-export function initiateCall({
-  callId,
-  receiverId,
-  type,
-}) {
+function requireSocket() {
   if (!socket?.connected) {
-    throw new Error(
-      "Socket is not connected."
-    );
+    throw new Error("Socket connection is not available.");
   }
 
+  return socket;
+}
+
+function normalizeCallPayload(callId, extra = {}) {
   if (!callId) {
-    throw new Error(
-      "callId is required."
-    );
+    throw new Error("Call ID is required.");
   }
 
-  if (!receiverId) {
-    throw new Error(
-      "receiverId is required."
-    );
-  }
+  return {
+    callId: String(callId),
+    ...extra,
+  };
+}
 
-  if (
-    type !== "voice" &&
-    type !== "video"
-  ) {
-    throw new Error(
-      "Call type must be voice or video."
-    );
-  }
-
-  socket.emit(
+export function initiateCall(callId) {
+  requireSocket().emit(
     "call:initiate",
-    {
-      callId:
-        String(callId),
-
-      receiverId:
-        String(receiverId),
-
-      type,
-    }
+    normalizeCallPayload(callId)
   );
-
-  return true;
 }
 
-/*
- * ============================================================
- * ACCEPT CALL
- * ============================================================
- */
-
-export function acceptCall({
-  callId,
-}) {
-  if (!socket?.connected) {
-    throw new Error(
-      "Socket is not connected."
-    );
-  }
-
-  if (!callId) {
-    throw new Error(
-      "callId is required."
-    );
-  }
-
-  socket.emit(
+export function acceptCall(callId) {
+  requireSocket().emit(
     "call:accept",
-    {
-      callId:
-        String(callId),
-    }
+    normalizeCallPayload(callId)
   );
-
-  return true;
 }
 
-/*
- * ============================================================
- * REJECT CALL
- * ============================================================
- */
-
-export function rejectCall({
-  callId,
-}) {
-  if (!socket?.connected) {
-    throw new Error(
-      "Socket is not connected."
-    );
-  }
-
-  if (!callId) {
-    throw new Error(
-      "callId is required."
-    );
-  }
-
-  socket.emit(
+export function rejectCall(callId) {
+  requireSocket().emit(
     "call:reject",
-    {
-      callId:
-        String(callId),
-    }
+    normalizeCallPayload(callId)
   );
-
-  return true;
 }
 
-/*
- * ============================================================
- * CANCEL CALL
- * ============================================================
- */
-
-export function cancelCall({
-  callId,
-}) {
-  if (!socket?.connected) {
-    throw new Error(
-      "Socket is not connected."
-    );
-  }
-
-  if (!callId) {
-    throw new Error(
-      "callId is required."
-    );
-  }
-
-  socket.emit(
+export function cancelCall(callId) {
+  requireSocket().emit(
     "call:cancel",
-    {
-      callId:
-        String(callId),
-    }
+    normalizeCallPayload(callId)
   );
-
-  return true;
 }
 
-/*
- * ============================================================
- * END CALL
- * ============================================================
- */
-
-export function endCall({
-  callId,
-}) {
-  if (!socket?.connected) {
-    throw new Error(
-      "Socket is not connected."
-    );
-  }
-
-  if (!callId) {
-    throw new Error(
-      "callId is required."
-    );
-  }
-
-  socket.emit(
-    "call:end",
-    {
-      callId:
-        String(callId),
-    }
-  );
-
-  return true;
-}
-
-/*
- * ============================================================
- * MISSED CALL
- * ============================================================
- */
-
-export function missedCall({
-  callId,
-}) {
-  if (!socket?.connected) {
-    throw new Error(
-      "Socket is not connected."
-    );
-  }
-
-  if (!callId) {
-    throw new Error(
-      "callId is required."
-    );
-  }
-
-  socket.emit(
+export function missedCall(callId) {
+  requireSocket().emit(
     "call:missed",
-    {
-      callId:
-        String(callId),
-    }
+    normalizeCallPayload(callId)
   );
-
-  return true;
 }
 
-/*
- * ============================================================
- * CALL READY
- * ============================================================
- *
- * Used by the receiver after the call screen and WebRTC
- * peer connection have been initialized.
- * ============================================================
- */
+export function endCall(callId) {
+  requireSocket().emit(
+    "call:end",
+    normalizeCallPayload(callId)
+  );
+}
 
-export function sendCallReady({
-  callId,
-}) {
-  if (!socket?.connected) {
-    throw new Error(
-      "Socket is not connected."
-    );
-  }
-
-  if (!callId) {
-    throw new Error(
-      "callId is required."
-    );
-  }
-
-  socket.emit(
+export function sendCallReady(callId) {
+  requireSocket().emit(
     "call:ready",
-    {
-      callId:
-        String(callId),
-    }
+    normalizeCallPayload(callId)
   );
-
-  return true;
 }
 
-export function sendWebRTCOffer({
-  callId,
-  offer,
-}) {
-  if (!socket?.connected) {
-    throw new Error(
-      "Socket is not connected."
-    );
-  }
-
-  if (!callId) {
-    throw new Error(
-      "callId is required."
-    );
-  }
-
-  if (!offer) {
-    throw new Error(
-      "WebRTC offer is required."
-    );
-  }
-
-  socket.emit(
+export function sendWebRTCOffer(callId, offer) {
+  requireSocket().emit(
     "webrtc:offer",
-    {
-      callId:
-        String(callId),
-
+    normalizeCallPayload(callId, {
       offer,
-    }
+    })
   );
-
-  return true;
 }
 
-
-export function sendWebRTCAnswer({
-  callId,
-  answer,
-}) {
-  if (!socket?.connected) {
-    throw new Error(
-      "Socket is not connected."
-    );
-  }
-
-  if (!callId) {
-    throw new Error(
-      "callId is required."
-    );
-  }
-
-  if (!answer) {
-    throw new Error(
-      "WebRTC answer is required."
-    );
-  }
-
-  socket.emit(
+export function sendWebRTCAnswer(callId, answer) {
+  requireSocket().emit(
     "webrtc:answer",
-    {
-      callId:
-        String(callId),
-
+    normalizeCallPayload(callId, {
       answer,
-    }
+    })
   );
-
-  return true;
 }
 
-export function sendICECandidate({
-  callId,
-  candidate,
-}) {
-  if (!socket?.connected) {
-    throw new Error(
-      "Socket is not connected."
-    );
-  }
-
-  if (!callId) {
-    throw new Error(
-      "callId is required."
-    );
-  }
-
-  if (!candidate) {
-    throw new Error(
-      "ICE candidate is required."
-    );
-  }
-
-  socket.emit(
+export function sendICECandidate(callId, candidate) {
+  requireSocket().emit(
     "webrtc:ice-candidate",
-    {
-      callId:
-        String(callId),
-
+    normalizeCallPayload(callId, {
       candidate,
-    }
+    })
   );
-
-  return true;
 }
-
-socket.emit("message:send", {
-  conversationId,
-  ciphertext,
-  envelopeType,
-  encryptionVersion,
-  senderDeviceId,
-});

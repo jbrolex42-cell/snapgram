@@ -460,7 +460,7 @@ export default function StoryScreen() {
   return (
     <View style={styles.container}>
       <SafeAreaView style={styles.safeArea}>
-        {/* TOP BAR */}
+
         <View style={styles.topBar}>
           <TouchableOpacity
             style={styles.topButton}
@@ -534,7 +534,6 @@ export default function StoryScreen() {
           </View>
         </View>
 
-        {/* MEDIA */}
         <View style={styles.previewArea}>
           <View
             style={[
@@ -557,11 +556,9 @@ export default function StoryScreen() {
               resizeMode="cover"
             />
 
-            {/* DARK GRADIENT-LIKE OVERLAYS */}
             <View style={styles.topGradient} />
             <View style={styles.bottomGradient} />
 
-            {/* TEXT LAYERS */}
             <View
               pointerEvents="none"
               style={styles.textLayer}
@@ -585,7 +582,6 @@ export default function StoryScreen() {
               ))}
             </View>
 
-            {/* STICKERS */}
             <View
               pointerEvents="none"
               style={styles.stickerLayer}
@@ -608,7 +604,6 @@ export default function StoryScreen() {
               ))}
             </View>
 
-            {/* MUSIC */}
             {selectedMusic && (
               <View
                 style={styles.musicCard}
@@ -637,7 +632,6 @@ export default function StoryScreen() {
               </View>
             )}
 
-            {/* VIDEO INDICATOR */}
             {mediaType === "video" && (
               <View
                 style={styles.videoIndicator}
@@ -658,7 +652,6 @@ export default function StoryScreen() {
           </View>
         </View>
 
-        {/* TOOLBAR */}
         {!keyboardVisible && (
           <View style={styles.bottomArea}>
             <ScrollView
@@ -803,7 +796,6 @@ export default function StoryScreen() {
               />
             </ScrollView>
 
-            {/* SHARE ROW */}
             <View style={styles.shareRow}>
               <TouchableOpacity
                 style={styles.saveButton}
@@ -842,7 +834,6 @@ export default function StoryScreen() {
         )}
       </SafeAreaView>
 
-      {/* TEXT MODAL */}
       <Modal
         visible={showTextInput}
         transparent
@@ -925,7 +916,6 @@ export default function StoryScreen() {
         </View>
       </Modal>
 
-      {/* STICKER SHEET */}
       <Modal
         visible={showStickerSheet}
         transparent
@@ -989,7 +979,6 @@ export default function StoryScreen() {
         </View>
       </Modal>
 
-      {/* MUSIC SHEET */}
       <Modal
         visible={showMusicSheet}
         transparent
@@ -1075,7 +1064,6 @@ export default function StoryScreen() {
         </View>
       </Modal>
 
-      {/* FILTER SHEET */}
       <Modal
         visible={showFilterSheet}
         transparent
@@ -1163,7 +1151,6 @@ export default function StoryScreen() {
         </View>
       </Modal>
 
-      {/* SHARE SHEET */}
       <Modal
         visible={showShareSheet}
         transparent

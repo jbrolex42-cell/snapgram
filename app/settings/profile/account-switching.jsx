@@ -471,7 +471,6 @@ export default function AccountSwitchingScreen() {
 
   return (
     <View style={styles.screen}>
-      {/* Header */}
 
       <View style={styles.header}>
         <TouchableOpacity
@@ -505,7 +504,6 @@ export default function AccountSwitchingScreen() {
           styles.content
         }
       >
-        {/* Intro */}
 
         <View style={styles.hero}>
           <View style={styles.heroIcon}>
@@ -525,8 +523,6 @@ export default function AccountSwitchingScreen() {
             accounts saved on this device.
           </Text>
         </View>
-
-        {/* Error */}
 
         {error ? (
           <View style={styles.errorBox}>
@@ -556,8 +552,6 @@ export default function AccountSwitchingScreen() {
             </View>
           </View>
         ) : null}
-
-        {/* Accounts */}
 
         <Text style={styles.sectionTitle}>
           Saved accounts
@@ -654,8 +648,6 @@ export default function AccountSwitchingScreen() {
           </View>
         )}
 
-        {/* Add account */}
-
         <TouchableOpacity
           activeOpacity={0.8}
           disabled={
@@ -686,8 +678,6 @@ export default function AccountSwitchingScreen() {
             Add account
           </Text>
         </TouchableOpacity>
-
-        {/* Security */}
 
         <View style={styles.securityBox}>
           <View style={styles.securityIcon}>

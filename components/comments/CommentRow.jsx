@@ -223,10 +223,7 @@ export default function CommentRow({
 
   return (
     <View style={styles.container}>
-      {/* ------------------------------------------- */}
-      {/* AVATAR                                      */}
-      {/* ------------------------------------------- */}
-
+      
       <TouchableOpacity
         onPress={openProfile}
         disabled={!username}
@@ -255,12 +252,8 @@ export default function CommentRow({
         </View>
       </TouchableOpacity>
 
-      {/* ------------------------------------------- */}
-      {/* COMMENT CONTENT                             */}
-      {/* ------------------------------------------- */}
-
       <View style={styles.content}>
-        {/* Name + comment */}
+
         <View style={styles.commentLine}>
           <TouchableOpacity
             onPress={openProfile}
@@ -296,10 +289,6 @@ export default function CommentRow({
           </Text>
         </View>
 
-        {/* --------------------------------------- */}
-        {/* USERNAME                                */}
-        {/* --------------------------------------- */}
-
         {username ? (
           <TouchableOpacity
             onPress={openProfile}
@@ -314,10 +303,6 @@ export default function CommentRow({
             </Text>
           </TouchableOpacity>
         ) : null}
-
-        {/* --------------------------------------- */}
-        {/* ACTIONS                                 */}
-        {/* --------------------------------------- */}
 
         <View style={styles.actions}>
           {likes > 0 && (
@@ -362,10 +347,6 @@ export default function CommentRow({
           )}
         </View>
       </View>
-
-      {/* ------------------------------------------- */}
-      {/* LIKE BUTTON                                 */}
-      {/* ------------------------------------------- */}
 
       <TouchableOpacity
         onPress={handleLike}

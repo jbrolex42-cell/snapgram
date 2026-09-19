@@ -1,21 +1,29 @@
 import {
   IdentityKeyPair,
+  IdentityKey,
+  PublicKey,
+  PreKeyBundle,
+  PreKeyRecord,
   ProtocolAddress,
   SessionBuilder,
   SessionCipher,
+  SignedPreKeyRecord,
+  KyberPreKeyRecord,
+  PreKeySignalMessage,
+  SignalMessage,
 } from "expo-libsignal";
 
 import api from "../api";
 
-import {
-  getE2EEStore,
-} from "./e2eeStore";
+import { getE2EEStore } from "./e2eeStore";
 
 import {
   E2EE_VERSION,
   DEFAULT_DEVICE_ID,
   PREKEY_BATCH_SIZE,
   PREKEY_REPLENISH_THRESHOLD,
+  SIGNED_PREKEY_ID,
+  KYBER_PREKEY_ID,
   ENVELOPE_TYPES,
 } from "./e2eeTypes";
 
@@ -26,11 +34,23 @@ import {
   decodeText,
   normalizeUserId,
   normalizeDeviceId,
+  generateRandomId,
 } from "./e2eeUtils";
 
 let initialized = false;
+let initializationPromise = null;
 
-let localIdentity = null;
+let localUserId = null;
+
+function requireLocalUserId() {
+  if (!localUserId) {
+    throw new Error(
+      "E2EE local user ID is not initialized"
+    );
+  }
+
+  return localUserId;
+}
 
 async function getStore() {
   return getE2EEStore();
@@ -38,32 +58,11 @@ async function getStore() {
 
 async function createRegistrationId() {
 
-  return (
-    Math.floor(
-      Math.random() * 16383
-    ) + 1
-  );
+  return generateRandomId(16383);
 }
 
-export async function initializeDevice() {
-  if (initialized) {
-    return localIdentity;
-  }
 
-  const store = await getStore();
-
-  if (
-    await store.hasLocalIdentity()
-  ) {
-    localIdentity = {
-      initialized: true,
-    };
-
-    initialized = true;
-
-    return localIdentity;
-  }
-
+async function createLocalKeys(store) {
   const identityKeyPair =
     await IdentityKeyPair.generate();
 
@@ -75,70 +74,320 @@ export async function initializeDevice() {
     registrationId
   );
 
-  localIdentity = {
-    initialized: true,
+  return {
+    identityKeyPair,
     registrationId,
-    deviceId: DEFAULT_DEVICE_ID,
   };
-
-  initialized = true;
-
-  return localIdentity;
 }
 
-export async function publishPreKeys() {
-  await initializeDevice();
+async function ensureSignedPreKey(
+  store,
+  identityKeyPair
+) {
+  const existing =
+    await store.loadSignedPreKeys();
 
-  const store = await getStore();
+  if (existing?.length) {
+    return existing[existing.length - 1];
+  }
+
+  const signedPreKey =
+    await SignedPreKeyRecord.generate(
+      SIGNED_PREKEY_ID,
+      identityKeyPair,
+      Date.now()
+    );
+
+  await store.storeSignedPreKey(
+    signedPreKey.id(),
+    signedPreKey
+  );
+
+  return signedPreKey;
+}
+
+async function ensureKyberPreKey(
+  store,
+  identityKeyPair
+) {
+  const existing =
+    await store.loadKyberPreKeys();
+
+  if (existing?.length) {
+    return existing[existing.length - 1];
+  }
+
+  const kyberPreKey =
+    await KyberPreKeyRecord.generate(
+      KYBER_PREKEY_ID,
+      identityKeyPair,
+      Date.now()
+    );
+
+  await store.storeKyberPreKey(
+    kyberPreKey.id(),
+    kyberPreKey
+  );
+
+  return kyberPreKey;
+}
+
+
+async function createPreKeys(store) {
+  const existing =
+    await store.loadPreKeys();
+
+  const existingIds = new Set(
+    (existing || []).map(
+      (record) => record.id()
+    )
+  );
+
+  const records = [];
+
+  let nextId = 1;
+
+  while (
+    records.length <
+    PREKEY_BATCH_SIZE
+  ) {
+    if (!existingIds.has(nextId)) {
+      const record =
+        await PreKeyRecord.generate(
+          nextId
+        );
+
+      await store.storePreKey(
+        record.id(),
+        record
+      );
+
+      records.push(record);
+    }
+
+    nextId += 1;
+  }
+
+  return records;
+}
+
+export async function initializeDevice(
+  userId
+) {
+  if (userId) {
+    localUserId =
+      normalizeUserId(userId);
+  }
+
+  requireLocalUserId();
+
+  if (initialized) {
+    const store =
+      await getStore();
+
+    return {
+      registrationId:
+        await store.getLocalRegistrationId(),
+
+      deviceId:
+        DEFAULT_DEVICE_ID,
+    };
+  }
+
+  if (initializationPromise) {
+    return initializationPromise;
+  }
+
+  initializationPromise =
+    (async () => {
+      const store =
+        await getStore();
+
+      let identityKeyPair;
+      let registrationId;
+
+      if (
+        await store.hasLocalIdentity()
+      ) {
+        identityKeyPair =
+          await store.getIdentityKeyPair();
+
+        registrationId =
+          await store.getLocalRegistrationId();
+      } else {
+
+        const created =
+          await createLocalKeys(
+            store
+          );
+
+        identityKeyPair =
+          created.identityKeyPair;
+
+        registrationId =
+          created.registrationId;
+      }
+
+      await ensureSignedPreKey(
+        store,
+        identityKeyPair
+      );
+
+      await ensureKyberPreKey(
+        store,
+        identityKeyPair
+      );
+
+      const existingPreKeys =
+        await store.loadPreKeys();
+
+      if (
+        !existingPreKeys ||
+        existingPreKeys.length <
+          PREKEY_REPLENISH_THRESHOLD
+      ) {
+        await createPreKeys(
+          store
+        );
+      }
+
+      initialized = true;
+
+      return {
+        registrationId,
+        deviceId:
+          DEFAULT_DEVICE_ID,
+      };
+    })();
+
+  try {
+    return await initializationPromise;
+  } finally {
+    initializationPromise = null;
+  }
+}
+
+export async function publishPreKeys(
+  userId
+) {
+  await initializeDevice(
+    userId
+  );
+
+  const store =
+    await getStore();
+
+  const identityKeyPair =
+    await store.getIdentityKeyPair();
 
   const registrationId =
     await store.getLocalRegistrationId();
 
-  const identity =
-    await store.getLocalIdentityKeyPair();
+  const signedPreKeys =
+    await store.loadSignedPreKeys();
+
+  if (!signedPreKeys?.length) {
+    throw new Error(
+      "Local signed pre-key is missing"
+    );
+  }
 
   const signedPreKey =
-    await store.generateAndStoreSignedPreKey();
+    signedPreKeys[
+      signedPreKeys.length - 1
+    ];
 
-  const preKeys =
-    await store.generateAndStorePreKeys(
-      PREKEY_BATCH_SIZE
+  const kyberPreKeys =
+    await store.loadKyberPreKeys();
+
+  if (!kyberPreKeys?.length) {
+    throw new Error(
+      "Local Kyber pre-key is missing"
     );
+  }
+
+  const kyberPreKey =
+    kyberPreKeys[
+      kyberPreKeys.length - 1
+    ];
+
+  let preKeys =
+    await store.loadPreKeys();
+
+  if (
+    !preKeys ||
+    preKeys.length <
+      PREKEY_REPLENISH_THRESHOLD
+  ) {
+    preKeys =
+      await createPreKeys(
+        store
+      );
+  }
+
+  const identityKey =
+    identityKeyPair.publicKey();
 
   await api.post(
     "/devices",
     {
-      deviceId: DEFAULT_DEVICE_ID,
+      deviceId:
+        DEFAULT_DEVICE_ID,
 
       registrationId,
 
-      identityKey: bytesToBase64(
-        identity.publicKey().serialize()
-      ),
+      identityKey:
+        bytesToBase64(
+          identityKey.serialize()
+        ),
 
       signedPreKey: {
         keyId:
-          signedPreKey.id,
+          signedPreKey.id(),
 
         publicKey:
           bytesToBase64(
-            signedPreKey.publicKey
+            signedPreKey
+              .publicKey()
+              .serialize()
           ),
 
         signature:
           bytesToBase64(
-            signedPreKey.signature
+            signedPreKey.signature()
+          ),
+      },
+
+      kyberPreKey: {
+        keyId:
+          kyberPreKey.id(),
+
+        publicKey:
+          bytesToBase64(
+            kyberPreKey
+              .kyberPublicKey()
+          ),
+
+        signature:
+          bytesToBase64(
+            kyberPreKey.signature()
           ),
       },
 
       preKeys:
-        preKeys.map((key) => ({
-          keyId: key.id,
-          publicKey:
-            bytesToBase64(
-              key.publicKey
-            ),
-        })),
+        preKeys.map(
+          (record) => ({
+            keyId:
+              record.id(),
+
+            publicKey:
+              bytesToBase64(
+                record
+                  .publicKey()
+                  .serialize()
+              ),
+          })
+        ),
     }
   );
 
@@ -149,26 +398,43 @@ export async function fetchPreKeyBundle(
   userId,
   deviceId = DEFAULT_DEVICE_ID
 ) {
+  const normalizedUserId =
+    normalizeUserId(userId);
+
+  const normalizedDeviceId =
+    normalizeDeviceId(deviceId);
+
   const response =
     await api.get(
       `/devices/user/${encodeURIComponent(
-        userId
+        normalizedUserId
       )}/bundle`,
       {
         params: {
-          deviceId,
+          deviceId:
+            normalizedDeviceId,
         },
       }
     );
 
-  return response.data?.bundle;
+  return (
+    response.data?.bundle ||
+    null
+  );
 }
 
 export async function establishSession({
   userId,
   deviceId = DEFAULT_DEVICE_ID,
+  localUserId: suppliedLocalUserId,
 }) {
-  await initializeDevice();
+  const effectiveLocalUserId =
+    suppliedLocalUserId ||
+    localUserId;
+
+  await initializeDevice(
+    effectiveLocalUserId
+  );
 
   const normalizedUserId =
     normalizeUserId(userId);
@@ -176,9 +442,12 @@ export async function establishSession({
   const normalizedDeviceId =
     normalizeDeviceId(deviceId);
 
-  if (!normalizedUserId) {
+  if (
+    normalizedUserId ===
+    effectiveLocalUserId
+  ) {
     throw new Error(
-      "Recipient user id is required"
+      "Cannot establish a session with the same device identity"
     );
   }
 
@@ -194,6 +463,24 @@ export async function establishSession({
     );
   }
 
+  if (!bundle.identityKey) {
+    throw new Error(
+      "Recipient identity key is missing"
+    );
+  }
+
+  if (!bundle.signedPreKey) {
+    throw new Error(
+      "Recipient signed pre-key is missing"
+    );
+  }
+
+  if (!bundle.kyberPreKey) {
+    throw new Error(
+      "Recipient Kyber pre-key is missing"
+    );
+  }
+
   const store =
     await getStore();
 
@@ -205,77 +492,165 @@ export async function establishSession({
 
   const localAddress =
     await ProtocolAddress.create(
-      "local",
+      effectiveLocalUserId,
       DEFAULT_DEVICE_ID
     );
+
+  const identityKey =
+    await IdentityKey.deserialize(
+      base64ToBytes(
+        bundle.identityKey
+      )
+    );
+
+  const signedPreKeyPublic =
+    await PublicKey.deserialize(
+      base64ToBytes(
+        bundle.signedPreKey.publicKey
+      )
+    );
+
+  let preKeyPublic = null;
+
+  if (
+    bundle.preKey?.publicKey
+  ) {
+    preKeyPublic =
+      await PublicKey.deserialize(
+        base64ToBytes(
+          bundle.preKey.publicKey
+        )
+      );
+  }
+
+  const preKeyBundle =
+    await PreKeyBundle.create({
+      registrationId:
+        Number(
+          bundle.registrationId
+        ),
+
+      deviceId:
+        Number(
+          bundle.deviceId
+        ),
+
+      identityKey,
+
+      signedPreKeyId:
+        Number(
+          bundle.signedPreKey.keyId
+        ),
+
+      signedPreKeyPublic,
+
+      signedPreKeySignature:
+        base64ToBytes(
+          bundle.signedPreKey
+            .signature
+        ),
+
+      kyberPreKeyId:
+        Number(
+          bundle.kyberPreKey.keyId
+        ),
+
+      kyberPreKeyPublic:
+        base64ToBytes(
+          bundle.kyberPreKey
+            .publicKey
+        ),
+
+      kyberPreKeySignature:
+        base64ToBytes(
+          bundle.kyberPreKey
+            .signature
+        ),
+
+      ...(preKeyPublic
+        ? {
+            preKeyId:
+              Number(
+                bundle.preKey
+                  .keyId
+              ),
+
+            preKeyPublic,
+          }
+        : {}),
+    });
 
   const builder =
     new SessionBuilder(
       {
-        sessionStore:
-          store,
-
-        identityStore:
-          store,
+        sessionStore: store,
+        identityStore: store,
       },
       remoteAddress,
       localAddress
     );
 
-  const preKeyBundle = {
-    registrationId:
-      bundle.registrationId,
-
-    deviceId:
-      bundle.deviceId,
-
-    identityKey:
-      base64ToBytes(
-        bundle.identityKey
-      ),
-
-    signedPreKey: {
-      keyId:
-        bundle.signedPreKey.keyId,
-
-      publicKey:
-        base64ToBytes(
-          bundle.signedPreKey.publicKey
-        ),
-
-      signature:
-        base64ToBytes(
-          bundle.signedPreKey.signature
-        ),
-    },
-
-    preKey: bundle.preKey
-      ? {
-          keyId:
-            bundle.preKey.keyId,
-
-          publicKey:
-            base64ToBytes(
-              bundle.preKey.publicKey
-            ),
-        }
-      : null,
-  };
-
-  await builder.processPreKeyBundle(
-    preKeyBundle
+  await store.runExclusive(
+    () =>
+      builder.processPreKeyBundle(
+        preKeyBundle
+      )
   );
 
   return {
-    userId: normalizedUserId,
-    deviceId: normalizedDeviceId,
+    userId:
+      normalizedUserId,
+
+    deviceId:
+      normalizedDeviceId,
+  };
+}
+
+async function createCipher({
+  userId,
+  deviceId,
+}) {
+  const store =
+    await getStore();
+
+  const remoteAddress =
+    await ProtocolAddress.create(
+      normalizeUserId(userId),
+      normalizeDeviceId(deviceId)
+    );
+
+  const localAddress =
+    await ProtocolAddress.create(
+      requireLocalUserId(),
+      DEFAULT_DEVICE_ID
+    );
+
+  const cipher =
+    new SessionCipher(
+      {
+        sessionStore: store,
+        identityStore: store,
+        preKeyStore: store,
+        signedPreKeyStore: store,
+        kyberPreKeyStore: store,
+      },
+      remoteAddress,
+      localAddress
+    );
+
+  return {
+    store,
+    cipher,
   };
 }
 
 export async function encryptMessage({
   recipientUserId,
-  recipientDeviceId = DEFAULT_DEVICE_ID,
+  recipientDeviceId =
+    DEFAULT_DEVICE_ID,
   text,
+  localUserId:
+    suppliedLocalUserId,
 }) {
   if (
     text === null ||
@@ -286,7 +661,9 @@ export async function encryptMessage({
     );
   }
 
-  await initializeDevice();
+  await initializeDevice(
+    suppliedLocalUserId
+  );
 
   const userId =
     normalizeUserId(
@@ -298,42 +675,26 @@ export async function encryptMessage({
       recipientDeviceId
     );
 
-  const store =
-    await getStore();
-
-  const remoteAddress =
-    await ProtocolAddress.create(
+  const sessionExists =
+    await hasSession({
       userId,
-      deviceId
+      deviceId,
+    });
+
+  if (!sessionExists) {
+    throw new Error(
+      "Encryption session does not exist"
     );
+  }
 
-  const localAddress =
-    await ProtocolAddress.create(
-      "local",
-      DEFAULT_DEVICE_ID
-    );
-
-  const cipher =
-    new SessionCipher(
-      {
-        sessionStore:
-          store,
-
-        identityStore:
-          store,
-
-        preKeyStore:
-          store,
-
-        signedPreKeyStore:
-          store,
-
-        kyberPreKeyStore:
-          store,
-      },
-      remoteAddress,
-      localAddress
-    );
+  const {
+    store,
+    cipher,
+  } =
+    await createCipher({
+      userId,
+      deviceId,
+    });
 
   const plaintext =
     encodeText(text);
@@ -349,7 +710,7 @@ export async function encryptMessage({
   return {
     ciphertext:
       bytesToBase64(
-        result.bytes
+        result.serialize()
       ),
 
     envelopeType:
@@ -368,11 +729,22 @@ export async function encryptMessage({
 
 export async function decryptMessage({
   senderUserId,
-  senderDeviceId = DEFAULT_DEVICE_ID,
+  senderDeviceId =
+    DEFAULT_DEVICE_ID,
   ciphertext,
   envelopeType,
+  localUserId:
+    suppliedLocalUserId,
 }) {
-  await initializeDevice();
+  if (!ciphertext) {
+    throw new Error(
+      "Ciphertext is required"
+    );
+  }
+
+  await initializeDevice(
+    suppliedLocalUserId
+  );
 
   const userId =
     normalizeUserId(
@@ -384,42 +756,14 @@ export async function decryptMessage({
       senderDeviceId
     );
 
-  const store =
-    await getStore();
-
-  const remoteAddress =
-    await ProtocolAddress.create(
+  const {
+    store,
+    cipher,
+  } =
+    await createCipher({
       userId,
-      deviceId
-    );
-
-  const localAddress =
-    await ProtocolAddress.create(
-      "local",
-      DEFAULT_DEVICE_ID
-    );
-
-  const cipher =
-    new SessionCipher(
-      {
-        sessionStore:
-          store,
-
-        identityStore:
-          store,
-
-        preKeyStore:
-          store,
-
-        signedPreKeyStore:
-          store,
-
-        kyberPreKeyStore:
-          store,
-      },
-      remoteAddress,
-      localAddress
-    );
+      deviceId,
+    });
 
   const bytes =
     base64ToBytes(
@@ -434,30 +778,53 @@ export async function decryptMessage({
         envelopeType ===
         ENVELOPE_TYPES.PREKEY
       ) {
+        const message =
+          await PreKeySignalMessage.deserialize(
+            bytes
+          );
+
         plaintext =
           await cipher.decryptPreKeySignal(
+            message
+          );
+      } else if (
+        envelopeType ===
+        ENVELOPE_TYPES.SIGNAL
+      ) {
+        const message =
+          await SignalMessage.deserialize(
             bytes
           );
-      } else {
+
         plaintext =
           await cipher.decryptSignal(
-            bytes
+            message
           );
+      } else {
+        throw new Error(
+          "Unsupported encryption envelope"
+        );
       }
     }
   );
 
   return {
     text:
-      decodeText(plaintext),
+      decodeText(
+        plaintext
+      ),
   };
 }
 
 export async function hasSession({
   userId,
   deviceId = DEFAULT_DEVICE_ID,
+  localUserId:
+    suppliedLocalUserId,
 }) {
-  await initializeDevice();
+  await initializeDevice(
+    suppliedLocalUserId
+  );
 
   const store =
     await getStore();
@@ -468,19 +835,29 @@ export async function hasSession({
       normalizeDeviceId(deviceId)
     );
 
-  return store.containsSession(
-    address
-  );
+  const session =
+    await store.loadSession(
+      address
+    );
+
+  return Boolean(session);
 }
 
-export async function rotateKeys() {
-  await initializeDevice();
+export async function rotateKeys(
+  suppliedLocalUserId
+) {
+  await initializeDevice(
+    suppliedLocalUserId
+  );
 
   const store =
     await getStore();
 
+  let preKeys =
+    await store.loadPreKeys();
+
   const count =
-    await store.countAvailablePreKeys();
+    preKeys?.length || 0;
 
   if (
     count >
@@ -492,17 +869,10 @@ export async function rotateKeys() {
     };
   }
 
-  const preKeys =
-    await store.generateAndStorePreKeys(
-      PREKEY_BATCH_SIZE
+  const additional =
+    await createPreKeys(
+      store
     );
-
-  if (!preKeys?.length) {
-    return {
-      rotated: false,
-      count,
-    };
-  }
 
   await api.post(
     "/devices/prekeys",
@@ -511,19 +881,30 @@ export async function rotateKeys() {
         DEFAULT_DEVICE_ID,
 
       preKeys:
-        preKeys.map((key) => ({
-          keyId: key.id,
+        additional.map(
+          (record) => ({
+            keyId:
+              record.id(),
 
-          publicKey:
-            bytesToBase64(
-              key.publicKey
-            ),
-        })),
+            publicKey:
+              bytesToBase64(
+                record
+                  .publicKey()
+                  .serialize()
+              ),
+          })
+        ),
     }
   );
 
   return {
     rotated: true,
-    added: preKeys.length,
+
+    added:
+      additional.length,
+
+    count:
+      count +
+      additional.length,
   };
 }

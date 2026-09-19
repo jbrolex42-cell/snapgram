@@ -521,7 +521,6 @@ export default function SettingsScreen() {
 
   return (
     <View style={styles.screen}>
-      {/* Instagram-style header */}
 
       <View style={styles.header}>
         <TouchableOpacity
@@ -556,7 +555,6 @@ export default function SettingsScreen() {
           styles.content
         }
       >
-        {/* Intro */}
 
         <View style={styles.intro}>
           <Text style={styles.introTitle}>
@@ -568,8 +566,6 @@ export default function SettingsScreen() {
             security and Snapgram preferences.
           </Text>
         </View>
-
-        {/* Search */}
 
         <View style={styles.searchContainer}>
           <Ionicons
@@ -605,8 +601,6 @@ export default function SettingsScreen() {
           ) : null}
         </View>
 
-        {/* Backend warning */}
-
         {!!loadError && (
           <TouchableOpacity
             activeOpacity={0.8}
@@ -638,8 +632,6 @@ export default function SettingsScreen() {
           </TouchableOpacity>
         )}
 
-        {/* Initial loading */}
-
         {loading ? (
           <View style={styles.loading}>
             <ActivityIndicator
@@ -651,8 +643,6 @@ export default function SettingsScreen() {
             </Text>
           </View>
         ) : null}
-
-        {/* Empty search */}
 
         {!loading &&
         hasSearch &&
@@ -691,8 +681,6 @@ export default function SettingsScreen() {
             </TouchableOpacity>
           </View>
         ) : null}
-
-        {/* Settings sections */}
 
         {!loading &&
           filteredSections.map(
@@ -745,8 +733,6 @@ export default function SettingsScreen() {
               </View>
             )
           )}
-
-        {/* Footer */}
 
         {!loading && !hasSearch ? (
           <View style={styles.footer}>

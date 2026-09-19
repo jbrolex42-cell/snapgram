@@ -3,9 +3,9 @@ import {
   mediaDevices,
 } from "react-native-webrtc";
 
-import {
-  getTurnCredentials,
-} from "./callService";
+import InCallManager from "react-native-incall-manager";
+
+import { getTurnCredentials } from "./callService";
 
 const DEFAULT_STUN_SERVERS = [
   {
@@ -18,9 +18,11 @@ const DEFAULT_STUN_SERVERS = [
 
 const groupPeers = new Map();
 
-function normalizeIceServers(
-  servers
-) {
+let inCallActive = false;
+let currentCallMedia = "audio";
+let currentSpeakerEnabled = false;
+
+function normalizeIceServers(servers) {
   if (!Array.isArray(servers)) {
     return [];
   }
@@ -40,16 +42,16 @@ function normalizeIceServers(
       ) {
         return {
           urls: server.urls,
+
           ...(server.username
             ? {
-                username:
-                  server.username,
+                username: server.username,
               }
             : {}),
+
           ...(server.credential
             ? {
-                credential:
-                  server.credential,
+                credential: server.credential,
               }
             : {}),
         };
@@ -65,22 +67,20 @@ export async function getWebRTCConfiguration() {
     const turnServers =
       await getTurnCredentials();
 
-    const iceServers =
-      normalizeIceServers(
-        turnServers
-      );
+    const normalizedTurnServers =
+      normalizeIceServers(turnServers);
 
     return {
       iceServers: [
         ...DEFAULT_STUN_SERVERS,
-        ...iceServers,
+        ...normalizedTurnServers,
       ],
 
       iceCandidatePoolSize: 10,
     };
   } catch (error) {
     console.warn(
-      "[WEBRTC] TURN unavailable; using STUN.",
+      "[WEBRTC] TURN unavailable; using STUN only.",
       error?.message || error
     );
 
@@ -99,9 +99,7 @@ export async function createPeerConnection() {
     await getWebRTCConfiguration();
 
   const peer =
-    new RTCPeerConnection(
-      configuration
-    );
+    new RTCPeerConnection(configuration);
 
   if (!peer) {
     throw new Error(
@@ -110,6 +108,122 @@ export async function createPeerConnection() {
   }
 
   return peer;
+}
+
+export function startAudioRouting({
+  video = false,
+  speaker = false,
+} = {}) {
+  try {
+    currentCallMedia =
+      video ? "video" : "audio";
+
+    currentSpeakerEnabled = Boolean(
+      speaker || video
+    );
+
+    InCallManager.start({
+      media: currentCallMedia,
+      auto: true,
+    });
+
+    if (currentSpeakerEnabled) {
+      InCallManager.setForceSpeakerphoneOn(
+        true
+      );
+    } else {
+      InCallManager.setForceSpeakerphoneOn(
+        false
+      );
+    }
+
+    inCallActive = true;
+
+    return true;
+  } catch (error) {
+    console.warn(
+      "[AUDIO] Failed to start audio routing:",
+      error?.message || error
+    );
+
+    return false;
+  }
+}
+
+export function stopAudioRouting() {
+  if (!inCallActive) {
+    return;
+  }
+
+  try {
+    InCallManager.stop();
+  } catch (error) {
+    console.warn(
+      "[AUDIO] Failed to stop audio routing:",
+      error?.message || error
+    );
+  }
+
+  inCallActive = false;
+  currentSpeakerEnabled = false;
+  currentCallMedia = "audio";
+}
+
+export function setSpeakerEnabled(
+  enabled
+) {
+  const nextEnabled = Boolean(enabled);
+
+  currentSpeakerEnabled =
+    nextEnabled;
+
+  if (!inCallActive) {
+    return false;
+  }
+
+  try {
+
+    InCallManager.setForceSpeakerphoneOn(
+      nextEnabled
+    );
+
+    return true;
+  } catch (error) {
+    console.warn(
+      "[AUDIO] Speaker routing failed:",
+      error?.message || error
+    );
+
+    return false;
+  }
+}
+
+export function isSpeakerEnabled() {
+  return currentSpeakerEnabled;
+}
+
+export function enableSpeaker() {
+  return setSpeakerEnabled(true);
+}
+
+export function disableSpeaker() {
+  return setSpeakerEnabled(false);
+}
+
+export function startVoiceAudio({
+  speaker = false,
+} = {}) {
+  return startAudioRouting({
+    video: false,
+    speaker,
+  });
+}
+
+export function startVideoAudio() {
+  return startAudioRouting({
+    video: true,
+    speaker: true,
+  });
 }
 
 export async function getLocalStream(
@@ -184,10 +298,17 @@ export function addLocalTracks(
       continue;
     }
 
-    peer.addTrack(
-      track,
-      stream
-    );
+    try {
+      peer.addTrack(
+        track,
+        stream
+      );
+    } catch (error) {
+      console.warn(
+        "[WEBRTC] Failed to add local track:",
+        error?.message || error
+      );
+    }
   }
 
   return tracks;
@@ -257,38 +378,23 @@ export async function addIceCandidate(
   candidate
 ) {
   if (!peer || !candidate) {
-    return;
+    return false;
   }
 
-  await peer.addIceCandidate(
-    candidate
-  );
-}
+  try {
+    await peer.addIceCandidate(
+      candidate
+    );
 
-export function stopLocalStream(
-  stream
-) {
-  if (!stream) {
-    return;
+    return true;
+  } catch (error) {
+    console.warn(
+      "[WEBRTC] Failed to add ICE candidate:",
+      error?.message || error
+    );
+
+    return false;
   }
-
-  const tracks =
-    typeof stream.getTracks ===
-    "function"
-      ? stream.getTracks()
-      : [];
-
-  for (const track of tracks) {
-    try {
-      track?.stop?.();
-    } catch {}
-  }
-}
-
-export function stopMediaStream(
-  stream
-) {
-  stopLocalStream(stream);
 }
 
 export function setMicrophoneEnabled(
@@ -313,6 +419,17 @@ export function setMicrophoneEnabled(
     track.enabled =
       Boolean(enabled);
   });
+
+  try {
+    InCallManager.setMicrophoneMute(
+      !Boolean(enabled)
+    );
+  } catch (error) {
+    console.warn(
+      "[AUDIO] Native microphone mute failed:",
+      error?.message || error
+    );
+  }
 
   return true;
 }
@@ -356,18 +473,19 @@ export function switchCamera(
       ? stream.getVideoTracks()
       : [];
 
-  const track = tracks[0];
+  const videoTrack = tracks[0];
 
-  if (!track) {
+  if (!videoTrack) {
     return false;
   }
 
   try {
     if (
-      typeof track._switchCamera ===
+      typeof videoTrack._switchCamera ===
       "function"
     ) {
-      track._switchCamera();
+      videoTrack._switchCamera();
+
       return true;
     }
   } catch (error) {
@@ -380,6 +498,32 @@ export function switchCamera(
   return false;
 }
 
+export function stopLocalStream(
+  stream
+) {
+  if (!stream) {
+    return;
+  }
+
+  const tracks =
+    typeof stream.getTracks ===
+    "function"
+      ? stream.getTracks()
+      : [];
+
+  for (const track of tracks) {
+    try {
+      track?.stop?.();
+    } catch {}
+  }
+}
+
+export function stopMediaStream(
+  stream
+) {
+  stopLocalStream(stream);
+}
+
 export function closePeerConnection(
   peer
 ) {
@@ -390,14 +534,10 @@ export function closePeerConnection(
   try {
     peer.ontrack = null;
     peer.onicecandidate = null;
-    peer.onconnectionstatechange =
-      null;
-    peer.oniceconnectionstatechange =
-      null;
-    peer.onsignalingstatechange =
-      null;
-    peer.onicegatheringstatechange =
-      null;
+    peer.onconnectionstatechange = null;
+    peer.oniceconnectionstatechange = null;
+    peer.onsignalingstatechange = null;
+    peer.onicegatheringstatechange = null;
     peer.onnegotiationneeded = null;
     peer.ondatachannel = null;
     peer.onicecandidateerror = null;
@@ -416,6 +556,21 @@ export function closePeerConnection(
   try {
     peer.close?.();
   } catch {}
+}
+
+export function cleanupCallMedia(
+  stream,
+  peer
+) {
+  try {
+    stopLocalStream(stream);
+  } catch {}
+
+  try {
+    closePeerConnection(peer);
+  } catch {}
+
+  stopAudioRouting();
 }
 
 export async function createGroupPeer(

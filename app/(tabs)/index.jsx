@@ -375,7 +375,7 @@ export default function HomeScreen() {
   const renderHeader = useCallback(() => {
     return (
       <View style={styles.headerContainer}>
-        {/* HEADER */}
+
         <View style={styles.topHeader}>
           <Pressable
             onPress={handleCreatePost}
@@ -438,7 +438,6 @@ export default function HomeScreen() {
           </View>
         </View>
 
-        {/* STORIES */}
         {stories.length > 0 ? (
           <View style={styles.storySection}>
             <StoryTray
@@ -474,7 +473,6 @@ export default function HomeScreen() {
           </View>
         )}
 
-        {/* STORY ERROR */}
         {!!storyError && (
           <Pressable
             onPress={handleRetry}
@@ -492,7 +490,6 @@ export default function HomeScreen() {
           </Pressable>
         )}
 
-        {/* FEED ERROR */}
         {!!feedError && posts.length > 0 && (
           <Pressable
             onPress={handleRetry}

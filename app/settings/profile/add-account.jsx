@@ -31,7 +31,6 @@ export default function AddAccountScreen() {
 
   return (
     <View style={styles.screen}>
-      {/* Header */}
 
       <View style={styles.header}>
         <TouchableOpacity
@@ -54,7 +53,6 @@ export default function AddAccountScreen() {
       </View>
 
       <View style={styles.content}>
-        {/* Icon */}
 
         <View style={styles.iconCircle}>
           <Ionicons
@@ -63,8 +61,6 @@ export default function AddAccountScreen() {
             color="#111"
           />
         </View>
-
-        {/* Title */}
 
         <Text style={styles.title}>
           Add an account
@@ -75,8 +71,6 @@ export default function AddAccountScreen() {
           device so you can quickly switch between
           your accounts without logging out.
         </Text>
-
-        {/* Current account */}
 
         <View style={styles.currentAccount}>
           <View style={styles.avatar}>
@@ -109,8 +103,6 @@ export default function AddAccountScreen() {
           </View>
         </View>
 
-        {/* Main action */}
-
         <TouchableOpacity
           activeOpacity={0.8}
           onPress={handleLoginAnotherAccount}
@@ -126,8 +118,6 @@ export default function AddAccountScreen() {
             Log into another account
           </Text>
         </TouchableOpacity>
-
-        {/* Existing accounts */}
 
         <TouchableOpacity
           activeOpacity={0.7}
@@ -159,8 +149,6 @@ export default function AddAccountScreen() {
             color="#8e8e8e"
           />
         </TouchableOpacity>
-
-        {/* Security note */}
 
         <View style={styles.securityBox}>
           <Ionicons

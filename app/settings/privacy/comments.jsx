@@ -287,19 +287,11 @@ export default function CommentsScreen() {
           styles.content
         }
       >
-        {/* ---------------------------------------------------------------- */}
-        {/* Header                                                            */}
-        {/* ---------------------------------------------------------------- */}
-
         <InfoCard
           icon="chatbubble-outline"
           title="Comments"
           text="Control who can comment on your posts and filter unwanted comments."
         />
-
-        {/* ---------------------------------------------------------------- */}
-        {/* Error                                                             */}
-        {/* ---------------------------------------------------------------- */}
 
         {error ? (
           <View
@@ -317,10 +309,6 @@ export default function CommentsScreen() {
           </View>
         ) : null}
 
-        {/* ---------------------------------------------------------------- */}
-        {/* Who can comment                                                   */}
-        {/* ---------------------------------------------------------------- */}
-
         <ChoiceSettings
           title="Who can comment?"
           options={COMMENTING_OPTIONS}
@@ -328,20 +316,12 @@ export default function CommentsScreen() {
           onSelect={handleWhoChange}
         />
 
-        {/* ---------------------------------------------------------------- */}
-        {/* Comment filtering                                                 */}
-        {/* ---------------------------------------------------------------- */}
-
         <SwitchRow
           title="Filter unwanted comments"
           subtitle="Automatically filter potentially unwanted or offensive comments."
           value={filter}
           onChange={handleFilterChange}
         />
-
-        {/* ---------------------------------------------------------------- */}
-        {/* Status                                                             */}
-        {/* ---------------------------------------------------------------- */}
 
         {saving ? (
           <View
@@ -354,10 +334,6 @@ export default function CommentsScreen() {
             </Text>
           </View>
         ) : null}
-
-        {/* ---------------------------------------------------------------- */}
-        {/* Explanation                                                       */}
-        {/* ---------------------------------------------------------------- */}
 
         <View
           style={styles.infoSection}

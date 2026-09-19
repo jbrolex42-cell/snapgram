@@ -186,7 +186,6 @@ export default function AccountActionsScreen() {
 
   return (
     <View style={styles.screen}>
-      {/* Header */}
 
       <View style={styles.header}>
         <TouchableOpacity
@@ -210,7 +209,6 @@ export default function AccountActionsScreen() {
       </View>
 
       <View style={styles.content}>
-        {/* Header information */}
 
         <View style={styles.hero}>
           <View style={styles.heroIcon}>
@@ -232,8 +230,6 @@ export default function AccountActionsScreen() {
           </Text>
         </View>
 
-        {/* Warning */}
-
         <View style={styles.warningBox}>
           <Ionicons
             name="information-circle-outline"
@@ -247,8 +243,6 @@ export default function AccountActionsScreen() {
             your request.
           </Text>
         </View>
-
-        {/* Actions */}
 
         <Text style={styles.sectionTitle}>
           Account options
@@ -280,8 +274,6 @@ export default function AccountActionsScreen() {
           />
         </View>
 
-        {/* Loading */}
-
         {running ? (
           <View style={styles.loadingBox}>
             <ActivityIndicator
@@ -294,8 +286,6 @@ export default function AccountActionsScreen() {
             </Text>
           </View>
         ) : null}
-
-        {/* Back */}
 
         <TouchableOpacity
           activeOpacity={0.8}
@@ -310,8 +300,6 @@ export default function AccountActionsScreen() {
             Back
           </Text>
         </TouchableOpacity>
-
-        {/* Footer */}
 
         <Text style={styles.footerText}>
           If you are having problems with your

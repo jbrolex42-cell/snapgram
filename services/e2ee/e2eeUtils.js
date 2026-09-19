@@ -1,3 +1,5 @@
+import * as Crypto from "expo-crypto";
+
 export function bytesToBase64(bytes) {
   if (!bytes) {
     return null;
@@ -13,14 +15,14 @@ export function bytesToBase64(bytes) {
   const chunkSize = 0x8000;
 
   for (
-    let i = 0;
-    i < array.length;
-    i += chunkSize
+    let index = 0;
+    index < array.length;
+    index += chunkSize
   ) {
     const chunk = array.subarray(
-      i,
+      index,
       Math.min(
-        i + chunkSize,
+        index + chunkSize,
         array.length
       )
     );
@@ -30,11 +32,17 @@ export function bytesToBase64(bytes) {
     );
   }
 
-  return globalThis.btoa
-    ? globalThis.btoa(binary)
-    : Buffer.from(binary, "binary").toString(
-        "base64"
-      );
+  if (
+    typeof globalThis.btoa ===
+    "function"
+  ) {
+    return globalThis.btoa(binary);
+  }
+
+  return Buffer.from(
+    binary,
+    "binary"
+  ).toString("base64");
 }
 
 export function base64ToBytes(value) {
@@ -42,23 +50,27 @@ export function base64ToBytes(value) {
     return new Uint8Array();
   }
 
-  const binary = globalThis.atob
-    ? globalThis.atob(value)
-    : Buffer.from(
-        value,
-        "base64"
-      ).toString("binary");
+  const binary =
+    typeof globalThis.atob ===
+    "function"
+      ? globalThis.atob(value)
+      : Buffer.from(
+          value,
+          "base64"
+        ).toString("binary");
 
-  const bytes = new Uint8Array(
-    binary.length
-  );
+  const bytes =
+    new Uint8Array(
+      binary.length
+    );
 
   for (
-    let i = 0;
-    i < binary.length;
-    i += 1
+    let index = 0;
+    index < binary.length;
+    index += 1
   ) {
-    bytes[i] = binary.charCodeAt(i);
+    bytes[index] =
+      binary.charCodeAt(index);
   }
 
   return bytes;
@@ -71,21 +83,66 @@ export function encodeText(value) {
 }
 
 export function decodeText(bytes) {
-  return new TextDecoder().decode(bytes);
+  return new TextDecoder().decode(
+    bytes
+  );
 }
 
-export function normalizeUserId(id) {
-  return String(id || "").trim();
+export function normalizeUserId(value) {
+  const id =
+    String(value ?? "").trim();
+
+  if (!id) {
+    throw new Error(
+      "User id is required"
+    );
+  }
+
+  return id;
 }
 
-export function normalizeDeviceId(id) {
-  const value = Number(id);
+export function normalizeDeviceId(value) {
+  const deviceId = Number(value);
 
-  if (!Number.isInteger(value) || value < 1) {
+  if (
+    !Number.isInteger(deviceId) ||
+    deviceId < 1
+  ) {
     throw new Error(
       "Invalid device id"
     );
   }
 
-  return value;
+  return deviceId;
+}
+
+export async function generateRandomId(
+  max = 16383
+) {
+  if (
+    !Number.isInteger(max) ||
+    max < 1 ||
+    max > 2147483647
+  ) {
+    throw new Error(
+      "Invalid random ID range"
+    );
+  }
+
+  const bytes =
+    await Crypto.getRandomBytesAsync(4);
+
+  const array =
+    new Uint8Array(bytes);
+
+  const value =
+    new DataView(
+      array.buffer,
+      array.byteOffset,
+      array.byteLength
+    ).getUint32(0, true);
+
+  return (
+    value % max
+  ) + 1;
 }

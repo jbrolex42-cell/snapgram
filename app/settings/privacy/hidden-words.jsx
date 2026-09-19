@@ -372,19 +372,12 @@ export default function HiddenWordsScreen() {
           styles.content
         }
       >
-        {/* =================================================
-            INTRO
-        ================================================= */}
 
         <InfoCard
           icon="eye-off-outline"
           title="Hidden words"
           text="Hide comments and message requests that contain words, phrases or emojis you don't want to see."
         />
-
-        {/* =================================================
-            ERROR
-        ================================================= */}
 
         {error ? (
           <View
@@ -411,10 +404,6 @@ export default function HiddenWordsScreen() {
           </View>
         ) : null}
 
-        {/* =================================================
-            MAIN TOGGLE
-        ================================================= */}
-
         <SwitchRow
           title="Hide unwanted words"
           subtitle={
@@ -429,10 +418,6 @@ export default function HiddenWordsScreen() {
             toggling
           }
         />
-
-        {/* =================================================
-            WORD LIST
-        ================================================= */}
 
         <View
           style={
@@ -468,10 +453,6 @@ export default function HiddenWordsScreen() {
           multiline
         />
 
-        {/* =================================================
-            WORD COUNT
-        ================================================= */}
-
         <View
           style={
             styles.countRow
@@ -499,20 +480,12 @@ export default function HiddenWordsScreen() {
           ) : null}
         </View>
 
-        {/* =================================================
-            INFO
-        ================================================= */}
-
         <Notice>
           Separate each word or phrase with
           commas. Matching is case-insensitive.
           Your hidden-word list is saved to
           your Snapgram account.
         </Notice>
-
-        {/* =================================================
-            CLEAR BUTTON
-        ================================================= */}
 
         {words.trim() ? (
           <View
@@ -532,10 +505,6 @@ export default function HiddenWordsScreen() {
           </View>
         ) : null}
 
-        {/* =================================================
-            SAVE
-        ================================================= */}
-
         <PrimaryButton
           text={
             saving
@@ -553,10 +522,6 @@ export default function HiddenWordsScreen() {
           }
           onPress={handleSave}
         />
-
-        {/* =================================================
-            FOOTER INFO
-        ================================================= */}
 
         <View
           style={

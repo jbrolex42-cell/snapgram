@@ -21,12 +21,6 @@ function MessageBubble({
     return null;
   }
 
-  /**
-   * ---------------------------------------------------------
-   * UNSENT / DELETED MESSAGE
-   * ---------------------------------------------------------
-   */
-
   if (message.deleted) {
     return (
       <Pressable
@@ -51,12 +45,6 @@ function MessageBubble({
       </Pressable>
     );
   }
-
-  /**
-   * ---------------------------------------------------------
-   * VOICE MESSAGE
-   * ---------------------------------------------------------
-   */
 
   if (message.type === "voice") {
     return (
@@ -131,12 +119,6 @@ function MessageBubble({
     );
   }
 
-  /**
-   * ---------------------------------------------------------
-   * IMAGE MESSAGE
-   * ---------------------------------------------------------
-   */
-
   if (message.type === "image") {
     return (
       <Pressable
@@ -203,12 +185,6 @@ function MessageBubble({
     );
   }
 
-  /**
-   * ---------------------------------------------------------
-   * VIDEO MESSAGE
-   * ---------------------------------------------------------
-   */
-
   if (message.type === "video") {
     return (
       <Pressable
@@ -266,12 +242,6 @@ function MessageBubble({
       </Pressable>
     );
   }
-
-  /**
-   * ---------------------------------------------------------
-   * TEXT MESSAGE
-   * ---------------------------------------------------------
-   */
 
   return (
     <Pressable
@@ -332,12 +302,6 @@ function MessageBubble({
   );
 }
 
-/**
- * ---------------------------------------------------------
- * REPLY REFERENCE
- * ---------------------------------------------------------
- */
-
 function ReplyReference({
   replyTo,
   isMine,
@@ -381,12 +345,6 @@ function ReplyReference({
     </View>
   );
 }
-
-/**
- * ---------------------------------------------------------
- * REACTIONS
- * ---------------------------------------------------------
- */
 
 function ReactionDisplay({
   reactions,
@@ -459,12 +417,6 @@ function ReactionDisplay({
   );
 }
 
-/**
- * ---------------------------------------------------------
- * REPLY MEDIA LABEL
- * ---------------------------------------------------------
- */
-
 function getReplyMediaLabel(message) {
   if (!message) {
     return "Message";
@@ -485,12 +437,6 @@ function getReplyMediaLabel(message) {
   }
 }
 
-/**
- * ---------------------------------------------------------
- * STYLES
- * ---------------------------------------------------------
- */
-
 const styles = StyleSheet.create({
   pressed: {
     opacity: 0.88,
@@ -503,10 +449,6 @@ const styles = StyleSheet.create({
   alignLeft: {
     alignSelf: "flex-start",
   },
-
-  /**
-   * TEXT
-   */
 
   textWrapper: {
     position: "relative",
@@ -552,10 +494,6 @@ const styles = StyleSheet.create({
     color: "#111111",
   },
 
-  /**
-   * REPLY
-   */
-
   replyReference: {
     flexDirection: "row",
     alignItems: "center",
@@ -595,10 +533,6 @@ const styles = StyleSheet.create({
   otherReplyText: {
     color: "#777777",
   },
-
-  /**
-   * MEDIA
-   */
 
   mediaWrapper: {
     position: "relative",
@@ -652,10 +586,6 @@ const styles = StyleSheet.create({
     fontSize: 13,
   },
 
-  /**
-   * VIDEO
-   */
-
   videoBubble: {
     width: 240,
     borderRadius: 19,
@@ -690,10 +620,6 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: "600",
   },
-
-  /**
-   * VOICE
-   */
 
   voiceWrapper: {
     position: "relative",
@@ -738,10 +664,6 @@ const styles = StyleSheet.create({
     fontSize: 13,
   },
 
-  /**
-   * DELETED
-   */
-
   deletedBubble: {
     flexDirection: "row",
     alignItems: "center",
@@ -769,10 +691,6 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontStyle: "italic",
   },
-
-  /**
-   * REACTIONS
-   */
 
   reactions: {
     position: "absolute",

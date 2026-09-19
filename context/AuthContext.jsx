@@ -22,20 +22,69 @@ import {
   disconnectSocket,
 } from "../services/socket";
 
+import {
+  initializeDevice,
+} from "../services/e2eeService";
+
+import {
+  closeE2EEStore,
+} from "../services/e2eeStore";
+
 const TOKEN_KEY = "snapgram_token";
 
 const AuthContext = createContext(null);
+
+function getUserId(user) {
+  return (
+    user?._id?.toString() ||
+    user?.id?.toString() ||
+    null
+  );
+}
 
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const initializeE2EE = useCallback(async (authenticatedUser) => {
+    const userId = getUserId(authenticatedUser);
 
-  /**
-   * ---------------------------------------------------------
-   * RESTORE SESSION
-   * ---------------------------------------------------------
-   */
+    if (!userId) {
+      console.warn(
+        "[E2EE] Cannot initialize device: user ID is missing."
+      );
+      return null;
+    }
+
+    try {
+      console.log(
+        "[E2EE] INITIALIZING DEVICE:",
+        userId
+      );
+
+      const result = await initializeDevice(userId);
+
+      console.log(
+        "[E2EE] DEVICE READY:",
+        {
+          userId,
+          deviceId: result?.deviceId,
+          registrationId: result?.registrationId,
+        }
+      );
+
+      return result;
+    } catch (e2eeError) {
+      console.error(
+        "[E2EE] DEVICE INITIALIZATION ERROR:",
+        e2eeError?.response?.data ||
+          e2eeError?.message ||
+          e2eeError
+      );
+
+      throw e2eeError;
+    }
+  }, []);
 
   const restoreSession = useCallback(async () => {
     try {
@@ -55,8 +104,18 @@ export function AuthProvider({ children }) {
         );
 
         disconnectSocket();
-        setUser(null);
 
+        try {
+          await closeE2EEStore();
+        } catch (e2eeCloseError) {
+          console.warn(
+            "[E2EE] STORE CLOSE ERROR:",
+            e2eeCloseError?.message ||
+              e2eeCloseError
+          );
+        }
+
+        setUser(null);
         return null;
       }
 
@@ -67,6 +126,8 @@ export function AuthProvider({ children }) {
           "Unable to restore authenticated user."
         );
       }
+
+      await initializeE2EE(currentUser);
 
       setUser(currentUser);
 
@@ -94,7 +155,9 @@ export function AuthProvider({ children }) {
         );
 
         try {
-          await AsyncStorage.removeItem(TOKEN_KEY);
+          await AsyncStorage.removeItem(
+            TOKEN_KEY
+          );
         } catch (storageError) {
           console.error(
             "[AUTH] TOKEN CLEANUP ERROR:",
@@ -112,6 +175,17 @@ export function AuthProvider({ children }) {
       }
 
       disconnectSocket();
+
+      try {
+        await closeE2EEStore();
+      } catch (e2eeCloseError) {
+        console.warn(
+          "[E2EE] STORE CLOSE ERROR:",
+          e2eeCloseError?.message ||
+            e2eeCloseError
+        );
+      }
+
       setUser(null);
       setError(message);
 
@@ -119,13 +193,7 @@ export function AuthProvider({ children }) {
     } finally {
       setLoading(false);
     }
-  }, []);
-
-  /**
-   * ---------------------------------------------------------
-   * INITIAL SESSION RESTORE
-   * ---------------------------------------------------------
-   */
+  }, [initializeE2EE]);
 
   useEffect(() => {
     let mounted = true;
@@ -145,21 +213,12 @@ export function AuthProvider({ children }) {
     };
   }, [restoreSession]);
 
-  /**
-   * ---------------------------------------------------------
-   * SOCKET INITIALIZATION
-   * ---------------------------------------------------------
-   *
-   * Socket.IO is connected only after authentication
-   * has finished restoring and a valid user exists.
-   */
-
   useEffect(() => {
     if (loading) {
       return;
     }
 
-    const userId = user?._id || user?.id;
+    const userId = getUserId(user);
 
     if (!userId) {
       disconnectSocket();
@@ -175,7 +234,8 @@ export function AuthProvider({ children }) {
           userId
         );
 
-        const socket = await connectSocket(userId);
+        const socket =
+          await connectSocket(userId);
 
         if (cancelled) {
           return;
@@ -185,7 +245,6 @@ export function AuthProvider({ children }) {
           console.warn(
             "[AUTH] Socket connection was not created."
           );
-
           return;
         }
 
@@ -213,12 +272,6 @@ export function AuthProvider({ children }) {
     };
   }, [user, loading]);
 
-  /**
-   * ---------------------------------------------------------
-   * LOGIN
-   * ---------------------------------------------------------
-   */
-
   const login = useCallback(
     async (identifier, password) => {
       try {
@@ -243,17 +296,11 @@ export function AuthProvider({ children }) {
           password,
         };
 
-        /**
-         * Email
-         */
         if (cleanIdentifier.includes("@")) {
           loginData.email =
             cleanIdentifier.toLowerCase();
         }
 
-        /**
-         * Phone number
-         */
         else if (
           /^[+0-9()\-\s]+$/.test(
             cleanIdentifier
@@ -263,9 +310,6 @@ export function AuthProvider({ children }) {
             cleanIdentifier;
         }
 
-        /**
-         * Username
-         */
         else {
           loginData.username =
             cleanIdentifier.toLowerCase();
@@ -292,21 +336,14 @@ export function AuthProvider({ children }) {
             "Login succeeded but no user information was returned."
           );
         }
-
-        /**
-         * Store authentication token.
-         */
+        
         await AsyncStorage.setItem(
           TOKEN_KEY,
           result.token
         );
+        
+        await initializeE2EE(result.user);
 
-        /**
-         * Update authenticated user.
-         *
-         * The socket effect above will automatically
-         * connect the user after state updates.
-         */
         setUser(result.user);
 
         console.log(
@@ -333,14 +370,8 @@ export function AuthProvider({ children }) {
         throw new Error(message);
       }
     },
-    []
+    [initializeE2EE]
   );
-
-  /**
-   * ---------------------------------------------------------
-   * SOCIAL LOGIN
-   * ---------------------------------------------------------
-   */
 
   const loginWithSocial = useCallback(
     async (result) => {
@@ -359,22 +390,17 @@ export function AuthProvider({ children }) {
           );
         }
 
-        /**
-         * Keep authService responsible for persisting
-         * the complete authentication session.
-         */
         await saveAuthSession(
           result.user,
           result.token
         );
 
-        /**
-         * Keep the main token key synchronized.
-         */
         await AsyncStorage.setItem(
           TOKEN_KEY,
           result.token
         );
+
+        await initializeE2EE(result.user);
 
         setUser(result.user);
 
@@ -402,14 +428,8 @@ export function AuthProvider({ children }) {
         throw new Error(message);
       }
     },
-    []
+    [initializeE2EE]
   );
-
-  /**
-   * ---------------------------------------------------------
-   * REGISTER
-   * ---------------------------------------------------------
-   */
 
   const register = useCallback(
     async (data) => {
@@ -455,12 +475,6 @@ export function AuthProvider({ children }) {
     []
   );
 
-  /**
-   * ---------------------------------------------------------
-   * SWITCH SAVED ACCOUNT
-   * ---------------------------------------------------------
-   */
-
   const switchAccount = useCallback(
     async (accountId) => {
       try {
@@ -472,11 +486,17 @@ export function AuthProvider({ children }) {
           );
         }
 
-        /**
-         * Disconnect the previous account before
-         * activating the new one.
-         */
         disconnectSocket();
+
+        try {
+          await closeE2EEStore();
+        } catch (e2eeCloseError) {
+          console.warn(
+            "[E2EE] STORE CLOSE DURING ACCOUNT SWITCH:",
+            e2eeCloseError?.message ||
+              e2eeCloseError
+          );
+        }
 
         const switchedUser =
           await switchSavedAccount(
@@ -488,6 +508,8 @@ export function AuthProvider({ children }) {
             "The selected account could not be activated."
           );
         }
+
+        await initializeE2EE(switchedUser);
 
         setUser(switchedUser);
 
@@ -511,27 +533,15 @@ export function AuthProvider({ children }) {
         throw new Error(message);
       }
     },
-    []
+    [initializeE2EE]
   );
-
-  /**
-   * ---------------------------------------------------------
-   * LOGOUT
-   * ---------------------------------------------------------
-   */
 
   const logout = useCallback(async () => {
     try {
       setError(null);
 
-      /**
-       * Disconnect realtime services immediately.
-       */
       disconnectSocket();
 
-      /**
-       * Tell backend about logout.
-       */
       let result = null;
 
       try {
@@ -545,16 +555,20 @@ export function AuthProvider({ children }) {
         );
       }
 
-      /**
-       * Remove local authentication token.
-       */
       await AsyncStorage.removeItem(
         TOKEN_KEY
       );
 
-      /**
-       * Clear authenticated user.
-       */
+      try {
+        await closeE2EEStore();
+      } catch (e2eeCloseError) {
+        console.warn(
+          "[E2EE] STORE CLOSE DURING LOGOUT:",
+          e2eeCloseError?.message ||
+            e2eeCloseError
+        );
+      }
+
       setUser(null);
 
       console.log(
@@ -570,10 +584,6 @@ export function AuthProvider({ children }) {
           logoutError
       );
 
-      /**
-       * Always clean local authentication state,
-       * even if the backend request fails.
-       */
       try {
         await AsyncStorage.removeItem(
           TOKEN_KEY
@@ -587,17 +597,22 @@ export function AuthProvider({ children }) {
       }
 
       disconnectSocket();
+
+      try {
+        await closeE2EEStore();
+      } catch (e2eeCloseError) {
+        console.warn(
+          "[E2EE] STORE CLOSE ERROR:",
+          e2eeCloseError?.message ||
+            e2eeCloseError
+        );
+      }
+
       setUser(null);
 
       throw logoutError;
     }
   }, []);
-
-  /**
-   * ---------------------------------------------------------
-   * CONTEXT VALUE
-   * ---------------------------------------------------------
-   */
 
   const contextValue = {
     user,
@@ -607,10 +622,8 @@ export function AuthProvider({ children }) {
     login,
     loginWithSocial,
     register,
-
     switchAccount,
     logout,
-
     restoreSession,
 
     setUser,
@@ -618,23 +631,14 @@ export function AuthProvider({ children }) {
   };
 
   return (
-    <AuthContext.Provider
-      value={contextValue}
-    >
+    <AuthContext.Provider value={contextValue}>
       {children}
     </AuthContext.Provider>
   );
 }
 
-/**
- * ---------------------------------------------------------
- * useAuth HOOK
- * ---------------------------------------------------------
- */
-
 export function useAuth() {
-  const context =
-    useContext(AuthContext);
+  const context = useContext(AuthContext);
 
   if (!context) {
     throw new Error(

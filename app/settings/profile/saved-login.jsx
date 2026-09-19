@@ -198,7 +198,6 @@ export default function SavedLoginScreen() {
           styles.content
         }
       >
-        {/* Intro */}
 
         <View style={styles.intro}>
           <View style={styles.iconCircle}>
@@ -219,8 +218,6 @@ export default function SavedLoginScreen() {
             next time.
           </Text>
         </View>
-
-        {/* Error */}
 
         {error ? (
           <View style={styles.errorBox}>
@@ -258,8 +255,6 @@ export default function SavedLoginScreen() {
             </View>
           </View>
         ) : null}
-
-        {/* Main setting */}
 
         <Text style={styles.sectionTitle}>
           Login
@@ -324,8 +319,6 @@ export default function SavedLoginScreen() {
           </View>
         </View>
 
-        {/* Current state */}
-
         <View style={styles.statusCard}>
           <View style={styles.statusIcon}>
             <Ionicons
@@ -356,8 +349,6 @@ export default function SavedLoginScreen() {
           </View>
         </View>
 
-        {/* Security information */}
-
         <Text style={styles.sectionTitle}>
           About saved login
         </Text>
@@ -385,8 +376,6 @@ export default function SavedLoginScreen() {
             text="Use a strong password and two-factor authentication to protect your account."
           />
         </View>
-
-        {/* Shared device warning */}
 
         <View style={styles.warningCard}>
           <View style={styles.warningIcon}>
@@ -429,8 +418,6 @@ export default function SavedLoginScreen() {
             ) : null}
           </View>
         </View>
-
-        {/* Security shortcut */}
 
         <Pressable
           onPress={() =>

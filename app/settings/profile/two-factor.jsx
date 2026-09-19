@@ -241,7 +241,6 @@ export default function TwoFactorScreen() {
           styles.content
         }
       >
-        {/* Header */}
 
         <View style={styles.intro}>
           <View
@@ -272,8 +271,6 @@ export default function TwoFactorScreen() {
             signing in.
           </Text>
         </View>
-
-        {/* Error */}
 
         {error ? (
           <View style={styles.errorBox}>
@@ -306,8 +303,6 @@ export default function TwoFactorScreen() {
             </View>
           </View>
         ) : null}
-
-        {/* Main setting */}
 
         <Text style={styles.sectionTitle}>
           Security
@@ -379,8 +374,6 @@ export default function TwoFactorScreen() {
           </View>
         </View>
 
-        {/* Current status */}
-
         <View
           style={[
             styles.statusCard,
@@ -427,8 +420,6 @@ export default function TwoFactorScreen() {
           </View>
         </View>
 
-        {/* How it works */}
-
         <Text style={styles.sectionTitle}>
           How it helps
         </Text>
@@ -457,8 +448,6 @@ export default function TwoFactorScreen() {
           />
         </View>
 
-        {/* Enabled state */}
-
         {enabled ? (
           <View style={styles.successCard}>
             <View style={styles.successIcon}>
@@ -485,8 +474,6 @@ export default function TwoFactorScreen() {
             </View>
           </View>
         ) : null}
-
-        {/* Login activity */}
 
         <Pressable
           onPress={() =>
@@ -531,8 +518,6 @@ export default function TwoFactorScreen() {
             color="#999"
           />
         </Pressable>
-
-        {/* Important notice */}
 
         <View style={styles.noticeCard}>
           <Ionicons

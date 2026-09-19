@@ -382,9 +382,6 @@ export default function EditProfileScreen() {
             : undefined
         }
       >
-        {/* =================================================
-            HEADER
-        ================================================= */}
 
         <View
           style={styles.header}
@@ -439,10 +436,6 @@ export default function EditProfileScreen() {
           </Pressable>
         </View>
 
-        {/* =================================================
-            CONTENT
-        ================================================= */}
-
         <ScrollView
           style={
             styles.scrollView
@@ -455,9 +448,6 @@ export default function EditProfileScreen() {
             false
           }
         >
-          {/* =================================================
-              PROFILE PHOTO
-          ================================================= */}
 
           <View
             style={
@@ -511,10 +501,6 @@ export default function EditProfileScreen() {
             </Pressable>
           </View>
 
-          {/* =================================================
-              NAME
-          ================================================= */}
-
           <ProfileField
             label="Name"
             value={fullName}
@@ -524,10 +510,6 @@ export default function EditProfileScreen() {
             placeholder="Name"
             maxLength={100}
           />
-
-          {/* =================================================
-              USERNAME
-          ================================================= */}
 
           <ProfileField
             label="Username"
@@ -548,10 +530,6 @@ export default function EditProfileScreen() {
             autoCorrect={false}
             maxLength={30}
           />
-
-          {/* =================================================
-              BIO
-          ================================================= */}
 
           <View
             style={styles.field}
@@ -588,10 +566,6 @@ export default function EditProfileScreen() {
             </Text>
           </View>
 
-          {/* =================================================
-              WEBSITE
-          ================================================= */}
-
           <ProfileField
             label="Website"
             value={website}
@@ -604,10 +578,6 @@ export default function EditProfileScreen() {
             keyboardType="url"
           />
 
-          {/* =================================================
-              PRONOUNS
-          ================================================= */}
-
           <ProfileField
             label="Pronouns"
             value={pronouns}
@@ -617,10 +587,6 @@ export default function EditProfileScreen() {
             placeholder="Pronouns"
           />
 
-          {/* =================================================
-              GENDER
-          ================================================= */}
-
           <ProfileField
             label="Gender"
             value={gender}
@@ -629,10 +595,6 @@ export default function EditProfileScreen() {
             }
             placeholder="Gender"
           />
-
-          {/* =================================================
-              PERSONAL INFORMATION
-          ================================================= */}
 
           <Pressable
             onPress={() =>
@@ -673,10 +635,6 @@ export default function EditProfileScreen() {
               color="#8e8e8e"
             />
           </Pressable>
-
-          {/* =================================================
-              INFORMATION
-          ================================================= */}
 
           <Text
             style={

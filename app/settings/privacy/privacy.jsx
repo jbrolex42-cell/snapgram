@@ -287,19 +287,12 @@ export default function PrivacyScreen() {
           styles.content
         }
       >
-        {/* =================================================
-            HEADER
-        ================================================= */}
 
         <InfoCard
           icon="lock-closed-outline"
           title="Privacy"
           text="Control who can see your content and how people can interact with you on Snapgram."
         />
-
-        {/* =================================================
-            ERROR
-        ================================================= */}
 
         {error ? (
           <View
@@ -325,10 +318,6 @@ export default function PrivacyScreen() {
             />
           </View>
         ) : null}
-
-        {/* =================================================
-            ACCOUNT PRIVACY
-        ================================================= */}
 
         <View
           style={
@@ -364,10 +353,6 @@ export default function PrivacyScreen() {
             )}
           />
         </View>
-
-        {/* =================================================
-            ACTIVITY & MESSAGES
-        ================================================= */}
 
         <View
           style={
@@ -424,10 +409,6 @@ export default function PrivacyScreen() {
             )}
           />
         </View>
-
-        {/* =================================================
-            INTERACTIONS
-        ================================================= */}
 
         <View
           style={
@@ -487,10 +468,6 @@ export default function PrivacyScreen() {
           />
         </View>
 
-        {/* =================================================
-            CONTENT CONTROLS
-        ================================================= */}
-
         <View
           style={
             styles.section
@@ -537,10 +514,6 @@ export default function PrivacyScreen() {
             }
           />
         </View>
-
-        {/* =================================================
-            PRIVACY NOTE
-        ================================================= */}
 
         <View
           style={

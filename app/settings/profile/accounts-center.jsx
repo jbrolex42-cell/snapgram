@@ -110,7 +110,6 @@ export default function AccountsCenterScreen() {
 
   return (
     <View style={styles.screen}>
-      {/* Header */}
 
       <View style={styles.header}>
         <TouchableOpacity
@@ -136,7 +135,6 @@ export default function AccountsCenterScreen() {
         showsVerticalScrollIndicator={false}
         contentContainerStyle={styles.content}
       >
-        {/* Intro */}
 
         <View style={styles.intro}>
           <View style={styles.introIcon}>
@@ -157,8 +155,6 @@ export default function AccountsCenterScreen() {
             switching from one place.
           </Text>
         </View>
-
-        {/* Current account */}
 
         <SectionTitle>
           Accounts
@@ -208,8 +204,6 @@ export default function AccountsCenterScreen() {
           <View style={styles.activeDot} />
         </View>
 
-        {/* Account information */}
-
         <SectionTitle>
           Account settings
         </SectionTitle>
@@ -247,8 +241,6 @@ export default function AccountsCenterScreen() {
           />
         </View>
 
-        {/* Account status */}
-
         <SectionTitle>
           Account information
         </SectionTitle>
@@ -261,8 +253,6 @@ export default function AccountsCenterScreen() {
             onPress={openAccountStatus}
           />
         </View>
-
-        {/* Account ownership */}
 
         <SectionTitle>
           Account ownership and control
@@ -278,8 +268,6 @@ export default function AccountsCenterScreen() {
             }
           />
         </View>
-
-        {/* Information */}
 
         <View style={styles.infoBox}>
           <Ionicons

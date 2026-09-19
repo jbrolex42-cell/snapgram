@@ -461,7 +461,6 @@ export default function LoginActivityScreen() {
           styles.content
         }
       >
-        {/* Header information */}
 
         <View style={styles.intro}>
           <View style={styles.introIcon}>
@@ -482,8 +481,6 @@ export default function LoginActivityScreen() {
             recognize a device, log it out.
           </Text>
         </View>
-
-        {/* Error */}
 
         {error ? (
           <TouchableOpacity
@@ -525,8 +522,6 @@ export default function LoginActivityScreen() {
           </TouchableOpacity>
         ) : null}
 
-        {/* Current device */}
-
         {currentSessions.length > 0 ? (
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>
@@ -557,8 +552,6 @@ export default function LoginActivityScreen() {
             </View>
           </View>
         ) : null}
-
-        {/* Other devices */}
 
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>
@@ -620,8 +613,6 @@ export default function LoginActivityScreen() {
             </View>
           )}
         </View>
-
-        {/* Security */}
 
         <View style={styles.securityCard}>
           <View style={styles.securityIcon}>
@@ -692,8 +683,6 @@ export default function LoginActivityScreen() {
             />
           </TouchableOpacity>
         </View>
-
-        {/* Location notice */}
 
         <Notice>
           Login locations may be approximate.

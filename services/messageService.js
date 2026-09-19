@@ -7,11 +7,25 @@ import {
   hasSession,
 } from "./e2ee/e2eeService";
 
-/**
- * ============================================================
- * CONVERSATIONS
- * ============================================================
- */
+function normalizeUserId(userId) {
+  if (!userId) {
+    throw new Error("Authenticated user ID is required");
+  }
+
+  return String(userId);
+}
+
+function normalizeDeviceId(deviceId) {
+  const normalized = Number(deviceId);
+
+  return Number.isFinite(normalized) && normalized > 0
+    ? normalized
+    : 1;
+}
+
+function getMessageId(message) {
+  return message?.id || message?._id || null;
+}
 
 export async function getConversations() {
   const response = await api.get("/messages/conversations");
@@ -25,31 +39,49 @@ export async function getOrCreateConversation(userId) {
   }
 
   const response = await api.post(
-    `/messages/conversations/${encodeURIComponent(userId)}`
+    `/messages/conversations/${encodeURIComponent(
+      String(userId)
+    )}`
   );
 
-  return response.data?.conversation || response.data;
+  return (
+    response.data?.conversation ||
+    response.data ||
+    null
+  );
 }
 
-export async function getMessages(conversationId) {
+export async function getMessages({
+  conversationId,
+  localUserId,
+} = {}) {
   if (!conversationId) {
     throw new Error("conversationId is required");
   }
 
+  const normalizedLocalUserId =
+    normalizeUserId(localUserId);
+
   const response = await api.get(
-    `/messages/${encodeURIComponent(conversationId)}`
+    `/messages/${encodeURIComponent(
+      String(conversationId)
+    )}`
   );
 
-  const messages = response.data?.messages || [];
+  const serverMessages =
+    response.data?.messages || [];
 
-  return Promise.all(
-    messages.map(async (message) => {
+  const messages = await Promise.all(
+    serverMessages.map(async (message) => {
       try {
-        return await decryptIncomingMessage(message);
+        return await decryptIncomingMessage({
+          message,
+          localUserId: normalizedLocalUserId,
+        });
       } catch (error) {
         console.warn(
           "[E2EE] Failed to decrypt message:",
-          message?.id || message?._id,
+          getMessageId(message),
           error?.message || error
         );
 
@@ -59,10 +91,23 @@ export async function getMessages(conversationId) {
           text: null,
 
           decryptionFailed: true,
+
+          displayText:
+            "Unable to decrypt this message.",
         };
       }
     })
   );
+
+  return {
+    conversation:
+      response.data?.conversation || null,
+
+    messages,
+
+    pagination:
+      response.data?.pagination || null,
+  };
 }
 
 export async function sendMessage({
@@ -71,6 +116,7 @@ export async function sendMessage({
   receiverDeviceId = 1,
   text,
   replyTo = null,
+  localUserId,
 }) {
   if (!conversationId) {
     throw new Error("conversationId is required");
@@ -90,67 +136,101 @@ export async function sendMessage({
     throw new Error("Message cannot be empty");
   }
 
-  const normalizedReceiverId = String(receiverId);
-  const normalizedDeviceId = Number(receiverDeviceId) || 1;
+  const normalizedLocalUserId =
+    normalizeUserId(localUserId);
 
-  /**
-   * Make sure a Signal session exists before encryption.
-   */
+  const normalizedReceiverId =
+    String(receiverId);
+
+  const normalizedDeviceId =
+    normalizeDeviceId(receiverDeviceId);
+
   const sessionExists = await hasSession({
     userId: normalizedReceiverId,
     deviceId: normalizedDeviceId,
+
+    localUserId:
+      normalizedLocalUserId,
   });
 
   if (!sessionExists) {
     await establishSession({
       userId: normalizedReceiverId,
       deviceId: normalizedDeviceId,
+
+      localUserId:
+        normalizedLocalUserId,
     });
   }
 
-  /**
-   * Encrypt locally.
-   */
   const encrypted = await encryptMessage({
-    recipientUserId: normalizedReceiverId,
-    recipientDeviceId: normalizedDeviceId,
+    recipientUserId:
+      normalizedReceiverId,
+
+    recipientDeviceId:
+      normalizedDeviceId,
+
     text: cleanText,
+
+    localUserId:
+      normalizedLocalUserId,
   });
 
-  const response = await api.post("/messages", {
-    conversationId: String(conversationId),
+  if (!encrypted?.ciphertext) {
+    throw new Error(
+      "Message encryption failed"
+    );
+  }
 
-    receiverId: normalizedReceiverId,
+  const response = await api.post(
+    "/messages",
+    {
+      conversationId:
+        String(conversationId),
 
-    receiverDeviceId: normalizedDeviceId,
+      receiverId:
+        normalizedReceiverId,
 
-    ciphertext: encrypted.ciphertext,
+      receiverDeviceId:
+        normalizedDeviceId,
 
-    envelopeType: encrypted.envelopeType,
+      ciphertext:
+        encrypted.ciphertext,
 
-    encryptionVersion: encrypted.encryptionVersion,
+      envelopeType:
+        encrypted.envelopeType,
 
-    senderDeviceId: encrypted.senderDeviceId,
+      encryptionVersion:
+        encrypted.encryptionVersion,
 
-    replyTo: replyTo ? String(replyTo) : null,
-  });
+      senderDeviceId:
+        encrypted.senderDeviceId,
+
+      replyTo:
+        replyTo
+          ? String(replyTo)
+          : null,
+    }
+  );
 
   const message =
     response.data?.message ||
     response.data;
 
-  /**
-   * The server response normally contains ciphertext.
-   *
-   * Return a locally usable message object so the sender
-   * immediately sees the plaintext they just wrote.
-   */
+  if (!message) {
+    throw new Error(
+      "Server did not return the created message"
+    );
+  }
+
   return {
     ...message,
 
     text: cleanText,
 
-    ciphertext: message?.ciphertext || encrypted.ciphertext,
+    ciphertext:
+      message?.ciphertext ||
+      encrypted.ciphertext,
 
     envelopeType:
       message?.envelopeType ||
@@ -165,28 +245,21 @@ export async function sendMessage({
       encrypted.senderDeviceId,
 
     replyTo:
-      message?.replyTo ||
-      replyTo ||
-      null,
+      message?.replyTo ??
+      (replyTo
+        ? String(replyTo)
+        : null),
 
     decryptionFailed: false,
+
+    localPlaintext: true,
   };
 }
 
-/**
- * ============================================================
- * DECRYPT INCOMING MESSAGE
- * ============================================================
- *
- * Used for messages received from:
- * - REST API
- * - Socket.IO
- * - message history
- *
- * The backend must never provide plaintext message content.
- */
-
-export async function decryptIncomingMessage(message) {
+export async function decryptIncomingMessage({
+  message,
+  localUserId,
+} = {}) {
   if (!message) {
     throw new Error("Message is required");
   }
@@ -203,16 +276,40 @@ export async function decryptIncomingMessage(message) {
     );
   }
 
+  const normalizedLocalUserId =
+    normalizeUserId(localUserId);
+
+  const senderUserId =
+    String(message.sender);
+
+  const senderDeviceId =
+    normalizeDeviceId(
+      message.senderDeviceId
+    );
+
   const decrypted = await decryptMessage({
-    senderUserId: String(message.sender),
+    senderUserId,
 
-    senderDeviceId:
-      Number(message.senderDeviceId) || 1,
+    senderDeviceId,
 
-    ciphertext: message.ciphertext,
+    ciphertext:
+      message.ciphertext,
 
-    envelopeType: message.envelopeType,
+    envelopeType:
+      message.envelopeType,
+
+    localUserId:
+      normalizedLocalUserId,
   });
+
+  if (
+    !decrypted ||
+    typeof decrypted.text !== "string"
+  ) {
+    throw new Error(
+      "Message decryption returned no plaintext"
+    );
+  }
 
   return {
     ...message,
@@ -220,50 +317,75 @@ export async function decryptIncomingMessage(message) {
     text: decrypted.text,
 
     decryptionFailed: false,
+
+    localPlaintext: true,
   };
 }
 
-/**
- * ============================================================
- * DECRYPT SOCKET MESSAGE
- * ============================================================
- *
- * Alias kept separate so the socket/message layer can make
- * the intent explicit without duplicating crypto logic.
- */
-
-export async function decryptSocketMessage(message) {
-  return decryptIncomingMessage(message);
+export async function decryptSocketMessage({
+  message,
+  localUserId,
+} = {}) {
+  return decryptIncomingMessage({
+    message,
+    localUserId,
+  });
 }
 
-/**
- * ============================================================
- * LOCAL MESSAGE NORMALIZATION
- * ============================================================
- *
- * Useful when Socket.IO sends a message that may already have
- * been decrypted by another part of the application.
- */
 
-export async function normalizeIncomingMessage(message) {
+export async function normalizeIncomingMessage({
+  message,
+  localUserId,
+} = {}) {
   if (!message) {
     return null;
   }
 
-  if (message.text && !message.ciphertext) {
+  if (
+    message.localPlaintext === true &&
+    typeof message.text === "string"
+  ) {
     return {
       ...message,
+
       decryptionFailed: false,
     };
   }
 
   if (message.ciphertext) {
-    return decryptIncomingMessage(message);
+    try {
+      return await decryptIncomingMessage({
+        message,
+        localUserId,
+      });
+    } catch (error) {
+      console.warn(
+        "[E2EE] Incoming message decryption failed:",
+        getMessageId(message),
+        error?.message || error
+      );
+
+      return {
+        ...message,
+
+        text: null,
+
+        decryptionFailed: true,
+
+        displayText:
+          "Unable to decrypt this message.",
+      };
+    }
   }
 
   return {
     ...message,
+
     text: null,
+
     decryptionFailed: true,
+
+    displayText:
+      "Encrypted message unavailable.",
   };
 }

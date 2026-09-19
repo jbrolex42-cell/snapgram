@@ -226,7 +226,6 @@ export default function ChangePasswordScreen() {
 
   return (
     <View style={styles.screen}>
-      {/* Header */}
 
       <View style={styles.header}>
         <Pressable
@@ -263,7 +262,6 @@ export default function ChangePasswordScreen() {
             styles.content
           }
         >
-          {/* Intro */}
 
           <View style={styles.intro}>
             <View style={styles.iconCircle}>
@@ -284,8 +282,6 @@ export default function ChangePasswordScreen() {
             </Text>
           </View>
 
-          {/* Error */}
-
           {error ? (
             <View style={styles.errorBox}>
               <Ionicons
@@ -299,8 +295,6 @@ export default function ChangePasswordScreen() {
               </Text>
             </View>
           ) : null}
-
-          {/* Form */}
 
           <View style={styles.form}>
             <PasswordField
@@ -411,8 +405,6 @@ export default function ChangePasswordScreen() {
               </View>
             ) : null}
 
-            {/* Submit */}
-
             <Pressable
               onPress={changePassword}
               disabled={!canSubmit}
@@ -447,8 +439,6 @@ export default function ChangePasswordScreen() {
               )}
             </Pressable>
           </View>
-
-          {/* Security information */}
 
           <View style={styles.securityCard}>
             <View style={styles.securityHeader}>

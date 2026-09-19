@@ -703,10 +703,6 @@ export default function PostCard({
     <>
       <View style={styles.card}>
 
-        {/* =================================================
-            POST HEADER
-        ================================================= */}
-
         <View style={styles.header}>
           <TouchableOpacity
             style={styles.userButton}
@@ -800,10 +796,6 @@ export default function PostCard({
           </TouchableOpacity>
         </View>
 
-        {/* =================================================
-            MEDIA
-        ================================================= */}
-
         <TouchableOpacity
           activeOpacity={1}
           onPress={handleMediaPress}
@@ -896,10 +888,6 @@ export default function PostCard({
             </View>
           )}
         </TouchableOpacity>
-
-        {/* =================================================
-            ACTIONS
-        ================================================= */}
 
         <View
           style={styles.actions}
@@ -1020,10 +1008,6 @@ export default function PostCard({
           </TouchableOpacity>
         </View>
 
-        {/* =================================================
-            LIKES
-        ================================================= */}
-
         {likesCount > 0 ? (
           <TouchableOpacity
             activeOpacity={0.7}
@@ -1126,10 +1110,6 @@ export default function PostCard({
           </Text>
         ) : null}
       </View>
-
-      {/* ===================================================
-          OPTIONS MODAL
-      =================================================== */}
 
       <Modal
         visible={menuVisible}
