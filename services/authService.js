@@ -1,73 +1,54 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import api from "./api";
+import api, { setApiToken, clearApiToken } from "./api";
 
-export const TOKEN_KEY =
-  "snapgram_token";
-
-export const USER_KEY =
-  "snapgram_user";
-
-export const ACCOUNTS_KEY =
-  "snapgram_saved_accounts";
+export const TOKEN_KEY = "snapgram_token";
+export const USER_KEY = "snapgram_user";
+export const ACCOUNTS_KEY = "snapgram_saved_accounts";
 
 function getUserId(user) {
-  return String(
-    user?._id ||
-      user?.id ||
-      ""
-  );
+  return String(user?._id || user?.id || "");
 }
 
-function normalizeAccount(
-  user,
-  token
-) {
+function normalizeAccount(user, token) {
   return {
     id: getUserId(user),
 
-    username:
-      user?.username || "",
+    username: user?.username || "",
 
-    email:
-      user?.email || "",
+    email: user?.email || "",
 
-    name:
-      user?.fullName ||
-      user?.name ||
-      "",
+    name: user?.fullName || user?.name || "",
 
-    avatar:
-      user?.avatar || "",
+    avatar: user?.avatar || "",
 
-    token,
+    token: String(token || ""),
   };
 }
 
-function getLoginIdentifierType(
-  identifier
-) {
-  const value =
-    String(identifier || "").trim();
+function getLoginIdentifierType(identifier) {
+  const value = String(identifier || "").trim();
 
   if (value.includes("@")) {
     return "email";
   }
 
-  if (
-    /^[+0-9][0-9\s().-]*$/.test(
-      value
-    )
-  ) {
+  if (/^[+0-9][0-9\s().-]*$/.test(value)) {
     return "phone";
   }
 
   return "username";
 }
 
-export async function saveAuthSession(
-  user,
-  token
-) {
+function getErrorMessage(error, fallback = "Something went wrong.") {
+  return (
+    error?.response?.data?.message ||
+    error?.response?.data?.error ||
+    error?.message ||
+    fallback
+  );
+}
+
+export async function saveAuthSession(user, token) {
   if (!user) {
     throw new Error(
       "Unable to save session: user information is missing."
@@ -80,26 +61,18 @@ export async function saveAuthSession(
     );
   }
 
+  const normalizedToken = String(token);
+
   await AsyncStorage.multiSet([
-    [
-      TOKEN_KEY,
-      String(token),
-    ],
-    [
-      USER_KEY,
-      JSON.stringify(user),
-    ],
+    [TOKEN_KEY, normalizedToken],
+    [USER_KEY, JSON.stringify(user)],
   ]);
 
-  await saveLoggedInAccount(
-    user,
-    token
-  );
+  setApiToken(normalizedToken);
 
-  const savedToken =
-    await AsyncStorage.getItem(
-      TOKEN_KEY
-    );
+  await saveLoggedInAccount(user, normalizedToken);
+
+  const savedToken = await AsyncStorage.getItem(TOKEN_KEY);
 
   if (!savedToken) {
     throw new Error(
@@ -117,24 +90,20 @@ export async function saveAuthSession(
   );
 
   return {
-    token,
+    token: normalizedToken,
     user,
   };
 }
 
 async function getStoredAccounts() {
   try {
-    const raw =
-      await AsyncStorage.getItem(
-        ACCOUNTS_KEY
-      );
+    const raw = await AsyncStorage.getItem(ACCOUNTS_KEY);
 
     if (!raw) {
       return [];
     }
 
-    const accounts =
-      JSON.parse(raw);
+    const accounts = JSON.parse(raw);
 
     if (!Array.isArray(accounts)) {
       return [];
@@ -156,43 +125,28 @@ async function getStoredAccounts() {
   }
 }
 
-async function saveStoredAccounts(
-  accounts
-) {
+async function saveStoredAccounts(accounts) {
   await AsyncStorage.setItem(
     ACCOUNTS_KEY,
     JSON.stringify(accounts)
   );
 }
 
-async function saveLoggedInAccount(
-  user,
-  token
-) {
-  const account =
-    normalizeAccount(
-      user,
-      token
-    );
+async function saveLoggedInAccount(user, token) {
+  const account = normalizeAccount(user, token);
 
-  if (
-    !account.id ||
-    !account.token
-  ) {
+  if (!account.id || !account.token) {
     throw new Error(
       "Unable to save account because authentication data is incomplete."
     );
   }
 
-  const accounts =
-    await getStoredAccounts();
+  const accounts = await getStoredAccounts();
 
-  const existingIndex =
-    accounts.findIndex(
-      (item) =>
-        String(item.id) ===
-        String(account.id)
-    );
+  const existingIndex = accounts.findIndex(
+    (item) =>
+      String(item.id) === String(account.id)
+  );
 
   if (existingIndex >= 0) {
     accounts[existingIndex] = {
@@ -203,90 +157,76 @@ async function saveLoggedInAccount(
     accounts.push(account);
   }
 
-  await saveStoredAccounts(
-    accounts
-  );
+  await saveStoredAccounts(accounts);
 }
 
-export async function registerUser(
-  data = {}
-) {
+export async function registerUser(data = {}) {
   const payload = {
-    username:
-      String(
-        data?.username || ""
-      )
-        .trim()
-        .toLowerCase(),
+    username: String(data?.username || "")
+      .trim()
+      .toLowerCase(),
 
-    email:
-      String(
-        data?.email || ""
-      )
-        .trim()
-        .toLowerCase(),
+    email: String(data?.email || "")
+      .trim()
+      .toLowerCase(),
 
-    password:
-      String(
-        data?.password || ""
-      ),
+    password: String(data?.password || ""),
 
-    phone:
-      String(
-        data?.phone || ""
-      ).trim(),
+    phone: String(data?.phone || "").trim(),
 
-    fullName:
-      String(
-        data?.fullName ||
-          data?.name ||
-          ""
-      ).trim(),
+    fullName: String(
+      data?.fullName ||
+        data?.name ||
+        ""
+    ).trim(),
   };
 
   if (!payload.username) {
-    throw new Error(
-      "Username is required."
-    );
+    throw new Error("Username is required.");
   }
 
   if (!payload.email) {
-    throw new Error(
-      "Email is required."
-    );
+    throw new Error("Email is required.");
   }
 
   if (!payload.password) {
-    throw new Error(
-      "Password is required."
-    );
+    throw new Error("Password is required.");
   }
 
-  const response =
-    await api.post(
+  try {
+    const response = await api.post(
       "/auth/register",
       payload
     );
 
-  return response.data;
+    return response.data;
+  } catch (error) {
+    const message = getErrorMessage(
+      error,
+      "Registration failed."
+    );
+
+    console.error(
+      "[AUTH] REGISTER FAILED:",
+      message
+    );
+
+    throw new Error(message);
+  }
 }
 
-export async function loginUser(
-  data = {}
-) {
-  const identifier =
-    String(
-      data?.identifier ||
-        data?.email ||
-        data?.phone ||
-        data?.username ||
-        ""
-    ).trim();
+export async function loginUser(data = {}) {
+  const identifier = String(
+    data?.identifier ||
+      data?.email ||
+      data?.phone ||
+      data?.username ||
+      ""
+  ).trim();
 
-  const password =
-    String(
-      data?.password || ""
-    );
+  const password = String(
+    data?.password || ""
+  );
 
   if (!identifier) {
     throw new Error(
@@ -300,76 +240,50 @@ export async function loginUser(
     );
   }
 
-  const type =
-    getLoginIdentifierType(
-      identifier
-    );
+  const type = getLoginIdentifierType(identifier);
 
   const payload = {
     password,
   };
 
   if (type === "email") {
-    payload.email =
-      identifier
-        .toLowerCase();
+    payload.email = identifier.toLowerCase();
   }
 
   if (type === "phone") {
-    payload.phone =
-      identifier;
+    payload.phone = identifier;
   }
 
   if (type === "username") {
-    payload.username =
-      identifier
-        .toLowerCase();
+    payload.username = identifier.toLowerCase();
   }
 
   console.log(
     "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
   );
 
-  console.log(
-    "[AUTH] LOGIN START"
-  );
-
-  console.log(
-    "[AUTH] IDENTIFIER TYPE:",
-    type
-  );
-
-  console.log(
-    "[AUTH] IDENTIFIER:",
-    identifier
-  );
+  console.log("[AUTH] LOGIN START");
+  console.log("[AUTH] IDENTIFIER TYPE:", type);
+  console.log("[AUTH] IDENTIFIER:", identifier);
 
   console.log(
     "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
   );
 
   try {
-    const response =
-      await api.post(
-        "/auth/login",
-        payload
-      );
+    const response = await api.post(
+      "/auth/login",
+      payload
+    );
 
     const {
       token,
       user,
-    } =
-      response.data || {};
+    } = response.data || {};
 
-    if (!token) {
+    if (!token || !user) {
       throw new Error(
-        "Login succeeded but no authentication token was returned."
-      );
-    }
-
-    if (!user) {
-      throw new Error(
-        "Login succeeded but no user information was returned."
+        "Invalid login response."
       );
     }
 
@@ -382,12 +296,10 @@ export async function loginUser(
       "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
     );
 
+    console.log("[AUTH] LOGIN SUCCESS");
+    console.log("[AUTH] TOKEN SAVED:", true);
     console.log(
-      "[AUTH] LOGIN SUCCESS"
-    );
-
-    console.log(
-      "[AUTH] TOKEN SAVED:",
+      "[AUTH] API TOKEN SET:",
       true
     );
 
@@ -406,26 +318,21 @@ export async function loginUser(
 
     return response.data;
   } catch (error) {
-    const message =
-      error?.response?.data
-        ?.message ||
-      error?.message ||
-      "Login failed.";
+    const message = getErrorMessage(
+      error,
+      "Login failed."
+    );
 
     console.error(
       "[AUTH] LOGIN FAILED:",
       message
     );
 
-    throw new Error(
-      message
-    );
+    throw new Error(message);
   }
 }
 
-export async function loginWithGoogle(
-  idToken
-) {
+export async function loginWithGoogle(idToken) {
   if (!idToken) {
     throw new Error(
       "Google authentication token is missing."
@@ -433,29 +340,21 @@ export async function loginWithGoogle(
   }
 
   try {
-    const response =
-      await api.post(
-        "/auth/google",
-        {
-          idToken,
-        }
-      );
+    const response = await api.post(
+      "/auth/google",
+      {
+        idToken,
+      }
+    );
 
     const {
       token,
       user,
-    } =
-      response.data || {};
+    } = response.data || {};
 
-    if (!token) {
+    if (!token || !user) {
       throw new Error(
-        "Google login succeeded but no authentication token was returned."
-      );
-    }
-
-    if (!user) {
-      throw new Error(
-        "Google login succeeded but no user information was returned."
+        "Invalid Google login response."
       );
     }
 
@@ -474,20 +373,17 @@ export async function loginWithGoogle(
 
     return response.data;
   } catch (error) {
-    const message =
-      error?.response?.data
-        ?.message ||
-      error?.message ||
-      "Google login failed.";
+    const message = getErrorMessage(
+      error,
+      "Google login failed."
+    );
 
     console.error(
       "[AUTH] GOOGLE LOGIN FAILED:",
       message
     );
 
-    throw new Error(
-      message
-    );
+    throw new Error(message);
   }
 }
 
@@ -501,29 +397,21 @@ export async function loginWithFacebook(
   }
 
   try {
-    const response =
-      await api.post(
-        "/auth/facebook",
-        {
-          accessToken,
-        }
-      );
+    const response = await api.post(
+      "/auth/facebook",
+      {
+        accessToken,
+      }
+    );
 
     const {
       token,
       user,
-    } =
-      response.data || {};
+    } = response.data || {};
 
-    if (!token) {
+    if (!token || !user) {
       throw new Error(
-        "Facebook login succeeded but no authentication token was returned."
-      );
-    }
-
-    if (!user) {
-      throw new Error(
-        "Facebook login succeeded but no user information was returned."
+        "Invalid Facebook login response."
       );
     }
 
@@ -542,29 +430,25 @@ export async function loginWithFacebook(
 
     return response.data;
   } catch (error) {
-    const message =
-      error?.response?.data
-        ?.message ||
-      error?.message ||
-      "Facebook login failed.";
+    const message = getErrorMessage(
+      error,
+      "Facebook login failed."
+    );
 
     console.error(
       "[AUTH] FACEBOOK LOGIN FAILED:",
       message
     );
 
-    throw new Error(
-      message
-    );
+    throw new Error(message);
   }
 }
 
 export async function getCurrentUser() {
   try {
-    const response =
-      await api.get(
-        "/auth/me"
-      );
+    const response = await api.get(
+      "/auth/me"
+    );
 
     const user =
       response.data?.user;
@@ -586,6 +470,8 @@ export async function getCurrentUser() {
       );
 
     if (token) {
+      setApiToken(token);
+
       await saveLoggedInAccount(
         user,
         token
@@ -605,6 +491,8 @@ export async function getCurrentUser() {
         TOKEN_KEY,
         USER_KEY,
       ]);
+
+      clearApiToken();
     }
 
     throw error;
@@ -636,6 +524,43 @@ export async function getStoredUser() {
     );
 
     return null;
+  }
+}
+
+export async function restoreAuthSession() {
+  try {
+    const [
+      token,
+      user,
+    ] = await Promise.all([
+      AsyncStorage.getItem(
+        TOKEN_KEY
+      ),
+      getStoredUser(),
+    ]);
+
+    if (token) {
+      setApiToken(token);
+    } else {
+      clearApiToken();
+    }
+
+    return {
+      token: token || null,
+      user: user || null,
+    };
+  } catch (error) {
+    console.error(
+      "[AUTH] RESTORE SESSION ERROR:",
+      error?.message || error
+    );
+
+    clearApiToken();
+
+    return {
+      token: null,
+      user: null,
+    };
   }
 }
 
@@ -683,6 +608,8 @@ export async function switchSavedAccount(
     account.token
   );
 
+  setApiToken(account.token);
+
   try {
     const response =
       await api.get(
@@ -708,17 +635,30 @@ export async function switchSavedAccount(
       account.token
     );
 
+    console.log(
+      "[AUTH] ACCOUNT SWITCHED:",
+      user?.username ||
+        user?.email ||
+        user?._id ||
+        user?.id
+    );
+
     return user;
   } catch (error) {
+
     if (previousToken) {
       await AsyncStorage.setItem(
         TOKEN_KEY,
         previousToken
       );
+
+      setApiToken(previousToken);
     } else {
       await AsyncStorage.removeItem(
         TOKEN_KEY
       );
+
+      clearApiToken();
     }
 
     if (previousUserRaw) {
@@ -816,6 +756,8 @@ export async function removeSavedAccount(
       USER_KEY,
     ]);
 
+    clearApiToken();
+
     return {
       removed: true,
       switched: false,
@@ -825,6 +767,10 @@ export async function removeSavedAccount(
 
   await AsyncStorage.setItem(
     TOKEN_KEY,
+    nextAccount.token
+  );
+
+  setApiToken(
     nextAccount.token
   );
 
@@ -853,6 +799,14 @@ export async function removeSavedAccount(
       nextAccount.token
     );
 
+    console.log(
+      "[AUTH] NEXT ACCOUNT ACTIVATED:",
+      user?.username ||
+        user?.email ||
+        user?._id ||
+        user?.id
+    );
+
     return {
       removed: true,
       switched: true,
@@ -864,6 +818,8 @@ export async function removeSavedAccount(
       USER_KEY,
     ]);
 
+    clearApiToken();
+
     throw error;
   }
 }
@@ -873,6 +829,8 @@ export async function logoutUser() {
     TOKEN_KEY,
     USER_KEY,
   ]);
+
+  clearApiToken();
 
   console.log(
     "[AUTH] LOGGED OUT"

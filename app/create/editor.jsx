@@ -1637,3 +1637,45 @@ const styles = StyleSheet.create({
     fontWeight: "700",
   },
 });
+
+const music = parseJson(
+  req.body.music,
+  null
+);
+
+const post = await Post.create({
+  user: userId,
+
+  media,
+
+  postType,
+
+  caption,
+
+  location,
+
+  taggedUsers,
+
+  visibility,
+
+  music: music
+    ? {
+        trackId: music.trackId || null,
+        title: music.title || "",
+        artist: music.artist || "",
+        album: music.album || "",
+        artworkUrl: music.artworkUrl || "",
+        provider: music.provider || "snapgram",
+        providerTrackId:
+          music.providerTrackId || "",
+        startMs: Math.max(
+          Number(music.startMs) || 0,
+          0
+        ),
+        durationMs: Math.max(
+          Number(music.durationMs) || 0,
+          0
+        ),
+      }
+    : null,
+});

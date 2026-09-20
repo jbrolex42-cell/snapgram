@@ -3,29 +3,29 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 
 export const TOKEN_KEY = "snapgram_token";
 
-const ENV_API_URL = process.env.EXPO_PUBLIC_API_URL;
+const API_URL = "https://snapgram-api-0rdz.onrender.com/api";
 
-const API_URL =
-  typeof window !== "undefined"
-    ? "https://snapgram-api-0rdz.onrender.com/api"
-    : ENV_API_URL;
-
-const baseURL = String(API_URL || "").trim();
-
-if (!baseURL) {
-  console.error("[API] ERROR: API URL is missing.");
-}
-
-console.log("[API] BASE URL:", baseURL);
+console.log("[API] BASE URL:", API_URL);
 
 let memoryToken = null;
 
 export function setApiToken(token) {
   memoryToken = token ? String(token) : null;
+
+  if (__DEV__) {
+    console.log(
+      "[API] TOKEN SET:",
+      memoryToken ? "YES" : "NO"
+    );
+  }
 }
 
 export function clearApiToken() {
   memoryToken = null;
+
+  if (__DEV__) {
+    console.log("[API] TOKEN CLEARED");
+  }
 }
 
 export async function restoreApiToken() {
@@ -34,19 +34,29 @@ export async function restoreApiToken() {
 
     memoryToken = token || null;
 
+    if (__DEV__) {
+      console.log(
+        "[API] TOKEN RESTORED:",
+        memoryToken ? "YES" : "NO"
+      );
+    }
+
     return memoryToken;
   } catch (error) {
-    console.error("[API] TOKEN RESTORE ERROR:", error);
+    console.error(
+      "[API] TOKEN RESTORE ERROR:",
+      error
+    );
+
     memoryToken = null;
+
     return null;
   }
 }
 
 const api = axios.create({
-  baseURL,
-
+  baseURL: API_URL,
   timeout: 15000,
-
   headers: {
     Accept: "application/json",
     "Content-Type": "application/json",
@@ -57,20 +67,27 @@ api.interceptors.request.use(
   (config) => {
     if (memoryToken) {
       config.headers = config.headers || {};
-      config.headers.Authorization = `Bearer ${memoryToken}`;
+
+      config.headers.Authorization =
+        `Bearer ${memoryToken}`;
     }
 
     if (__DEV__) {
       console.log(
         "[API]",
         config.method?.toUpperCase(),
-        config.url
+        config.baseURL + config.url,
+        memoryToken
+          ? "[TOKEN ATTACHED]"
+          : "[NO TOKEN]"
       );
     }
 
     return config;
   },
-  (error) => Promise.reject(error)
+  (error) => {
+    return Promise.reject(error);
+  }
 );
 
 api.interceptors.response.use(
@@ -92,15 +109,23 @@ api.interceptors.response.use(
 
     if (response?.status === 401) {
       memoryToken = null;
+
+      if (__DEV__) {
+        console.error(
+          "[API] TOKEN REJECTED - MEMORY TOKEN CLEARED"
+        );
+      }
     }
 
     if (__DEV__) {
       console.error(
         "[API ERROR]",
         config?.method?.toUpperCase(),
+        config?.baseURL,
         config?.url,
         response?.status,
-        response?.data?.message || error?.message
+        response?.data?.message ||
+          error?.message
       );
     }
 

@@ -24,6 +24,10 @@ import {
 } from "../context/AuthContext";
 
 import {
+  restoreApiToken,
+} from "../services/api";
+
+import {
   connectSocket,
   getSocket,
 } from "../services/socket";
@@ -63,14 +67,28 @@ function RootNavigator() {
   const pathname =
     usePathname();
 
+  const navigationReady =
+    Boolean(navigationState?.key);
+
   const currentUserId =
     user?._id ||
     user?.id ||
     user?.userId ||
     "";
 
-  const navigationReady =
-    Boolean(navigationState?.key);
+  const isAuthRoute =
+    pathname === "/login" ||
+    pathname?.startsWith("/(auth)") ||
+    pathname?.startsWith("/login");
+
+  const isCallRoute =
+    pathname?.startsWith("/calls");
+
+  const isIncomingCallRoute =
+    pathname === "/calls/incoming" ||
+    pathname?.startsWith(
+      "/calls/incoming/"
+    );
 
   const redirectingRef =
     useRef(false);
@@ -84,17 +102,38 @@ function RootNavigator() {
   const navigatingToCallRef =
     useRef(false);
 
-  const isAuthRoute =
-    pathname === "/login" ||
-    pathname?.startsWith("/(auth)") ||
-    pathname?.startsWith("/login");
+  useEffect(() => {
+    let cancelled = false;
 
-  const isCallRoute =
-    pathname?.startsWith("/calls");
+    const restoreToken = async () => {
+      try {
+        const token =
+          await restoreApiToken();
 
-  const isIncomingCallRoute =
-    pathname === "/calls/incoming" ||
-    pathname?.startsWith("/calls/incoming/");
+        if (cancelled) {
+          return;
+        }
+
+        if (__DEV__) {
+          console.log(
+            "[ROOT] API TOKEN RESTORED:",
+            token ? "YES" : "NO"
+          );
+        }
+      } catch (error) {
+        console.error(
+          "[ROOT] API TOKEN RESTORE ERROR:",
+          error
+        );
+      }
+    };
+
+    restoreToken();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     if (!navigationReady) {
@@ -133,12 +172,12 @@ function RootNavigator() {
             false;
         }, 300);
 
-      return () =>
+      return () => {
         clearTimeout(timer);
+      };
     }
 
-    lastAuthRouteRef.current =
-      "";
+    lastAuthRouteRef.current = "";
 
     if (isAuthRoute) {
       if (redirectingRef.current) {
@@ -158,8 +197,9 @@ function RootNavigator() {
             false;
         }, 300);
 
-      return () =>
+      return () => {
         clearTimeout(timer);
+      };
     }
   }, [
     user,
@@ -181,7 +221,7 @@ function RootNavigator() {
 
       if (!callId) {
         console.warn(
-          "INCOMING CALL: Missing call ID.",
+          "[CALL] Missing call ID:",
           call
         );
 
@@ -295,7 +335,7 @@ function RootNavigator() {
 
         if (isCallRoute) {
           console.log(
-            "INCOMING CALL IGNORED: already in call.",
+            "[CALL] Ignored because already in call:",
             callId
           );
 
@@ -320,7 +360,7 @@ function RootNavigator() {
           true;
 
         console.log(
-          "OPENING INCOMING CALL:",
+          "[CALL] Opening incoming call:",
           call
         );
 
@@ -333,20 +373,21 @@ function RootNavigator() {
             callerId,
             callerName,
             callerAvatar,
-            username: callerName,
-            avatar: callerAvatar,
+
+            username:
+              callerName,
+
+            avatar:
+              callerAvatar,
+
             type,
           },
         });
 
-        const timer =
-          setTimeout(() => {
-            navigatingToCallRef.current =
-              false;
-          }, 700);
-
-        return () =>
-          clearTimeout(timer);
+        setTimeout(() => {
+          navigatingToCallRef.current =
+            false;
+        }, 700);
       },
       [
         user,
@@ -372,7 +413,7 @@ function RootNavigator() {
 
     try {
       console.log(
-        "ROOT SOCKET: Connecting user:",
+        "[ROOT SOCKET] Connecting:",
         currentUserId
       );
 
@@ -383,7 +424,7 @@ function RootNavigator() {
 
       if (!socket) {
         console.warn(
-          "ROOT SOCKET: connectSocket returned no socket."
+          "[ROOT SOCKET] No socket returned."
         );
 
         return;
@@ -394,11 +435,11 @@ function RootNavigator() {
       }
 
       console.log(
-        "ROOT SOCKET: Socket ready."
+        "[ROOT SOCKET] Socket ready."
       );
     } catch (error) {
       console.error(
-        "ROOT SOCKET CONNECTION ERROR:",
+        "[ROOT SOCKET] Connection error:",
         error
       );
     }
@@ -437,7 +478,7 @@ function RootNavigator() {
 
         if (!socket) {
           console.warn(
-            "ROOT CALL LISTENER: Socket unavailable."
+            "[CALL LISTENER] Socket unavailable."
           );
 
           return;
@@ -454,7 +495,7 @@ function RootNavigator() {
         );
 
         console.log(
-          "ROOT CALL LISTENER: attached."
+          "[CALL LISTENER] Attached."
         );
       };
 
@@ -506,7 +547,7 @@ function RootNavigator() {
     let cancelled = false;
     let subscription = null;
 
-    const setup =
+    const setupNotifications =
       async () => {
         try {
           const Notifications =
@@ -526,6 +567,10 @@ function RootNavigator() {
             typeof addNotificationResponseReceivedListener !==
             "function"
           ) {
+            console.warn(
+              "[NOTIFICATIONS] Response listener unavailable."
+            );
+
             return;
           }
 
@@ -550,7 +595,7 @@ function RootNavigator() {
                   }
 
                   console.log(
-                    "CALL NOTIFICATION OPENED:",
+                    "[NOTIFICATIONS] Incoming call opened:",
                     data
                   );
 
@@ -573,7 +618,7 @@ function RootNavigator() {
                   });
                 } catch (error) {
                   console.error(
-                    "CALL NOTIFICATION HANDLER ERROR:",
+                    "[NOTIFICATIONS] Handler error:",
                     error
                   );
                 }
@@ -581,14 +626,14 @@ function RootNavigator() {
             );
         } catch (error) {
           console.warn(
-            "NOTIFICATION LISTENER SETUP FAILED:",
+            "[NOTIFICATIONS] Setup failed:",
             error?.message ||
               error
           );
         }
       };
 
-    setup();
+    setupNotifications();
 
     return () => {
       cancelled = true;
@@ -610,7 +655,6 @@ function RootNavigator() {
 
   return (
     <View style={styles.root}>
-
       <Stack
         screenOptions={{
           headerShown: false,
@@ -636,46 +680,34 @@ export default function RootLayout() {
 const styles = StyleSheet.create({
   root: {
     flex: 1,
-    backgroundColor:
-      "#FFFFFF",
+    backgroundColor: "#FFFFFF",
   },
 
   loadingOverlay: {
     ...StyleSheet.absoluteFillObject,
 
-    backgroundColor:
-      "#FFFFFF",
+    backgroundColor: "#FFFFFF",
 
-    alignItems:
-      "center",
-
-    justifyContent:
-      "center",
+    alignItems: "center",
+    justifyContent: "center",
 
     zIndex: 9999,
   },
 
   loadingCard: {
-    alignItems:
-      "center",
-
-    justifyContent:
-      "center",
+    alignItems: "center",
+    justifyContent: "center",
   },
 
   loadingLogo: {
     fontSize: 36,
 
-    fontWeight:
-      "900",
+    fontWeight: "900",
 
-    color:
-      "#111111",
+    color: "#111111",
 
-    marginBottom:
-      20,
+    marginBottom: 20,
 
-    letterSpacing:
-      -1,
+    letterSpacing: -1,
   },
 });
