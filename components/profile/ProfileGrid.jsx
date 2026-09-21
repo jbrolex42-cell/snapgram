@@ -1,4 +1,9 @@
-import React, { memo, useCallback, useMemo } from "react";
+import React, {
+  memo,
+  useCallback,
+  useMemo,
+} from "react";
+
 import {
   Dimensions,
   FlatList,
@@ -8,14 +13,21 @@ import {
   Text,
   View,
 } from "react-native";
+
 import { router } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 
 const SCREEN_WIDTH = Dimensions.get("window").width;
+
 const GAP = 2;
 const COLUMNS = 3;
+
 const ITEM_SIZE =
   (SCREEN_WIDTH - GAP * (COLUMNS - 1)) / COLUMNS;
+
+/* -------------------------------------------------------
+   Helpers
+------------------------------------------------------- */
 
 function getPostId(post) {
   return String(
@@ -103,20 +115,6 @@ function getMediaUrl(media) {
   return url.trim();
 }
 
-function getFirstMediaUrl(post) {
-  const media = getMedia(post);
-
-  for (const item of media) {
-    const url = getMediaUrl(item);
-
-    if (url) {
-      return url;
-    }
-  }
-
-  return null;
-}
-
 function isVideoMedia(media) {
   if (!media) {
     return false;
@@ -163,103 +161,146 @@ function isRepost(post) {
   );
 }
 
-const ProfileGridItem = memo(function ProfileGridItem({
-  post,
-  onPress,
-}) {
-  const originalPost = getOriginalPost(post);
+/* -------------------------------------------------------
+   Profile Grid Item
+------------------------------------------------------- */
 
-  const media = getMedia(originalPost);
+const ProfileGridItem = memo(
+  function ProfileGridItem({
+    post,
+    onPress,
+  }) {
+    const originalPost =
+      getOriginalPost(post);
 
-  const preview = getFirstMediaUrl(
-    originalPost
-  );
+    const media =
+      getMedia(originalPost);
 
-  const video = hasVideo(originalPost);
+    const preview =
+      getMediaUrl(media[0]);
 
-  const multiple = media.length > 1;
+    const video =
+      hasVideo(originalPost);
 
-  const repost = isRepost(post);
+    const multiple =
+      media.length > 1;
 
-  return (
-    <Pressable
-      style={({ pressed }) => [
-        styles.item,
-        pressed && styles.itemPressed,
-      ]}
-      onPress={() => onPress(post)}
-      android_ripple={{
-        color: "rgba(0,0,0,0.12)",
-      }}
-    >
-      {preview ? (
-        <Image
-          source={{ uri: preview }}
-          style={styles.image}
-          resizeMode="cover"
-          onError={(event) => {
-            console.warn(
-              "[PROFILE GRID] IMAGE LOAD ERROR:",
-              {
-                postId: getPostId(post),
-                uri: preview,
-                error:
-                  event?.nativeEvent?.error,
+    const repost =
+      isRepost(post);
+
+    const postType =
+      originalPost?.postType ||
+      post?.postType ||
+      "post";
+
+    const isReel =
+      postType === "reel";
+
+    return (
+      <Pressable
+        style={({ pressed }) => [
+          styles.item,
+          pressed && styles.itemPressed,
+        ]}
+        onPress={() => onPress(post)}
+        android_ripple={{
+          color: "rgba(0,0,0,0.12)",
+        }}
+      >
+        {preview ? (
+          <Image
+            source={{ uri: preview }}
+            style={styles.image}
+            resizeMode="cover"
+            onError={(event) => {
+              console.warn(
+                "[PROFILE GRID] IMAGE LOAD ERROR:",
+                {
+                  postId: getPostId(post),
+                  uri: preview,
+                  error:
+                    event?.nativeEvent?.error,
+                }
+              );
+            }}
+          />
+        ) : (
+          <View style={styles.placeholder}>
+            <Ionicons
+              name={
+                video
+                  ? "videocam-outline"
+                  : "image-outline"
               }
-            );
-          }}
-        />
-      ) : (
-        <View style={styles.placeholder}>
-          <Ionicons
-            name="image-outline"
-            size={34}
-            color="#999"
-          />
+              size={34}
+              color="#999"
+            />
 
-          <Text style={styles.placeholderText}>
-            No media
-          </Text>
-        </View>
-      )}
+            <Text
+              style={styles.placeholderText}
+            >
+              No media
+            </Text>
+          </View>
+        )}
 
-      {video && (
-        <View style={styles.topRightBadge}>
-          <Ionicons
-            name="play"
-            size={15}
-            color="#fff"
-          />
-        </View>
-      )}
+        {/* Reel indicator */}
+        {isReel && (
+          <View style={styles.reelBadge}>
+            <Ionicons
+              name="play"
+              size={15}
+              color="#fff"
+            />
+          </View>
+        )}
 
-      {multiple && (
-        <View
-          style={[
-            styles.topRightBadge,
-            video && styles.multiplePosition,
-          ]}
-        >
-          <Ionicons
-            name="copy-outline"
-            size={16}
-            color="#fff"
-          />
-        </View>
-      )}
+        {/* Video indicator for normal posts */}
+        {video && !isReel && (
+          <View style={styles.topRightBadge}>
+            <Ionicons
+              name="play"
+              size={15}
+              color="#fff"
+            />
+          </View>
+        )}
 
-      {repost && (
-        <View style={styles.repostBadge}>
-          <Ionicons
-            name="repeat"
-            size={16}
-            color="#fff"
-          />
-        </View>
-      )}
-    </Pressable>
-  );
-});
+        {/* Multiple media indicator */}
+        {multiple && (
+          <View
+            style={[
+              styles.topRightBadge,
+              (video || isReel) &&
+                styles.multiplePosition,
+            ]}
+          >
+            <Ionicons
+              name="copy-outline"
+              size={16}
+              color="#fff"
+            />
+          </View>
+        )}
+
+        {/* Repost indicator */}
+        {repost && (
+          <View style={styles.repostBadge}>
+            <Ionicons
+              name="repeat"
+              size={16}
+              color="#fff"
+            />
+          </View>
+        )}
+      </Pressable>
+    );
+  }
+);
+
+/* -------------------------------------------------------
+   Main Profile Grid
+------------------------------------------------------- */
 
 function ProfileGrid({
   posts = [],
@@ -281,6 +322,10 @@ function ProfileGrid({
 
     return posts.filter(Boolean);
   }, [posts]);
+
+  /* -----------------------------------------------------
+     Open post/reel
+  ----------------------------------------------------- */
 
   const openPost = useCallback(
     (post) => {
@@ -334,6 +379,10 @@ function ProfileGrid({
     []
   );
 
+  /* -----------------------------------------------------
+     Render item
+  ----------------------------------------------------- */
+
   const renderItem = useCallback(
     ({ item }) => (
       <ProfileGridItem
@@ -343,6 +392,10 @@ function ProfileGrid({
     ),
     [openPost]
   );
+
+  /* -----------------------------------------------------
+     Keys
+  ----------------------------------------------------- */
 
   const keyExtractor = useCallback(
     (item, index) => {
@@ -354,6 +407,10 @@ function ProfileGrid({
     },
     []
   );
+
+  /* -----------------------------------------------------
+     Loading
+  ----------------------------------------------------- */
 
   if (loading) {
     return (
@@ -371,6 +428,10 @@ function ProfileGrid({
     );
   }
 
+  /* -----------------------------------------------------
+     Empty
+  ----------------------------------------------------- */
+
   if (data.length === 0) {
     return (
       <View style={styles.empty}>
@@ -387,13 +448,19 @@ function ProfileGrid({
         </Text>
 
         {!!emptyMessage && (
-          <Text style={styles.emptyMessage}>
+          <Text
+            style={styles.emptyMessage}
+          >
             {emptyMessage}
           </Text>
         )}
       </View>
     );
   }
+
+  /* -----------------------------------------------------
+     Grid
+  ----------------------------------------------------- */
 
   return (
     <FlatList
@@ -417,6 +484,10 @@ function ProfileGrid({
 }
 
 export default memo(ProfileGrid);
+
+/* -------------------------------------------------------
+   Styles
+------------------------------------------------------- */
 
 const styles = StyleSheet.create({
   grid: {
@@ -469,6 +540,19 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     backgroundColor:
       "rgba(0,0,0,0.58)",
+  },
+
+  reelBadge: {
+    position: "absolute",
+    top: 7,
+    right: 7,
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor:
+      "rgba(0,0,0,0.68)",
   },
 
   multiplePosition: {

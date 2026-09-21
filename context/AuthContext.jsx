@@ -3,6 +3,7 @@ import React, {
   useCallback,
   useContext,
   useEffect,
+  useMemo,
   useState,
 } from "react";
 
@@ -14,6 +15,7 @@ import {
   loginWithGoogle,
   loginWithFacebook,
   restoreAuthSession,
+  saveAuthSession,
   switchSavedAccount,
 } from "../services/authService";
 
@@ -31,6 +33,10 @@ import {
 } from "../services/e2ee/e2eeStore";
 
 const AuthContext = createContext(null);
+
+/* -------------------------------------------------------------------------- */
+/* Helpers                                                                    */
+/* -------------------------------------------------------------------------- */
 
 function getUserId(user) {
   return (
@@ -52,10 +58,28 @@ function getAuthErrorMessage(
   );
 }
 
+function getUserLabel(user) {
+  return (
+    user?.username ||
+    user?.email ||
+    user?._id ||
+    user?.id ||
+    "unknown"
+  );
+}
+
+/* -------------------------------------------------------------------------- */
+/* Provider                                                                   */
+/* -------------------------------------------------------------------------- */
+
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+
+  /* ------------------------------------------------------------------------ */
+  /* E2EE                                                                     */
+  /* ------------------------------------------------------------------------ */
 
   const initializeE2EE = useCallback(
     async (authenticatedUser) => {
@@ -105,22 +129,48 @@ export function AuthProvider({ children }) {
     []
   );
 
+  /* ------------------------------------------------------------------------ */
+  /* Close E2EE safely                                                        */
+  /* ------------------------------------------------------------------------ */
+
+  const safelyCloseE2EE = useCallback(
+    async (label = "CLOSE") => {
+      try {
+        await closeE2EEStore();
+      } catch (e2eeCloseError) {
+        console.warn(
+          `[E2EE] STORE CLOSE ${label}:`,
+          e2eeCloseError?.message ||
+            e2eeCloseError
+        );
+      }
+    },
+    []
+  );
+
+  /* ------------------------------------------------------------------------ */
+  /* Restore saved authentication session                                     */
+  /* ------------------------------------------------------------------------ */
+
   const restoreSession = useCallback(
     async () => {
-      try {
-        setLoading(true);
-        setError(null);
+      setLoading(true);
+      setError(null);
 
+      try {
         const session =
           await restoreAuthSession();
 
         const token = session?.token;
-        const storedUser = session?.user;
 
         console.log(
           "[AUTH] RESTORING SESSION — TOKEN:",
           Boolean(token)
         );
+
+        /* ------------------------------------------------------------------ */
+        /* No saved token                                                     */
+        /* ------------------------------------------------------------------ */
 
         if (!token) {
           console.log(
@@ -129,20 +179,22 @@ export function AuthProvider({ children }) {
 
           disconnectSocket();
 
-          try {
-            await closeE2EEStore();
-          } catch (e2eeCloseError) {
-            console.warn(
-              "[E2EE] STORE CLOSE ERROR:",
-              e2eeCloseError?.message ||
-                e2eeCloseError
-            );
-          }
+          await safelyCloseE2EE(
+            "WHEN NO SESSION"
+          );
 
           setUser(null);
 
           return null;
         }
+
+        /* ------------------------------------------------------------------ */
+        /* Validate token against backend                                     */
+        /* ------------------------------------------------------------------ */
+
+        console.log(
+          "[AUTH] VALIDATING SAVED SESSION..."
+        );
 
         const currentUser =
           await getCurrentUser();
@@ -153,18 +205,28 @@ export function AuthProvider({ children }) {
           );
         }
 
+        console.log(
+          "[AUTH] AUTHENTICATED USER:",
+          getUserLabel(currentUser)
+        );
+
+        /* ------------------------------------------------------------------ */
+        /* Initialize encryption device                                       */
+        /* ------------------------------------------------------------------ */
+
         await initializeE2EE(
           currentUser
         );
+
+        /* ------------------------------------------------------------------ */
+        /* Update React authentication state                                  */
+        /* ------------------------------------------------------------------ */
 
         setUser(currentUser);
 
         console.log(
           "[AUTH] SESSION RESTORED:",
-          currentUser?.username ||
-            currentUser?.email ||
-            currentUser?._id ||
-            currentUser?.id
+          getUserLabel(currentUser)
         );
 
         return currentUser;
@@ -178,33 +240,67 @@ export function AuthProvider({ children }) {
             "Unable to restore your session."
           );
 
+        /* ------------------------------------------------------------------ */
+        /* Invalid/expired token                                              */
+        /* ------------------------------------------------------------------ */
+
         if (
           status === 401 ||
           status === 403
         ) {
           console.log(
-            "[AUTH] SAVED AUTH TOKEN IS INVALID."
+            "[AUTH] SAVED AUTH TOKEN IS INVALID OR EXPIRED."
           );
         } else {
+          /* ---------------------------------------------------------------- */
+          /* Detailed diagnostics                                             */
+          /* ---------------------------------------------------------------- */
+
           console.error(
             "[AUTH] RESTORE SESSION ERROR:",
-            restoreError?.response?.data ||
-              restoreError?.message ||
-              restoreError
+            restoreError
+          );
+
+          console.error(
+            "[AUTH] ERROR MESSAGE:",
+            restoreError?.message
+          );
+
+          console.error(
+            "[AUTH] ERROR CODE:",
+            restoreError?.code
+          );
+
+          console.error(
+            "[AUTH] ERROR STATUS:",
+            restoreError?.response?.status
+          );
+
+          console.error(
+            "[AUTH] ERROR DATA:",
+            restoreError?.response?.data
+          );
+
+          console.error(
+            "[AUTH] ERROR URL:",
+            restoreError?.config?.url
+          );
+
+          console.error(
+            "[AUTH] ERROR BASE URL:",
+            restoreError?.config?.baseURL
           );
         }
+
+        /* ------------------------------------------------------------------ */
+        /* Clean up authentication resources                                  */
+        /* ------------------------------------------------------------------ */
 
         disconnectSocket();
 
-        try {
-          await closeE2EEStore();
-        } catch (e2eeCloseError) {
-          console.warn(
-            "[E2EE] STORE CLOSE ERROR:",
-            e2eeCloseError?.message ||
-              e2eeCloseError
-          );
-        }
+        await safelyCloseE2EE(
+          "AFTER SESSION RESTORE ERROR"
+        );
 
         setUser(null);
         setError(message);
@@ -214,37 +310,34 @@ export function AuthProvider({ children }) {
         setLoading(false);
       }
     },
-    [initializeE2EE]
+    [
+      initializeE2EE,
+      safelyCloseE2EE,
+    ]
   );
 
+  /* ------------------------------------------------------------------------ */
+  /* Restore authentication on app startup                                   */
+  /* ------------------------------------------------------------------------ */
+
   useEffect(() => {
-    let mounted = true;
-
-    async function initializeAuth() {
-      if (!mounted) {
-        return;
-      }
-
-      await restoreSession();
-    }
-
-    initializeAuth();
-
-    return () => {
-      mounted = false;
-    };
+    restoreSession();
   }, [restoreSession]);
+
+  /* ------------------------------------------------------------------------ */
+  /* Socket lifecycle                                                        */
+  /* ------------------------------------------------------------------------ */
 
   useEffect(() => {
     if (loading) {
-      return;
+      return undefined;
     }
 
     const userId = getUserId(user);
 
     if (!userId) {
       disconnectSocket();
-      return;
+      return undefined;
     }
 
     let cancelled = false;
@@ -294,6 +387,10 @@ export function AuthProvider({ children }) {
       cancelled = true;
     };
   }, [user, loading]);
+
+  /* ------------------------------------------------------------------------ */
+  /* Login                                                                    */
+  /* ------------------------------------------------------------------------ */
 
   const login = useCallback(
     async (identifier, password) => {
@@ -354,10 +451,7 @@ export function AuthProvider({ children }) {
 
         console.log(
           "[AUTH] LOGIN SUCCESS:",
-          result.user?.username ||
-            result.user?.email ||
-            result.user?._id ||
-            result.user?.id
+          getUserLabel(result.user)
         );
 
         return result;
@@ -370,11 +464,22 @@ export function AuthProvider({ children }) {
 
         setError(message);
 
+        console.error(
+          "[AUTH] LOGIN ERROR:",
+          loginError?.response?.data ||
+            loginError?.message ||
+            loginError
+        );
+
         throw new Error(message);
       }
     },
     [initializeE2EE]
   );
+
+  /* ------------------------------------------------------------------------ */
+  /* Google login                                                             */
+  /* ------------------------------------------------------------------------ */
 
   const loginWithGoogleAccount =
     useCallback(
@@ -387,6 +492,10 @@ export function AuthProvider({ children }) {
               "Google authentication token is missing."
             );
           }
+
+          console.log(
+            "[AUTH] GOOGLE LOGIN REQUEST"
+          );
 
           const result =
             await loginWithGoogle(
@@ -413,10 +522,7 @@ export function AuthProvider({ children }) {
 
           console.log(
             "[AUTH] GOOGLE LOGIN COMPLETE:",
-            result.user?.username ||
-              result.user?.email ||
-              result.user?._id ||
-              result.user?.id
+            getUserLabel(result.user)
           );
 
           return result;
@@ -429,11 +535,22 @@ export function AuthProvider({ children }) {
 
           setError(message);
 
+          console.error(
+            "[AUTH] GOOGLE LOGIN ERROR:",
+            googleError?.response?.data ||
+              googleError?.message ||
+              googleError
+          );
+
           throw new Error(message);
         }
       },
       [initializeE2EE]
     );
+
+  /* ------------------------------------------------------------------------ */
+  /* Facebook login                                                           */
+  /* ------------------------------------------------------------------------ */
 
   const loginWithFacebookAccount =
     useCallback(
@@ -446,6 +563,10 @@ export function AuthProvider({ children }) {
               "Facebook access token is missing."
             );
           }
+
+          console.log(
+            "[AUTH] FACEBOOK LOGIN REQUEST"
+          );
 
           const result =
             await loginWithFacebook(
@@ -472,10 +593,7 @@ export function AuthProvider({ children }) {
 
           console.log(
             "[AUTH] FACEBOOK LOGIN COMPLETE:",
-            result.user?.username ||
-              result.user?.email ||
-              result.user?._id ||
-              result.user?.id
+            getUserLabel(result.user)
           );
 
           return result;
@@ -488,11 +606,22 @@ export function AuthProvider({ children }) {
 
           setError(message);
 
+          console.error(
+            "[AUTH] FACEBOOK LOGIN ERROR:",
+            facebookError?.response?.data ||
+              facebookError?.message ||
+              facebookError
+          );
+
           throw new Error(message);
         }
       },
       [initializeE2EE]
     );
+
+  /* ------------------------------------------------------------------------ */
+  /* Generic social login                                                    */
+  /* ------------------------------------------------------------------------ */
 
   const loginWithSocial = useCallback(
     async (result) => {
@@ -511,12 +640,6 @@ export function AuthProvider({ children }) {
           );
         }
 
-        const {
-          saveAuthSession,
-        } = await import(
-          "../services/authService"
-        );
-
         await saveAuthSession(
           result.user,
           result.token
@@ -530,10 +653,7 @@ export function AuthProvider({ children }) {
 
         console.log(
           "[AUTH] SOCIAL LOGIN SUCCESS:",
-          result.user?.username ||
-            result.user?.email ||
-            result.user?._id ||
-            result.user?.id
+          getUserLabel(result.user)
         );
 
         return result;
@@ -546,11 +666,22 @@ export function AuthProvider({ children }) {
 
         setError(message);
 
+        console.error(
+          "[AUTH] SOCIAL LOGIN ERROR:",
+          socialError?.response?.data ||
+            socialError?.message ||
+            socialError
+        );
+
         throw new Error(message);
       }
     },
     [initializeE2EE]
   );
+
+  /* ------------------------------------------------------------------------ */
+  /* Register                                                                 */
+  /* ------------------------------------------------------------------------ */
 
   const register = useCallback(
     async (data = {}) => {
@@ -601,11 +732,22 @@ export function AuthProvider({ children }) {
 
         setError(message);
 
+        console.error(
+          "[AUTH] REGISTER ERROR:",
+          registerError?.response?.data ||
+            registerError?.message ||
+            registerError
+        );
+
         throw new Error(message);
       }
     },
     []
   );
+
+  /* ------------------------------------------------------------------------ */
+  /* Switch saved account                                                     */
+  /* ------------------------------------------------------------------------ */
 
   const switchAccount = useCallback(
     async (accountId) => {
@@ -618,17 +760,16 @@ export function AuthProvider({ children }) {
           );
         }
 
+        console.log(
+          "[AUTH] SWITCHING ACCOUNT:",
+          accountId
+        );
+
         disconnectSocket();
 
-        try {
-          await closeE2EEStore();
-        } catch (e2eeCloseError) {
-          console.warn(
-            "[E2EE] STORE CLOSE DURING ACCOUNT SWITCH:",
-            e2eeCloseError?.message ||
-              e2eeCloseError
-          );
-        }
+        await safelyCloseE2EE(
+          "DURING ACCOUNT SWITCH"
+        );
 
         const switchedUser =
           await switchSavedAccount(
@@ -649,10 +790,7 @@ export function AuthProvider({ children }) {
 
         console.log(
           "[AUTH] ACCOUNT SWITCHED:",
-          switchedUser?.username ||
-            switchedUser?.email ||
-            switchedUser?._id ||
-            switchedUser?.id
+          getUserLabel(switchedUser)
         );
 
         return switchedUser;
@@ -665,11 +803,25 @@ export function AuthProvider({ children }) {
 
         setError(message);
 
+        console.error(
+          "[AUTH] ACCOUNT SWITCH ERROR:",
+          switchError?.response?.data ||
+            switchError?.message ||
+            switchError
+        );
+
         throw new Error(message);
       }
     },
-    [initializeE2EE]
+    [
+      initializeE2EE,
+      safelyCloseE2EE,
+    ]
   );
+
+  /* ------------------------------------------------------------------------ */
+  /* Logout                                                                   */
+  /* ------------------------------------------------------------------------ */
 
   const logout = useCallback(
     async () => {
@@ -681,9 +833,9 @@ export function AuthProvider({ children }) {
         let result = null;
 
         try {
-          result = await logoutUser();
+          result =
+            await logoutUser();
         } catch (logoutRequestError) {
-
           console.warn(
             "[AUTH] LOGOUT SERVICE WARNING:",
             logoutRequestError?.response
@@ -693,15 +845,9 @@ export function AuthProvider({ children }) {
           );
         }
 
-        try {
-          await closeE2EEStore();
-        } catch (e2eeCloseError) {
-          console.warn(
-            "[E2EE] STORE CLOSE DURING LOGOUT:",
-            e2eeCloseError?.message ||
-              e2eeCloseError
-          );
-        }
+        await safelyCloseE2EE(
+          "DURING LOGOUT"
+        );
 
         setUser(null);
 
@@ -720,50 +866,67 @@ export function AuthProvider({ children }) {
 
         disconnectSocket();
 
-        try {
-          await closeE2EEStore();
-        } catch (e2eeCloseError) {
-          console.warn(
-            "[E2EE] STORE CLOSE ERROR:",
-            e2eeCloseError?.message ||
-              e2eeCloseError
-          );
-        }
+        await safelyCloseE2EE(
+          "AFTER LOGOUT ERROR"
+        );
 
         setUser(null);
 
         throw logoutError;
       }
     },
-    []
+    [safelyCloseE2EE]
   );
 
-  const contextValue = {
-    user,
-    loading,
-    error,
+  /* ------------------------------------------------------------------------ */
+  /* Context value                                                            */
+  /* ------------------------------------------------------------------------ */
 
-    login,
+  const contextValue = useMemo(
+    () => ({
+      user,
+      loading,
+      error,
 
-    loginWithSocial,
+      login,
 
-    loginWithGoogle:
+      loginWithSocial,
+
+      loginWithGoogle:
+        loginWithGoogleAccount,
+
+      loginWithFacebook:
+        loginWithFacebookAccount,
+
+      register,
+
+      switchAccount,
+
+      logout,
+
+      restoreSession,
+
+      setUser,
+      setError,
+    }),
+    [
+      user,
+      loading,
+      error,
+      login,
+      loginWithSocial,
       loginWithGoogleAccount,
-
-    loginWithFacebook:
       loginWithFacebookAccount,
+      register,
+      switchAccount,
+      logout,
+      restoreSession,
+    ]
+  );
 
-    register,
-
-    switchAccount,
-
-    logout,
-
-    restoreSession,
-
-    setUser,
-    setError,
-  };
+  /* ------------------------------------------------------------------------ */
+  /* Provider                                                                 */
+  /* ------------------------------------------------------------------------ */
 
   return (
     <AuthContext.Provider
@@ -773,6 +936,10 @@ export function AuthProvider({ children }) {
     </AuthContext.Provider>
   );
 }
+
+/* -------------------------------------------------------------------------- */
+/* Hook                                                                       */
+/* -------------------------------------------------------------------------- */
 
 export function useAuth() {
   const context =

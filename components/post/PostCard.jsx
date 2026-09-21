@@ -1,4 +1,5 @@
 import React, {
+  memo,
   useCallback,
   useEffect,
   useMemo,
@@ -7,10 +8,9 @@ import React, {
 } from "react";
 
 import {
-  ActivityIndicator,
   Alert,
+  Dimensions,
   Image,
-  Modal,
   Pressable,
   StyleSheet,
   Text,
@@ -19,170 +19,97 @@ import {
 } from "react-native";
 
 import { Ionicons } from "@expo/vector-icons";
+import { VideoView, useVideoPlayer } from "expo-video";
 import { router } from "expo-router";
 
 import Colors from "../../constants/Colors";
 import VerifiedBadge from "../common/VerifiedBadge";
 
 import {
+  sharePost,
   togglePostLike,
   toggleSavePost,
 } from "../../services/postService";
 
-import { sharePost } from "../../services/shareService";
-
-import { getSettings } from "../../services/settingsApi";
-
+import { getSettings } from "../../services/settingsService";
 import TranslatableCaption from "./TranslatableCaption";
 
-const COLORS = {
-  white: "#FFFFFF",
-  black: "#000000",
-  text: "#111111",
-  secondary: "#737373",
-  border: "#DBDBDB",
-  light: "#F5F5F5",
-  blue: "#0095F6",
-  red: "#ED4956",
-};
+const { width: SCREEN_WIDTH } = Dimensions.get("window");
 
-function cleanText(value) {
-  if (value === null || value === undefined) {
-    return "";
-  }
+const MEDIA_WIDTH = SCREEN_WIDTH;
+const MEDIA_HEIGHT = SCREEN_WIDTH;
 
-  return String(value).trim();
-}
-
-function getPostUser(post) {
-  if (!post) {
-    return {};
-  }
-
-  if (
-    post.user &&
-    typeof post.user === "object"
-  ) {
-    return post.user;
-  }
-
-  return {};
-}
-
-function getUsername(user) {
-  return cleanText(user?.username);
-}
-
-function getFullName(user) {
-  const fullName = cleanText(user?.fullName);
-
-  if (fullName) {
-    return fullName;
-  }
-
-  return "User";
-}
-
-function getAvatar(user) {
-  return cleanText(user?.avatar);
-}
-
-function getUserVerified(user) {
-  return user?.isVerified === true;
-}
-
-export default function PostCard({
+function PostCard({
   post,
-  currentUserId,
+  onPress,
+  onLike,
+  onSave,
   onComment,
   onShare,
-  onMore,
+  onRefresh,
 }) {
-  const postId =
-    post?._id ||
-    post?.id ||
-    post?.postId ||
+  const [liked, setLiked] = useState(
+    Boolean(post?.isLiked ?? post?.liked)
+  );
+
+  const [saved, setSaved] = useState(
+    Boolean(post?.isSaved ?? post?.saved)
+  );
+
+  const [likesCount, setLikesCount] = useState(
+    Number(post?.likesCount ?? post?.likes?.length ?? 0)
+  );
+
+  const [commentsCount, setCommentsCount] = useState(
+    Number(post?.commentsCount ?? post?.comments?.length ?? 0)
+  );
+
+  const [captionLanguage, setCaptionLanguage] = useState("en");
+
+  const lastTapRef = useRef(0);
+
+  const postId = useMemo(() => {
+    return String(post?.id || post?._id || "");
+  }, [post]);
+
+  const user = post?.user || {};
+
+  const username =
+    user?.username ||
+    post?.username ||
+    "snapgram";
+
+  const fullName =
+    user?.fullName ||
+    user?.name ||
+    user?.displayName ||
+    "";
+
+  const avatar =
+    user?.avatar ||
+    user?.avatarUrl ||
+    user?.profilePicture ||
+    user?.profileImage ||
     null;
 
-  const postUser = useMemo(
-    () => getPostUser(post),
-    [post]
+  const verified = Boolean(
+    user?.isVerified ??
+      user?.verified ??
+      post?.isVerified ??
+      post?.verified
   );
 
-  const username = useMemo(
-    () => getUsername(postUser),
-    [postUser]
-  );
+  const caption = post?.caption || "";
 
-  const fullName = useMemo(
-    () => getFullName(postUser),
-    [postUser]
-  );
+  const mediaItem = useMemo(() => {
+    if (!Array.isArray(post?.media) || post.media.length === 0) {
+      return null;
+    }
 
-  const avatar = useMemo(
-    () => getAvatar(postUser),
-    [postUser]
-  );
+    return post.media[0];
+  }, [post]);
 
-  const isVerified = useMemo(
-    () => getUserVerified(postUser),
-    [postUser]
-  );
-
-  const userId =
-    postUser?._id ||
-    postUser?.id ||
-    null;
-
-  const [userLanguage, setUserLanguage] =
-    useState("English");
-
-  const [languageLoading, setLanguageLoading] =
-    useState(true);
-
-  const loadUserLanguage = useCallback(
-    async () => {
-      try {
-        const settings =
-          await getSettings();
-
-        const language =
-          settings?.preferences?.language;
-
-        if (
-          typeof language === "string" &&
-          language.trim()
-        ) {
-          setUserLanguage(
-            language.trim()
-          );
-        } else {
-          setUserLanguage("English");
-        }
-      } catch (error) {
-        console.error(
-          "POST LANGUAGE LOAD ERROR:",
-          error
-        );
-
-        setUserLanguage("English");
-      } finally {
-        setLanguageLoading(false);
-      }
-    },
-    []
-  );
-
-  useEffect(() => {
-    loadUserLanguage();
-  }, [loadUserLanguage]);
-
-  const mediaItem =
-    Array.isArray(post?.media)
-      ? post.media[0]
-      : null;
-
-  const image =
+  const mediaUrl =
     mediaItem?.url ||
     mediaItem?.secure_url ||
     mediaItem?.uri ||
@@ -191,1373 +118,699 @@ export default function PostCard({
     post?.mediaUrl ||
     null;
 
-  const mediaType =
+  const mediaType = String(
     mediaItem?.type ||
-    post?.mediaType ||
-    "image";
+      mediaItem?.mediaType ||
+      post?.mediaType ||
+      ""
+  ).toLowerCase();
 
   const isVideo =
     mediaType === "video" ||
-    mediaItem?.mimeType?.startsWith?.(
-      "video/"
+    mediaItem?.mimeType?.startsWith?.("video/") ||
+    /\.(mp4|mov|m4v|avi|webm)(\?.*)?$/i.test(
+      String(mediaUrl || "")
     );
 
-  const initialLiked = Boolean(
-    post?.isLiked ??
-      post?.liked ??
-      post?.likes?.some?.((like) => {
-        const likeId =
-          like?._id ??
-          like?.id ??
-          like?.userId ??
-          like;
+  const postType = String(post?.postType || "post").toLowerCase();
 
-        return (
-          String(likeId) ===
-          String(currentUserId)
-        );
-      })
-  );
-
-  const initialLikesCount = Number(
-    post?.likesCount ??
-      post?.likeCount ??
-      post?.likes?.length ??
-      0
-  );
-
-  const initialSaved = Boolean(
-    post?.isSaved ??
-      post?.saved ??
-      post?.isBookmarked ??
-      post?.bookmarked
-  );
-
-  const commentsCount = Number(
-    post?.commentsCount ??
-      post?.commentCount ??
-      post?.comments?.length ??
-      0
-  );
-
-  const [liked, setLiked] =
-    useState(initialLiked);
-
-  const [likesCount, setLikesCount] =
-    useState(initialLikesCount);
-
-  const [saved, setSaved] =
-    useState(initialSaved);
-
-  const [likeLoading, setLikeLoading] =
-    useState(false);
-
-  const [saveLoading, setSaveLoading] =
-    useState(false);
-
-  const [shareLoading, setShareLoading] =
-    useState(false);
-
-  const [imageLoading, setImageLoading] =
-    useState(Boolean(image));
-
-  const [imageError, setImageError] =
-    useState(false);
-
-  const [menuVisible, setMenuVisible] =
-    useState(false);
-
-  const [menuActionLoading, setMenuActionLoading] =
-    useState(false);
-
-  const doubleTapTimeout =
-    useRef(null);
+  const isReel = postType === "reel";
 
   useEffect(() => {
-    return () => {
-      if (doubleTapTimeout.current) {
-        clearTimeout(
-          doubleTapTimeout.current
-        );
+    setLiked(Boolean(post?.isLiked ?? post?.liked));
+    setSaved(Boolean(post?.isSaved ?? post?.saved));
 
-        doubleTapTimeout.current = null;
+    setLikesCount(
+      Number(post?.likesCount ?? post?.likes?.length ?? 0)
+    );
+
+    setCommentsCount(
+      Number(post?.commentsCount ?? post?.comments?.length ?? 0)
+    );
+  }, [
+    post?.isLiked,
+    post?.liked,
+    post?.isSaved,
+    post?.saved,
+    post?.likesCount,
+    post?.likes?.length,
+    post?.commentsCount,
+    post?.comments?.length,
+  ]);
+
+  useEffect(() => {
+    let mounted = true;
+
+    async function loadLanguage() {
+      try {
+        const settings = await getSettings?.();
+
+        if (!mounted) return;
+
+        const language =
+          settings?.language ||
+          settings?.appLanguage ||
+          settings?.captionLanguage ||
+          "en";
+
+        setCaptionLanguage(language);
+      } catch {
+        if (mounted) {
+          setCaptionLanguage("en");
+        }
       }
+    }
+
+    loadLanguage();
+
+    return () => {
+      mounted = false;
     };
   }, []);
 
-  const handleLike = useCallback(
-    async () => {
-      if (
-        !postId ||
-        likeLoading
-      ) {
-        return;
-      }
+  const handleLike = useCallback(async () => {
+    if (!postId) return;
 
-      const previousLiked =
-        liked;
+    const previousLiked = liked;
+    const previousCount = likesCount;
 
-      const previousCount =
-        likesCount;
+    const nextLiked = !previousLiked;
 
-      const nextLiked =
-        !previousLiked;
+    setLiked(nextLiked);
+    setLikesCount((count) =>
+      Math.max(0, count + (nextLiked ? 1 : -1))
+    );
 
-      setLiked(nextLiked);
+    try {
+      const response = await togglePostLike(postId);
 
-      setLikesCount(
-        Math.max(
-          0,
-          previousCount +
-            (nextLiked ? 1 : -1)
-        )
+      const data = response?.data ?? response ?? {};
+
+      const serverLiked = Boolean(
+        data?.isLiked ??
+          data?.liked ??
+          data?.post?.isLiked ??
+          data?.post?.liked ??
+          nextLiked
       );
 
-      setLikeLoading(true);
+      const serverCount = Number(
+        data?.likesCount ??
+          data?.post?.likesCount ??
+          previousCount + (serverLiked ? 1 : -1)
+      );
 
-      try {
-        const result =
-          await togglePostLike(
-            postId
-          );
+      setLiked(serverLiked);
+      setLikesCount(Math.max(0, serverCount));
 
-        if (
-          result &&
-          typeof result === "object"
-        ) {
-          if (
-            typeof result.liked ===
-            "boolean"
-          ) {
-            setLiked(
-              result.liked
-            );
-          }
+      onLike?.(postId, serverLiked, serverCount);
+    } catch (error) {
+      setLiked(previousLiked);
+      setLikesCount(previousCount);
 
-          if (
-            typeof result.likesCount ===
-            "number"
-          ) {
-            setLikesCount(
-              result.likesCount
-            );
-          } else if (
-            typeof result.likeCount ===
-            "number"
-          ) {
-            setLikesCount(
-              result.likeCount
-            );
-          }
-        }
-      } catch (error) {
-        console.error(
-          "POST LIKE ERROR:",
-          error
-        );
-
-        setLiked(
-          previousLiked
-        );
-
-        setLikesCount(
-          previousCount
-        );
-      } finally {
-        setLikeLoading(false);
-      }
-    },
-    [
-      postId,
-      likeLoading,
-      liked,
-      likesCount,
-    ]
-  );
-
-  const handleMediaPress =
-    useCallback(() => {
-      if (!postId) {
-        return;
-      }
-
-      if (
-        doubleTapTimeout.current
-      ) {
-        clearTimeout(
-          doubleTapTimeout.current
-        );
-
-        doubleTapTimeout.current =
-          null;
-
-        if (!liked) {
-          handleLike();
-        }
-
-        return;
-      }
-
-      doubleTapTimeout.current =
-        setTimeout(() => {
-          doubleTapTimeout.current =
-            null;
-
-          router.push({
-            pathname:
-              "/post/[id]",
-            params: {
-              id: String(postId),
-            },
-          });
-        }, 220);
-    }, [
-      postId,
-      liked,
-      handleLike,
-    ]);
-
-  const handleSave = useCallback(
-    async () => {
-      if (
-        !postId ||
-        saveLoading
-      ) {
-        return;
-      }
-
-      const previousSaved =
-        saved;
-
-      const nextSaved =
-        !previousSaved;
-
-      setSaved(nextSaved);
-      setSaveLoading(true);
-
-      try {
-        const result =
-          await toggleSavePost(
-            postId
-          );
-
-        if (
-          result &&
-          typeof result === "object"
-        ) {
-          if (
-            typeof result.saved ===
-            "boolean"
-          ) {
-            setSaved(
-              result.saved
-            );
-          } else if (
-            typeof result.isSaved ===
-            "boolean"
-          ) {
-            setSaved(
-              result.isSaved
-            );
-          }
-        }
-      } catch (error) {
-        console.error(
-          "POST SAVE ERROR:",
-          error
-        );
-
-        setSaved(
-          previousSaved
-        );
-      } finally {
-        setSaveLoading(false);
-      }
-    },
-    [
-      postId,
-      saveLoading,
-      saved,
-    ]
-  );
-
-  const handleShare =
-    useCallback(async () => {
-      if (
-        !postId ||
-        shareLoading
-      ) {
-        return;
-      }
-
-      setShareLoading(true);
-
-      try {
-        if (
-          typeof onShare ===
-          "function"
-        ) {
-          await onShare(post);
-        } else {
-          await sharePost(post);
-        }
-      } catch (error) {
-        console.error(
-          "POST SHARE ERROR:",
-          error
-        );
-      } finally {
-        setShareLoading(false);
-      }
-    }, [
-      postId,
-      shareLoading,
-      onShare,
-      post,
-    ]);
-
-  const handleComment =
-    useCallback(() => {
-      if (!postId) {
-        return;
-      }
-
-      if (
-        typeof onComment ===
-        "function"
-      ) {
-        onComment(post);
-        return;
-      }
-
-      router.push({
-        pathname:
-          "/post/[id]/comments",
-        params: {
-          id: String(postId),
-        },
-      });
-    }, [
-      postId,
-      onComment,
-      post,
-    ]);
-
-  const openProfile =
-    useCallback(() => {
-      if (!username) {
-        return;
-      }
-
-      router.push({
-        pathname:
-          "/profile/[username]",
-        params: {
-          username: String(
-            username
-          ),
-        },
-      });
-    }, [username]);
-
-  const openMenu =
-    useCallback(() => {
-      setMenuVisible(true);
-    }, []);
-
-  const closeMenu =
-    useCallback(() => {
-      if (!menuActionLoading) {
-        setMenuVisible(false);
-      }
-    }, [menuActionLoading]);
-
-  const handleMenuSave =
-    useCallback(async () => {
-      setMenuVisible(false);
-      await handleSave();
-    }, [handleSave]);
-
-  const handleMenuShare =
-    useCallback(async () => {
-      setMenuVisible(false);
-      await handleShare();
-    }, [handleShare]);
-
-  const handleGoToPost =
-    useCallback(() => {
-      setMenuVisible(false);
-
-      if (!postId) {
-        return;
-      }
-
-      router.push({
-        pathname:
-          "/post/[id]",
-        params: {
-          id: String(postId),
-        },
-      });
-    }, [postId]);
-
-  const handleReport =
-    useCallback(() => {
-      setMenuVisible(false);
+      console.error("[POST CARD] LIKE FAILED:", error?.response?.data || error);
 
       Alert.alert(
-        "Report",
-        "Why are you reporting this post?",
-        [
-          {
-            text: "Cancel",
-            style: "cancel",
-          },
-          {
-            text: "Report",
-            style: "destructive",
-            onPress: () => {
-              console.log(
-                "REPORT POST:",
-                postId
-              );
-
-              Alert.alert(
-                "Thanks",
-                "Thanks for helping keep Snapgram safe."
-              );
-            },
-          },
-        ]
+        "Couldn't like post",
+        error?.response?.data?.message ||
+          "Please try again."
       );
-    }, [postId]);
+    }
+  }, [liked, likesCount, onLike, postId]);
 
-  const handleNotInterested =
-    useCallback(() => {
-      setMenuVisible(false);
+  const handleSave = useCallback(async () => {
+    if (!postId) return;
+
+    const previousSaved = saved;
+
+    setSaved(!previousSaved);
+
+    try {
+      const response = await toggleSavePost(postId);
+
+      const data = response?.data ?? response ?? {};
+
+      const serverSaved = Boolean(
+        data?.isSaved ??
+          data?.saved ??
+          data?.post?.isSaved ??
+          data?.post?.saved ??
+          !previousSaved
+      );
+
+      setSaved(serverSaved);
+
+      onSave?.(postId, serverSaved);
+    } catch (error) {
+      setSaved(previousSaved);
+
+      console.error("[POST CARD] SAVE FAILED:", error?.response?.data || error);
 
       Alert.alert(
-        "Not interested",
-        "We'll show you fewer posts like this."
+        "Couldn't save post",
+        error?.response?.data?.message ||
+          "Please try again."
       );
-    }, []);
+    }
+  }, [onSave, postId, saved]);
 
-  const handleMute =
-    useCallback(() => {
-      setMenuVisible(false);
+  const handleShare = useCallback(async () => {
+    if (!postId) return;
+
+    try {
+      await sharePost(postId);
+
+      onShare?.(postId);
+    } catch (error) {
+      console.error(
+        "[POST CARD] SHARE FAILED:",
+        error?.response?.data || error
+      );
 
       Alert.alert(
-        `Mute @${username}?`,
-        "You won't see posts from this account in your feed.",
-        [
-          {
-            text: "Cancel",
-            style: "cancel",
-          },
-          {
-            text: "Mute",
-            onPress: () => {
-              console.log(
-                "MUTE USER:",
-                userId ||
-                  username
-              );
-            },
-          },
-        ]
+        "Couldn't share post",
+        error?.response?.data?.message ||
+          "Please try again."
       );
-    }, [
-      username,
-      userId,
-    ]);
+    }
+  }, [onShare, postId]);
 
-  const handleMore =
-    useCallback(() => {
-      if (
-        typeof onMore ===
-        "function"
-      ) {
-        onMore(post);
-        return;
+  const openProfile = useCallback(() => {
+    const userId = user?.id || user?._id;
+
+    if (!userId) return;
+
+    router.push({
+      pathname: "/profile/[id]",
+      params: {
+        id: String(userId),
+      },
+    });
+  }, [user]);
+
+  const openPost = useCallback(() => {
+    if (!postId) return;
+
+    if (onPress) {
+      onPress(post);
+      return;
+    }
+
+    router.push({
+      pathname: "/post/[id]",
+      params: {
+        id: postId,
+      },
+    });
+  }, [onPress, post, postId]);
+
+  const handleMediaPress = useCallback(() => {
+    const now = Date.now();
+    const DOUBLE_TAP_DELAY = 280;
+
+    if (now - lastTapRef.current < DOUBLE_TAP_DELAY) {
+      lastTapRef.current = 0;
+      handleLike();
+      return;
+    }
+
+    lastTapRef.current = now;
+
+    setTimeout(() => {
+      if (lastTapRef.current === now) {
+        lastTapRef.current = 0;
+        openPost();
       }
+    }, DOUBLE_TAP_DELAY + 20);
+  }, [handleLike, openPost]);
 
-      openMenu();
-    }, [
-      onMore,
-      post,
-      openMenu,
-    ]);
+  const handleComment = useCallback(() => {
+    if (!postId) return;
 
-  const formattedLikes =
-    likesCount.toLocaleString();
+    if (onComment) {
+      onComment(postId);
+      return;
+    }
 
-  const avatarLetter = (
-    fullName !== "User"
-      ? fullName
-      : username || "S"
-  )
-    .charAt(0)
-    .toUpperCase();
+    router.push({
+      pathname: "/post/[id]",
+      params: {
+        id: postId,
+        focusComments: "true",
+      },
+    });
+  }, [onComment, postId]);
+
+  const handleMenu = useCallback(() => {
+    Alert.alert(
+      "Post options",
+      "",
+      [
+        {
+          text: saved ? "Remove from saved" : "Save",
+          onPress: handleSave,
+        },
+        {
+          text: "Go to post",
+          onPress: openPost,
+        },
+        {
+          text: "Share",
+          onPress: handleShare,
+        },
+        {
+          text: "Not interested",
+          onPress: () => {
+            Alert.alert(
+              "Not interested",
+              "We'll show you fewer posts like this."
+            );
+          },
+        },
+        {
+          text: "Report",
+          style: "destructive",
+          onPress: () => {
+            Alert.alert(
+              "Report post",
+              "Thanks. We'll review this post."
+            );
+          },
+        },
+        {
+          text: "Cancel",
+          style: "cancel",
+        },
+      ]
+    );
+  }, [handleSave, handleShare, openPost, saved]);
 
   return (
-    <>
-      <View style={styles.card}>
-
-        <View style={styles.header}>
-          <TouchableOpacity
-            style={styles.userButton}
-            activeOpacity={0.75}
-            onPress={openProfile}
-            accessibilityRole="button"
-            accessibilityLabel={`Open ${
-              username || "user"
-            }'s profile`}
-          >
-            <View style={styles.avatar}>
-              {avatar ? (
-                <Image
-                  source={{
-                    uri: avatar,
-                  }}
-                  style={
-                    styles.avatarImage
-                  }
-                />
-              ) : (
-                <Text
-                  style={
-                    styles.avatarText
-                  }
-                >
-                  {avatarLetter}
-                </Text>
-              )}
+    <View style={styles.container}>
+      {/* HEADER */}
+      <View style={styles.header}>
+        <TouchableOpacity
+          activeOpacity={0.8}
+          style={styles.userButton}
+          onPress={openProfile}
+        >
+          {avatar ? (
+            <Image
+              source={{ uri: avatar }}
+              style={styles.avatar}
+            />
+          ) : (
+            <View style={styles.avatarPlaceholder}>
+              <Ionicons
+                name="person"
+                size={18}
+                color="#777"
+              />
             </View>
+          )}
 
-            <View
-              style={styles.identity}
-            >
-              <View
-                style={styles.nameRow}
+          <View style={styles.userInfo}>
+            <View style={styles.usernameRow}>
+              <Text
+                style={styles.username}
+                numberOfLines={1}
               >
-                <Text
-                  style={
-                    styles.fullName
-                  }
-                  numberOfLines={1}
-                  ellipsizeMode="tail"
-                >
-                  {fullName}
-                </Text>
+                {username}
+              </Text>
 
-                {isVerified ? (
-                  <View
-                    style={
-                      styles.verifiedContainer
-                    }
-                  >
-                    <VerifiedBadge
-                      size={14}
-                    />
-                  </View>
-                ) : null}
-              </View>
-
-              {username ? (
-                <Text
-                  style={
-                    styles.username
-                  }
-                  numberOfLines={1}
-                  ellipsizeMode="tail"
-                >
-                  @{username}
-                </Text>
+              {verified ? (
+                <VerifiedBadge
+                  size={14}
+                  style={styles.verified}
+                />
               ) : null}
             </View>
+
+            {fullName && fullName !== username ? (
+              <Text
+                style={styles.fullName}
+                numberOfLines={1}
+              >
+                {fullName}
+              </Text>
+            ) : null}
+          </View>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={styles.moreButton}
+          onPress={handleMenu}
+          hitSlop={8}
+        >
+          <Ionicons
+            name="ellipsis-horizontal"
+            size={22}
+            color="#111"
+          />
+        </TouchableOpacity>
+      </View>
+
+      {/* MEDIA */}
+      <Pressable
+        style={styles.mediaContainer}
+        onPress={handleMediaPress}
+      >
+        {mediaUrl ? (
+          isVideo ? (
+            <PostVideo
+              uri={mediaUrl}
+              isReel={isReel}
+            />
+          ) : (
+            <Image
+              source={{ uri: mediaUrl }}
+              style={styles.media}
+              resizeMode="cover"
+            />
+          )
+        ) : (
+          <View style={styles.emptyMedia}>
+            <Ionicons
+              name="image-outline"
+              size={42}
+              color="#aaa"
+            />
+
+            <Text style={styles.emptyMediaText}>
+              No media
+            </Text>
+          </View>
+        )}
+
+        {isVideo ? (
+          <View pointerEvents="none" style={styles.videoBadge}>
+            <Ionicons
+              name="play"
+              size={15}
+              color="#fff"
+            />
+          </View>
+        ) : null}
+
+        {isReel ? (
+          <View pointerEvents="none" style={styles.reelBadge}>
+            <Ionicons
+              name="videocam"
+              size={14}
+              color="#fff"
+            />
+
+            <Text style={styles.reelBadgeText}>
+              REEL
+            </Text>
+          </View>
+        ) : null}
+      </Pressable>
+
+      {/* ACTIONS */}
+      <View style={styles.actions}>
+        <View style={styles.leftActions}>
+          <TouchableOpacity
+            onPress={handleLike}
+            hitSlop={8}
+            style={styles.actionButton}
+          >
+            <Ionicons
+              name={liked ? "heart" : "heart-outline"}
+              size={27}
+              color={liked ? "#ed4956" : "#111"}
+            />
           </TouchableOpacity>
 
           <TouchableOpacity
-            style={
-              styles.moreButton
-            }
-            activeOpacity={0.7}
-            onPress={handleMore}
-            accessibilityRole="button"
-            accessibilityLabel="More options"
+            onPress={handleComment}
+            hitSlop={8}
+            style={styles.actionButton}
           >
             <Ionicons
-              name="ellipsis-horizontal"
-              size={22}
-              color={
-                COLORS.black
-              }
+              name="chatbubble-outline"
+              size={25}
+              color="#111"
+            />
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            onPress={handleShare}
+            hitSlop={8}
+            style={styles.actionButton}
+          >
+            <Ionicons
+              name="paper-plane-outline"
+              size={25}
+              color="#111"
             />
           </TouchableOpacity>
         </View>
 
         <TouchableOpacity
-          activeOpacity={1}
-          onPress={handleMediaPress}
-          style={
-            styles.mediaContainer
-          }
+          onPress={handleSave}
+          hitSlop={8}
+          style={styles.actionButton}
         >
-          {image &&
-          !imageError ? (
-            <>
-              <Image
-                source={{
-                  uri: image,
-                }}
-                style={
-                  styles.media
-                }
-                resizeMode="cover"
-                onLoadStart={() =>
-                  setImageLoading(
-                    true
-                  )
-                }
-                onLoad={() =>
-                  setImageLoading(
-                    false
-                  )
-                }
-                onError={() => {
-                  setImageLoading(
-                    false
-                  );
-
-                  setImageError(
-                    true
-                  );
-                }}
-              />
-
-              {imageLoading ? (
-                <View
-                  style={
-                    styles.mediaLoading
-                  }
-                >
-                  <ActivityIndicator
-                    size="small"
-                    color={
-                      COLORS.white
-                    }
-                  />
-                </View>
-              ) : null}
-
-              {isVideo ? (
-                <View
-                  style={
-                    styles.videoIndicator
-                  }
-                >
-                  <Ionicons
-                    name="play"
-                    size={15}
-                    color={
-                      COLORS.white
-                    }
-                  />
-                </View>
-              ) : null}
-            </>
-          ) : (
-            <View
-              style={
-                styles.emptyMedia
-              }
-            >
-              <Ionicons
-                name="image-outline"
-                size={42}
-                color="#999999"
-              />
-
-              <Text
-                style={
-                  styles.emptyMediaText
-                }
-              >
-                Media unavailable
-              </Text>
-            </View>
-          )}
+          <Ionicons
+            name={saved ? "bookmark" : "bookmark-outline"}
+            size={26}
+            color="#111"
+          />
         </TouchableOpacity>
-
-        <View
-          style={styles.actions}
-        >
-          <View
-            style={
-              styles.leftActions
-            }
-          >
-            <TouchableOpacity
-              style={
-                styles.actionButton
-              }
-              onPress={
-                handleLike
-              }
-              disabled={
-                likeLoading
-              }
-              activeOpacity={0.65}
-            >
-              <Ionicons
-                name={
-                  liked
-                    ? "heart"
-                    : "heart-outline"
-                }
-                size={27}
-                color={
-                  liked
-                    ? COLORS.red
-                    : COLORS.black
-                }
-              />
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={
-                styles.actionButton
-              }
-              onPress={
-                handleComment
-              }
-              activeOpacity={0.65}
-            >
-              <Ionicons
-                name="chatbubble-outline"
-                size={26}
-                color={
-                  COLORS.black
-                }
-              />
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={
-                styles.actionButton
-              }
-              onPress={
-                handleShare
-              }
-              disabled={
-                shareLoading
-              }
-              activeOpacity={0.65}
-            >
-              {shareLoading ? (
-                <ActivityIndicator
-                  size="small"
-                  color={
-                    COLORS.black
-                  }
-                />
-              ) : (
-                <Ionicons
-                  name="paper-plane-outline"
-                  size={26}
-                  color={
-                    COLORS.black
-                  }
-                />
-              )}
-            </TouchableOpacity>
-          </View>
-
-          <TouchableOpacity
-            style={
-              styles.actionButton
-            }
-            onPress={
-              handleSave
-            }
-            disabled={
-              saveLoading
-            }
-            activeOpacity={0.65}
-          >
-            {saveLoading ? (
-              <ActivityIndicator
-                size="small"
-                color={
-                  COLORS.black
-                }
-              />
-            ) : (
-              <Ionicons
-                name={
-                  saved
-                    ? "bookmark"
-                    : "bookmark-outline"
-                }
-                size={27}
-                color={
-                  COLORS.black
-                }
-              />
-            )}
-          </TouchableOpacity>
-        </View>
-
-        {likesCount > 0 ? (
-          <TouchableOpacity
-            activeOpacity={0.7}
-            onPress={() => {
-              if (!postId) {
-                return;
-              }
-
-              router.push({
-                pathname:
-                  "/post/[id]/likes",
-                params: {
-                  id: String(
-                    postId
-                  ),
-                },
-              });
-            }}
-          >
-            <Text
-              style={styles.likes}
-            >
-              {formattedLikes}{" "}
-              {likesCount === 1
-                ? "like"
-                : "likes"}
-            </Text>
-          </TouchableOpacity>
-        ) : null}
-
-        {post?.caption ? (
-          <View
-            style={
-              styles.captionContainer
-            }
-          >
-
-            {username ? (
-              <Text
-                style={
-                  styles.captionUsername
-                }
-              >
-                {username}{" "}
-              </Text>
-            ) : null}
-
-            {!languageLoading ? (
-              <TranslatableCaption
-                text={post.caption}
-                targetLanguage={
-                  userLanguage
-                }
-              />
-            ) : (
-              <Text
-                style={
-                  styles.captionText
-                }
-              >
-                {post.caption}
-              </Text>
-            )}
-          </View>
-        ) : null}
-
-        {commentsCount > 0 ? (
-          <TouchableOpacity
-            style={
-              styles.commentsButton
-            }
-            onPress={
-              handleComment
-            }
-            activeOpacity={0.7}
-          >
-            <Text
-              style={
-                styles.commentsText
-              }
-            >
-              View all{" "}
-              {commentsCount.toLocaleString()}{" "}
-              {commentsCount === 1
-                ? "comment"
-                : "comments"}
-            </Text>
-          </TouchableOpacity>
-        ) : null}
-
-        {post?.createdAt ? (
-          <Text
-            style={
-              styles.dateText
-            }
-          >
-            {formatPostDate(
-              post.createdAt
-            )}
-          </Text>
-        ) : null}
       </View>
 
-      <Modal
-        visible={menuVisible}
-        transparent
-        animationType="slide"
-        onRequestClose={
-          closeMenu
-        }
-      >
-        <View
-          style={
-            styles.modalRoot
-          }
-        >
-          <Pressable
-            style={
-              styles.modalBackdrop
-            }
-            onPress={
-              closeMenu
-            }
-          />
-
-          <View
-            style={
-              styles.optionsSheet
-            }
-          >
-            <View
-              style={
-                styles.sheetHandle
-              }
-            />
-
-            <View
-              style={
-                styles.sheetHeader
-              }
-            >
-              <Text
-                style={
-                  styles.sheetTitle
-                }
-              >
-                Options
-              </Text>
-
-              <TouchableOpacity
-                onPress={
-                  closeMenu
-                }
-                style={
-                  styles.sheetClose
-                }
-              >
-                <Ionicons
-                  name="close"
-                  size={24}
-                  color={
-                    COLORS.black
-                  }
-                />
-              </TouchableOpacity>
-            </View>
-
-            <View
-              style={
-                styles.optionDivider
-              }
-            />
-
-            <TouchableOpacity
-              style={
-                styles.menuOption
-              }
-              onPress={
-                handleMenuSave
-              }
-              disabled={
-                saveLoading
-              }
-            >
-              <Ionicons
-                name={
-                  saved
-                    ? "bookmark"
-                    : "bookmark-outline"
-                }
-                size={23}
-                color={
-                  COLORS.black
-                }
-              />
-
-              <Text
-                style={
-                  styles.menuOptionText
-                }
-              >
-                {saved
-                  ? "Remove from saved"
-                  : "Save"}
-              </Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={
-                styles.menuOption
-              }
-              onPress={
-                handleGoToPost
-              }
-            >
-              <Ionicons
-                name="open-outline"
-                size={23}
-                color={
-                  COLORS.black
-                }
-              />
-
-              <Text
-                style={
-                  styles.menuOptionText
-                }
-              >
-                Go to post
-              </Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={
-                styles.menuOption
-              }
-              onPress={
-                handleMenuShare
-              }
-            >
-              <Ionicons
-                name="paper-plane-outline"
-                size={23}
-                color={
-                  COLORS.black
-                }
-              />
-
-              <Text
-                style={
-                  styles.menuOptionText
-                }
-              >
-                Share to...
-              </Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={
-                styles.menuOption
-              }
-              onPress={
-                handleNotInterested
-              }
-            >
-              <Ionicons
-                name="eye-off-outline"
-                size={23}
-                color={
-                  COLORS.black
-                }
-              />
-
-              <Text
-                style={
-                  styles.menuOptionText
-                }
-              >
-                Not interested
-              </Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={
-                styles.menuOption
-              }
-              onPress={
-                handleMute
-              }
-            >
-              <Ionicons
-                name="volume-mute-outline"
-                size={23}
-                color={
-                  COLORS.black
-                }
-              />
-
-              <Text
-                style={
-                  styles.menuOptionText
-                }
-              >
-                Mute @{username}
-              </Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={[
-                styles.menuOption,
-                styles.reportOption,
-              ]}
-              onPress={
-                handleReport
-              }
-            >
-              <Ionicons
-                name="flag-outline"
-                size={23}
-                color={
-                  COLORS.red
-                }
-              />
-
-              <Text
-                style={
-                  styles.reportText
-                }
-              >
-                Report
-              </Text>
-            </TouchableOpacity>
-
-            <View
-              style={
-                styles.bottomSafeSpace
-              }
-            />
-          </View>
+      {/* LIKES */}
+      {likesCount > 0 ? (
+        <View style={styles.likesContainer}>
+          <Text style={styles.likesText}>
+            {likesCount.toLocaleString()}{" "}
+            {likesCount === 1 ? "like" : "likes"}
+          </Text>
         </View>
-      </Modal>
-    </>
+      ) : null}
+
+      {/* CAPTION */}
+      {caption ? (
+        <View style={styles.captionContainer}>
+          <TranslatableCaption
+            text={caption}
+            language={captionLanguage}
+            username={username}
+          />
+        </View>
+      ) : null}
+
+      {/* COMMENTS */}
+      {commentsCount > 0 ? (
+        <TouchableOpacity
+          onPress={handleComment}
+          activeOpacity={0.7}
+          style={styles.commentsButton}
+        >
+          <Text style={styles.commentsText}>
+            View all {commentsCount.toLocaleString()}{" "}
+            {commentsCount === 1 ? "comment" : "comments"}
+          </Text>
+        </TouchableOpacity>
+      ) : null}
+
+      {/* DATE */}
+      {post?.createdAt ? (
+        <Text style={styles.dateText}>
+          {formatPostDate(post.createdAt)}
+        </Text>
+      ) : null}
+    </View>
   );
 }
 
-function formatPostDate(date) {
-  const timestamp =
-    new Date(date).getTime();
+function PostVideo({ uri, isReel }) {
+  const player = useVideoPlayer(uri, (videoPlayer) => {
+    videoPlayer.loop = true;
+    videoPlayer.muted = true;
+  });
 
-  if (
-    Number.isNaN(timestamp)
-  ) {
+  const [playing, setPlaying] = useState(false);
+
+  useEffect(() => {
+    if (!player) return;
+
+    const subscription = player.addListener(
+      "playingChange",
+      (event) => {
+        setPlaying(Boolean(event?.isPlaying));
+      }
+    );
+
+    return () => {
+      subscription?.remove?.();
+    };
+  }, [player]);
+
+  const togglePlayback = useCallback(() => {
+    if (!player) return;
+
+    if (player.playing) {
+      player.pause();
+    } else {
+      player.play();
+    }
+  }, [player]);
+
+  return (
+    <View style={styles.videoContainer}>
+      <VideoView
+        player={player}
+        style={styles.media}
+        contentFit={isReel ? "cover" : "cover"}
+        nativeControls={false}
+      />
+
+      <Pressable
+        style={styles.videoTouchLayer}
+        onPress={togglePlayback}
+      >
+        {!playing ? (
+          <View style={styles.largePlayButton}>
+            <Ionicons
+              name="play"
+              size={34}
+              color="#fff"
+            />
+          </View>
+        ) : null}
+      </Pressable>
+
+      <View style={styles.muteBadge}>
+        <Ionicons
+          name="volume-mute"
+          size={15}
+          color="#fff"
+        />
+      </View>
+    </View>
+  );
+}
+
+function formatPostDate(value) {
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
     return "";
   }
 
-  const difference =
-    Math.max(
-      0,
-      Date.now() - timestamp
-    );
+  const now = Date.now();
+  const difference = Math.max(
+    0,
+    now - date.getTime()
+  );
 
-  const minutes =
-    Math.floor(
-      difference / 60000
-    );
+  const seconds = Math.floor(difference / 1000);
+  const minutes = Math.floor(seconds / 60);
+  const hours = Math.floor(minutes / 60);
+  const days = Math.floor(hours / 24);
 
-  if (minutes < 1) {
-    return "JUST NOW";
+  if (seconds < 60) {
+    return "just now";
   }
 
   if (minutes < 60) {
-    return `${minutes} ${
-      minutes === 1
-        ? "MINUTE"
-        : "MINUTES"
-    } AGO`;
+    return `${minutes}m`;
   }
-
-  const hours =
-    Math.floor(
-      minutes / 60
-    );
 
   if (hours < 24) {
-    return `${hours} ${
-      hours === 1
-        ? "HOUR"
-        : "HOURS"
-    } AGO`;
+    return `${hours}h`;
   }
-
-  const days =
-    Math.floor(
-      hours / 24
-    );
 
   if (days < 7) {
-    return `${days} ${
-      days === 1
-        ? "DAY"
-        : "DAYS"
-    } AGO`;
+    return `${days}d`;
   }
 
-  const postDate =
-    new Date(date);
-
-  const currentDate =
-    new Date();
-
-  return postDate.toLocaleDateString(
-    undefined,
-    {
-      month: "short",
-      day: "numeric",
-      year:
-        postDate.getFullYear() !==
-        currentDate.getFullYear()
-          ? "numeric"
-          : undefined,
-    }
-  );
+  return date.toLocaleDateString(undefined, {
+    month: "short",
+    day: "numeric",
+  });
 }
 
 const styles = StyleSheet.create({
-  card: {
-    backgroundColor:
-      Colors.white ||
-      Colors.background ||
-      COLORS.white,
-
-    marginBottom: 10,
+  container: {
+    backgroundColor: "#fff",
+    marginBottom: 12,
   },
 
   header: {
-    minHeight: 60,
+    minHeight: 58,
     paddingHorizontal: 12,
-
     flexDirection: "row",
     alignItems: "center",
-    justifyContent:
-      "space-between",
+    justifyContent: "space-between",
   },
 
   userButton: {
     flex: 1,
-    minWidth: 0,
-
     flexDirection: "row",
     alignItems: "center",
+    minWidth: 0,
   },
 
   avatar: {
     width: 38,
     height: 38,
     borderRadius: 19,
+    backgroundColor: "#eee",
+  },
 
-    overflow: "hidden",
-
-    backgroundColor:
-      Colors.surface ||
-      "#F2F2F2",
-
+  avatarPlaceholder: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    backgroundColor: "#eee",
     alignItems: "center",
-    justifyContent:
-      "center",
+    justifyContent: "center",
   },
 
-  avatarImage: {
-    width: "100%",
-    height: "100%",
-  },
-
-  avatarText: {
-    fontSize: 15,
-    fontWeight: "800",
-
-    color:
-      Colors.black ||
-      COLORS.black,
-  },
-
-  identity: {
+  userInfo: {
     flex: 1,
+    marginLeft: 10,
     minWidth: 0,
-    marginLeft: 9,
   },
 
-  nameRow: {
+  usernameRow: {
     flexDirection: "row",
     alignItems: "center",
-
-    minWidth: 0,
-    flexShrink: 1,
-  },
-
-  fullName: {
-    flexShrink: 1,
-
-    fontSize: 14,
-    lineHeight: 18,
-
-    fontWeight: "700",
-
-    color:
-      Colors.black ||
-      COLORS.black,
-  },
-
-  verifiedContainer: {
-    marginLeft: 4,
-
-    alignItems: "center",
-    justifyContent:
-      "center",
-
-    flexShrink: 0,
   },
 
   username: {
+    color: "#111",
+    fontSize: 14,
+    fontWeight: "700",
+    maxWidth: "85%",
+  },
+
+  verified: {
+    marginLeft: 4,
+  },
+
+  fullName: {
     marginTop: 1,
-
+    color: "#777",
     fontSize: 12,
-    lineHeight: 16,
-
-    color:
-      Colors.secondaryText ||
-      COLORS.secondary,
   },
 
   moreButton: {
-    width: 40,
-    height: 40,
-
-    marginLeft: 4,
-
+    width: 38,
+    height: 38,
     alignItems: "center",
-    justifyContent:
-      "center",
+    justifyContent: "center",
   },
 
   mediaContainer: {
-    width: "100%",
-    aspectRatio: 1,
-
+    width: MEDIA_WIDTH,
+    height: MEDIA_HEIGHT,
+    backgroundColor: "#f3f3f3",
     overflow: "hidden",
-
-    backgroundColor:
-      Colors.surface ||
-      "#F2F2F2",
+    position: "relative",
   },
 
   media: {
@@ -1565,67 +818,94 @@ const styles = StyleSheet.create({
     height: "100%",
   },
 
-  mediaLoading: {
-    position: "absolute",
+  videoContainer: {
+    width: "100%",
+    height: "100%",
+    backgroundColor: "#000",
+    position: "relative",
+  },
 
+  videoTouchLayer: {
+    position: "absolute",
     top: 0,
     left: 0,
     right: 0,
     bottom: 0,
-
     alignItems: "center",
-    justifyContent:
-      "center",
-
-    backgroundColor:
-      "rgba(0,0,0,0.12)",
+    justifyContent: "center",
   },
 
-  videoIndicator: {
-    position: "absolute",
+  largePlayButton: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    backgroundColor: "rgba(0,0,0,0.55)",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingLeft: 4,
+  },
 
+  videoBadge: {
+    position: "absolute",
     top: 12,
     right: 12,
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: "rgba(0,0,0,0.55)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
 
+  reelBadge: {
+    position: "absolute",
+    top: 12,
+    left: 12,
+    paddingHorizontal: 9,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: "rgba(0,0,0,0.55)",
+    flexDirection: "row",
+    alignItems: "center",
+  },
+
+  reelBadgeText: {
+    color: "#fff",
+    fontSize: 10,
+    fontWeight: "800",
+    marginLeft: 4,
+  },
+
+  muteBadge: {
+    position: "absolute",
+    right: 12,
+    bottom: 12,
     width: 30,
     height: 30,
-
     borderRadius: 15,
-
+    backgroundColor: "rgba(0,0,0,0.55)",
     alignItems: "center",
-    justifyContent:
-      "center",
-
-    backgroundColor:
-      "rgba(0,0,0,0.55)",
+    justifyContent: "center",
   },
 
   emptyMedia: {
-    width: "100%",
-    height: "100%",
-
+    flex: 1,
     alignItems: "center",
-    justifyContent:
-      "center",
+    justifyContent: "center",
   },
 
   emptyMediaText: {
     marginTop: 8,
-
+    color: "#999",
     fontSize: 13,
-
-    color: "#888888",
   },
 
   actions: {
-    height: 50,
-
-    paddingHorizontal: 9,
-
+    minHeight: 52,
+    paddingHorizontal: 12,
     flexDirection: "row",
     alignItems: "center",
-    justifyContent:
-      "space-between",
+    justifyContent: "space-between",
   },
 
   leftActions: {
@@ -1634,222 +914,46 @@ const styles = StyleSheet.create({
   },
 
   actionButton: {
-    width: 42,
-    height: 42,
-
-    alignItems: "center",
-    justifyContent:
-      "center",
+    width: 40,
+    height: 44,
+    alignItems: "flex-start",
+    justifyContent: "center",
+    marginRight: 2,
   },
 
-  likes: {
+  likesContainer: {
     paddingHorizontal: 12,
+  },
 
-    marginTop: 1,
-
+  likesText: {
+    color: "#111",
     fontSize: 14,
-    lineHeight: 19,
-
     fontWeight: "700",
-
-    color:
-      Colors.black ||
-      COLORS.black,
   },
 
   captionContainer: {
     paddingHorizontal: 12,
-
-    marginTop: 5,
-
-    paddingBottom: 1,
-
-    flexDirection: "row",
-    flexWrap: "wrap",
-
-    alignItems: "flex-start",
-  },
-
-  captionText: {
-    fontSize: 14,
-    lineHeight: 19,
-
-    color:
-      Colors.black ||
-      COLORS.black,
-  },
-
-  captionUsername: {
-    fontSize: 14,
-    lineHeight: 19,
-
-    fontWeight: "700",
-
-    color:
-      Colors.black ||
-      COLORS.black,
+    paddingTop: 6,
   },
 
   commentsButton: {
     paddingHorizontal: 12,
-
-    marginTop: 5,
+    paddingTop: 7,
   },
 
   commentsText: {
+    color: "#8e8e8e",
     fontSize: 14,
-    lineHeight: 19,
-
-    color:
-      Colors.secondaryText ||
-      COLORS.secondary,
   },
 
   dateText: {
     paddingHorizontal: 12,
-
-    marginTop: 7,
-    marginBottom: 8,
-
-    fontSize: 10,
-    lineHeight: 14,
-
-    letterSpacing: 0.25,
-
-    color:
-      Colors.secondaryText ||
-      "#8E8E8E",
-  },
-
-  modalRoot: {
-    flex: 1,
-
-    justifyContent:
-      "flex-end",
-  },
-
-  modalBackdrop: {
-    ...StyleSheet.absoluteFillObject,
-
-    backgroundColor:
-      "rgba(0,0,0,0.45)",
-  },
-
-  optionsSheet: {
-    width: "100%",
-
-    backgroundColor:
-      COLORS.white,
-
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
-
-    paddingTop: 10,
-
-    overflow: "hidden",
-  },
-
-  sheetHandle: {
-    alignSelf: "center",
-
-    width: 38,
-    height: 4,
-
-    borderRadius: 2,
-
-    backgroundColor:
-      "#C7C7C7",
-
-    marginBottom: 4,
-  },
-
-  sheetHeader: {
-    minHeight: 54,
-
-    paddingHorizontal: 18,
-
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent:
-      "center",
-  },
-
-  sheetTitle: {
-    fontSize: 16,
-
-    fontWeight: "700",
-
-    color:
-      COLORS.black,
-  },
-
-  sheetClose: {
-    position: "absolute",
-
-    right: 12,
-
-    width: 40,
-    height: 40,
-
-    borderRadius: 20,
-
-    alignItems: "center",
-    justifyContent:
-      "center",
-  },
-
-  optionDivider: {
-    height:
-      StyleSheet.hairlineWidth,
-
-    backgroundColor:
-      COLORS.border,
-  },
-
-  menuOption: {
-    minHeight: 56,
-
-    paddingHorizontal: 20,
-
-    flexDirection: "row",
-    alignItems: "center",
-
-    gap: 16,
-  },
-
-  menuOptionText: {
-    flex: 1,
-
-    fontSize: 15,
-
-    fontWeight: "500",
-
-    color:
-      COLORS.text,
-  },
-
-  reportOption: {
-    borderTopWidth:
-      StyleSheet.hairlineWidth,
-
-    borderTopColor:
-      COLORS.border,
-
-    marginTop: 4,
-  },
-
-  reportText: {
-    flex: 1,
-
-    fontSize: 15,
-
-    fontWeight: "600",
-
-    color:
-      COLORS.red,
-  },
-
-  bottomSafeSpace: {
-    height: 18,
+    paddingTop: 8,
+    paddingBottom: 10,
+    color: "#aaa",
+    fontSize: 11,
+    textTransform: "uppercase",
   },
 });
+
+export default memo(PostCard);

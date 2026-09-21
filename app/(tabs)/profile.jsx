@@ -1,9 +1,4 @@
-import React, {
-  useCallback,
-  useEffect,
-  useState,
-} from "react";
-
+import React, { useCallback, useEffect, useState } from "react";
 import {
   Alert,
   Image,
@@ -22,14 +17,12 @@ import {
 
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
-import {
-  router,
-  useFocusEffect,
-} from "expo-router";
+import { router, useFocusEffect } from "expo-router";
 import * as ImagePicker from "expo-image-picker";
+import { CameraView, useCameraPermissions } from "expo-camera";
+import QRCode from "react-native-qrcode-svg";
 
 import { useAuth } from "../../context/AuthContext";
-
 import { updateProfile } from "../../services/userService";
 
 import {
@@ -40,7 +33,6 @@ import {
 } from "../../services/postService";
 
 import {
-  getStories,
   getUserStories,
 } from "../../services/storyService";
 
@@ -51,8 +43,6 @@ import {
 
 import VerifiedBadge from "../../components/common/VerifiedBadge";
 import ProfileGrid from "../../components/profile/ProfileGrid";
-import QRCode from "react-native-qrcode-svg";
-import { CameraView, useCameraPermissions } from "expo-camera";
 
 const COLORS = {
   black: "#000000",
@@ -89,9 +79,7 @@ const TABS = [
 ];
 
 function getId(value) {
-  if (!value) {
-    return null;
-  }
+  if (!value) return null;
 
   if (typeof value === "string") {
     return value;
@@ -106,9 +94,7 @@ function getId(value) {
 }
 
 function getImageUri(value) {
-  if (!value) {
-    return null;
-  }
+  if (!value) return null;
 
   if (typeof value === "string") {
     return value;
@@ -128,9 +114,7 @@ function getImageUri(value) {
 }
 
 function getProfileAvatar(user) {
-  if (!user) {
-    return null;
-  }
+  if (!user) return null;
 
   return (
     getImageUri(user.avatar) ||
@@ -182,15 +166,11 @@ function formatCount(value) {
 }
 
 function normalizeWebsite(value) {
-  if (!value) {
-    return null;
-  }
+  if (!value) return null;
 
   const clean = String(value).trim();
 
-  if (!clean) {
-    return null;
-  }
+  if (!clean) return null;
 
   if (
     clean.startsWith("http://") ||
@@ -207,17 +187,11 @@ function normalizeArray(response, key) {
     return response;
   }
 
-  if (
-    key &&
-    Array.isArray(response?.[key])
-  ) {
+  if (key && Array.isArray(response?.[key])) {
     return response[key];
   }
 
-  if (
-    key &&
-    Array.isArray(response?.data?.[key])
-  ) {
+  if (key && Array.isArray(response?.data?.[key])) {
     return response.data[key];
   }
 
@@ -228,7 +202,7 @@ function normalizeArray(response, key) {
   return [];
 }
 
-function getErrorMessage(error, fallback) {
+function getErrorMessage(error, fallback = "Please try again.") {
   return (
     error?.response?.data?.message ||
     error?.response?.data?.error ||
@@ -251,429 +225,322 @@ function getHighlightCover(highlight) {
     getImageUri(highlight?.cover) ||
     getImageUri(highlight?.coverImage) ||
     getImageUri(highlight?.image) ||
-    getImageUri(highlight?.coverUrl)
+    getImageUri(highlight?.coverUrl) ||
+    getImageUri(highlight?.thumbnail)
   );
 }
 
+function getProfileUrl(username) {
+  return `https://snapgram.app/${encodeURIComponent(username)}`;
+}
+
 export default function ProfileScreen() {
-  const {
-    user,
-    loading: authLoading,
-  } = useAuth();
+  const { user, loading: authLoading } = useAuth();
 
-  const [activeTab, setActiveTab] =
-    useState("posts");
+  const [activeTab, setActiveTab] = useState("posts");
+  const [refreshing, setRefreshing] = useState(false);
 
-  const [refreshing, setRefreshing] =
-    useState(false);
+  const [profilePosts, setProfilePosts] = useState([]);
+  const [profileReels, setProfileReels] = useState([]);
+  const [profileReposts, setProfileReposts] = useState([]);
+  const [profileTagged, setProfileTagged] = useState([]);
 
-  const [profilePosts, setProfilePosts] =
-    useState([]);
+  const [postsLoading, setPostsLoading] = useState(false);
+  const [reelsLoading, setReelsLoading] = useState(false);
+  const [repostsLoading, setRepostsLoading] = useState(false);
+  const [taggedLoading, setTaggedLoading] = useState(false);
 
-  const [profileReels, setProfileReels] =
-    useState([]);
+  const [highlights, setHighlights] = useState([]);
+  const [highlightsLoading, setHighlightsLoading] = useState(false);
 
-  const [profileReposts, setProfileReposts] =
-    useState([]);
+  const [myStories, setMyStories] = useState([]);
+  const [storiesLoading, setStoriesLoading] = useState(false);
 
-  const [profileTagged, setProfileTagged] =
-    useState([]);
+  const [menuVisible, setMenuVisible] = useState(false);
+  const [editVisible, setEditVisible] = useState(false);
+  const [highlightVisible, setHighlightVisible] = useState(false);
 
-  const [postsLoading, setPostsLoading] =
-    useState(false);
+  const [selectedStories, setSelectedStories] = useState([]);
+  const [highlightName, setHighlightName] = useState("");
+  const [creatingHighlight, setCreatingHighlight] = useState(false);
 
-  const [reelsLoading, setReelsLoading] =
-    useState(false);
+  const [username, setUsername] = useState("");
+  const [name, setName] = useState("");
+  const [bio, setBio] = useState("");
+  const [website, setWebsite] = useState("");
+  const [pronouns, setPronouns] = useState("");
+  const [gender, setGender] = useState("");
+  const [selectedAvatar, setSelectedAvatar] = useState(null);
+  const [savingProfile, setSavingProfile] = useState(false);
 
-  const [repostsLoading, setRepostsLoading] =
-    useState(false);
-
-  const [taggedLoading, setTaggedLoading] =
-    useState(false);
-
-  const [highlights, setHighlights] =
-    useState([]);
-
-  const [highlightsLoading, setHighlightsLoading] =
-    useState(false);
-
-  const [myStories, setMyStories] =
-    useState([]);
-
-  const [storiesLoading, setStoriesLoading] =
-    useState(false);
-
-  const [menuVisible, setMenuVisible] =
-    useState(false);
-
-  const [editVisible, setEditVisible] =
-    useState(false);
-
-  const [highlightVisible, setHighlightVisible] =
-    useState(false);
-
-  const [selectedStories, setSelectedStories] =
-    useState([]);
-
-  const [highlightName, setHighlightName] =
-    useState("");
-
-  const [creatingHighlight, setCreatingHighlight] =
-    useState(false);
-
-  const [username, setUsername] =
-    useState("");
-
-  const [name, setName] =
-    useState("");
-
-  const [bio, setBio] =
-    useState("");
-
-  const [website, setWebsite] =
-    useState("");
-
-  const [pronouns, setPronouns] =
-    useState("");
-
-  const [gender, setGender] =
-    useState("");
-
-  const [selectedAvatar, setSelectedAvatar] =
-    useState(null);
-
-  const [savingProfile, setSavingProfile] =
-    useState(false);
-
-  const [showProfileQR, setShowProfileQR] =
-    useState(false);
-
-  const [showQRScanner, setShowQRScanner] =
-    useState(false);
+  const [showProfileQR, setShowProfileQR] = useState(false);
+  const [showQRScanner, setShowQRScanner] = useState(false);
 
   useEffect(() => {
-    if (!user) {
-      return;
-    }
+    if (!user) return;
 
-    setUsername(
-      user?.username || ""
-    );
-
+    setUsername(user?.username || "");
     setName(
       user?.fullName ||
         user?.name ||
         user?.displayName ||
         ""
     );
-
-    setBio(
-      user?.bio || ""
-    );
-
-    setWebsite(
-      user?.website ||
-        user?.link ||
-        ""
-    );
-
-    setPronouns(
-      user?.pronouns || ""
-    );
-
-    setGender(
-      user?.gender || ""
-    );
-
-    setSelectedAvatar(
-      getProfileAvatar(user)
-    );
+    setBio(user?.bio || "");
+    setWebsite(user?.website || user?.link || "");
+    setPronouns(user?.pronouns || "");
+    setGender(user?.gender || "");
+    setSelectedAvatar(getProfileAvatar(user));
   }, [user]);
 
-  const loadProfilePosts =
-    useCallback(async () => {
-      if (!user) {
-        setProfilePosts([]);
-        return [];
-      }
+  const loadProfilePosts = useCallback(async () => {
+    if (!user) {
+      setProfilePosts([]);
+      return [];
+    }
 
-      try {
-        setPostsLoading(true);
+    try {
+      setPostsLoading(true);
 
-        const response =
-          await getUserPosts(1, 50);
+      const response = await getUserPosts(1, 50);
+      const posts = normalizeArray(response, "posts");
 
-        const posts = normalizeArray(
-          response,
-          "posts"
-        );
+      setProfilePosts(posts);
 
-        setProfilePosts(posts);
+      return posts;
+    } catch (error) {
+      console.error(
+        "[PROFILE] LOAD POSTS ERROR:",
+        error?.response?.data || error?.message || error
+      );
 
-        return posts;
-      } catch (error) {
-        console.error(
-          "[PROFILE] LOAD POSTS ERROR:",
-          error?.response?.data ||
-            error?.message ||
-            error
-        );
+      setProfilePosts([]);
 
-        setProfilePosts([]);
+      return [];
+    } finally {
+      setPostsLoading(false);
+    }
+  }, [user]);
 
-        return [];
-      } finally {
-        setPostsLoading(false);
-      }
-    }, [user]);
+  const loadProfileReels = useCallback(async () => {
+    if (!user) {
+      setProfileReels([]);
+      return [];
+    }
 
-  const loadProfileReels =
-    useCallback(async () => {
-      if (!user) {
-        setProfileReels([]);
-        return [];
-      }
+    try {
+      setReelsLoading(true);
 
-      try {
-        setReelsLoading(true);
+      const response = await getUserReels(1, 50);
+      const reels = normalizeArray(response, "reels");
 
-        const response =
-          await getUserReels(1, 50);
+      setProfileReels(reels);
 
-        const reels = normalizeArray(
-          response,
-          "reels"
-        );
+      return reels;
+    } catch (error) {
+      console.error(
+        "[PROFILE] LOAD REELS ERROR:",
+        error?.response?.data || error?.message || error
+      );
 
-        setProfileReels(reels);
+      setProfileReels([]);
 
-        return reels;
-      } catch (error) {
-        console.error(
-          "[PROFILE] LOAD REELS ERROR:",
-          error?.response?.data ||
-            error?.message ||
-            error
-        );
+      return [];
+    } finally {
+      setReelsLoading(false);
+    }
+  }, [user]);
 
-        setProfileReels([]);
+  const loadProfileReposts = useCallback(async () => {
+    if (!user) {
+      setProfileReposts([]);
+      return [];
+    }
 
-        return [];
-      } finally {
-        setReelsLoading(false);
-      }
-    }, [user]);
+    try {
+      setRepostsLoading(true);
 
-  const loadProfileReposts =
-    useCallback(async () => {
-      if (!user) {
-        setProfileReposts([]);
-        return [];
-      }
+      const response = await getUserReposts(1, 50);
+      const reposts = normalizeArray(response, "reposts");
 
-      try {
-        setRepostsLoading(true);
+      setProfileReposts(reposts);
 
-        const response =
-          await getUserReposts(1, 50);
+      return reposts;
+    } catch (error) {
+      console.error(
+        "[PROFILE] LOAD REPOSTS ERROR:",
+        error?.response?.data || error?.message || error
+      );
 
-        const reposts = normalizeArray(
-          response,
-          "reposts"
-        );
+      setProfileReposts([]);
 
-        setProfileReposts(reposts);
+      return [];
+    } finally {
+      setRepostsLoading(false);
+    }
+  }, [user]);
 
-        return reposts;
-      } catch (error) {
-        console.error(
-          "[PROFILE] LOAD REPOSTS ERROR:",
-          error?.response?.data ||
-            error?.message ||
-            error
-        );
+  const loadProfileTagged = useCallback(async () => {
+    if (!user) {
+      setProfileTagged([]);
+      return [];
+    }
 
-        setProfileReposts([]);
+    try {
+      setTaggedLoading(true);
 
-        return [];
-      } finally {
-        setRepostsLoading(false);
-      }
-    }, [user]);
+      const response = await getTaggedPosts(1, 50);
+      const tagged = normalizeArray(response, "posts");
 
-  const loadProfileTagged =
-    useCallback(async () => {
-      if (!user) {
-        setProfileTagged([]);
-        return [];
-      }
+      setProfileTagged(tagged);
 
-      try {
-        setTaggedLoading(true);
+      return tagged;
+    } catch (error) {
+      console.error(
+        "[PROFILE] LOAD TAGGED ERROR:",
+        error?.response?.data || error?.message || error
+      );
 
-        const response =
-          await getTaggedPosts(1, 50);
+      setProfileTagged([]);
 
-        const tagged = normalizeArray(
-          response,
-          "posts"
-        );
+      return [];
+    } finally {
+      setTaggedLoading(false);
+    }
+  }, [user]);
 
-        setProfileTagged(tagged);
+  const loadHighlights = useCallback(async () => {
+    if (!user) {
+      setHighlights([]);
+      return [];
+    }
 
-        return tagged;
-      } catch (error) {
-        console.error(
-          "[PROFILE] LOAD TAGGED ERROR:",
-          error?.response?.data ||
-            error?.message ||
-            error
-        );
+    const userId = getId(user);
 
-        setProfileTagged([]);
+    if (!userId) {
+      console.warn("[PROFILE] Cannot load highlights: missing user ID");
+      setHighlights([]);
+      return [];
+    }
 
-        return [];
-      } finally {
-        setTaggedLoading(false);
-      }
-    }, [user]);
+    try {
+      setHighlightsLoading(true);
 
-  const loadHighlights =
-    useCallback(async () => {
-      if (!user) {
-        setHighlights([]);
-        return [];
-      }
+      const response = await getHighlights(String(userId));
 
-      const userId = getId(user);
+      const data = normalizeArray(response, "highlights");
 
-      if (!userId) {
-        setHighlights([]);
-        return [];
-      }
-
-      try {
-        setHighlightsLoading(true);
-
-        const response =
-          await getHighlights(userId);
-
-        const data =
-          normalizeArray(
-            response,
-            "highlights"
-          );
-
-        const mine = data.filter(
-          (highlight) => {
-            if (!highlight?.user) {
-              return true;
-            }
-
-            const highlightUserId =
-              getId(highlight.user);
-
-            return (
-              !highlightUserId ||
-              highlightUserId === userId
-            );
-          }
-        );
-
-        setHighlights(mine);
-
-        return mine;
-      } catch (error) {
-        console.error(
-          "[PROFILE] LOAD HIGHLIGHTS ERROR:",
-          error?.response?.data ||
-            error?.message ||
-            error
-        );
-
-        setHighlights([]);
-
-        return [];
-      } finally {
-        setHighlightsLoading(false);
-      }
-    }, [user]);
-
-  const loadMyStories =
-    useCallback(async () => {
-      if (!user) {
-        setMyStories([]);
-        return [];
-      }
-
-      const userId = getId(user);
-
-      if (!userId) {
-        setMyStories([]);
-        return [];
-      }
-
-      try {
-        setStoriesLoading(true);
-
-        let response;
-
-        if (typeof getUserStories === "function") {
-          response =
-            await getUserStories(userId);
-        } else {
-          response =
-            await getStories();
+      const mine = data.filter((highlight) => {
+        if (!highlight?.user) {
+          return true;
         }
 
-        const stories =
-          normalizeArray(
-            response,
-            "stories"
-          );
+        const highlightUserId = getId(highlight.user);
 
-        const mine = stories.filter(
-          (story) => {
-            const storyUserId =
-              getId(story?.user) ||
-              story?.userId ||
-              getId(story?.author);
+        if (!highlightUserId) {
+          return true;
+        }
 
-            if (!storyUserId) {
-              return true;
-            }
+        return String(highlightUserId) === String(userId);
+      });
 
-            return (
-              String(storyUserId) ===
-              String(userId)
-            );
-          }
-        );
+      setHighlights(mine);
 
-        setMyStories(mine);
+      return mine;
+    } catch (error) {
+      console.error(
+        "[PROFILE] LOAD HIGHLIGHTS ERROR:",
+        error?.response?.data || error?.message || error
+      );
 
-        return mine;
-      } catch (error) {
-        console.error(
-          "[PROFILE] LOAD STORIES ERROR:",
-          error?.response?.data ||
-            error?.message ||
-            error
-        );
+      setHighlights([]);
 
-        setMyStories([]);
+      return [];
+    } finally {
+      setHighlightsLoading(false);
+    }
+  }, [user]);
 
-        return [];
-      } finally {
-        setStoriesLoading(false);
-      }
-    }, [user]);
+  const loadMyStories = useCallback(async () => {
+    if (!user) {
+      setMyStories([]);
+      return [];
+    }
 
-  const loadProfile =
-    useCallback(async () => {
-      if (!user) {
-        return;
-      }
+    const userId = getId(user);
+
+    if (!userId) {
+      setMyStories([]);
+      return [];
+    }
+
+    try {
+      setStoriesLoading(true);
+
+      const response = await getUserStories(String(userId));
+
+      const stories = normalizeArray(response, "stories");
+
+      const mine = stories.filter((story) => {
+        const storyUserId =
+          getId(story?.user) ||
+          story?.userId ||
+          getId(story?.author);
+
+        if (!storyUserId) {
+          return true;
+        }
+
+        return String(storyUserId) === String(userId);
+      });
+
+      setMyStories(mine);
+
+      return mine;
+    } catch (error) {
+      console.error(
+        "[PROFILE] LOAD STORIES ERROR:",
+        error?.response?.data || error?.message || error
+      );
+
+      setMyStories([]);
+
+      return [];
+    } finally {
+      setStoriesLoading(false);
+    }
+  }, [user]);
+
+  const loadProfile = useCallback(async () => {
+    if (!user) return;
+
+    await Promise.allSettled([
+      loadProfilePosts(),
+      loadProfileReels(),
+      loadProfileReposts(),
+      loadProfileTagged(),
+      loadHighlights(),
+    ]);
+  }, [
+    user,
+    loadProfilePosts,
+    loadProfileReels,
+    loadProfileReposts,
+    loadProfileTagged,
+    loadHighlights,
+  ]);
+
+  useFocusEffect(
+    useCallback(() => {
+      loadProfile();
+    }, [loadProfile])
+  );
+
+  const handleRefresh = useCallback(async () => {
+    if (!user) return;
+
+    try {
+      setRefreshing(true);
 
       await Promise.allSettled([
         loadProfilePosts(),
@@ -682,48 +549,17 @@ export default function ProfileScreen() {
         loadProfileTagged(),
         loadHighlights(),
       ]);
-    }, [
-      user,
-      loadProfilePosts,
-      loadProfileReels,
-      loadProfileReposts,
-      loadProfileTagged,
-      loadHighlights,
-    ]);
-
-  useFocusEffect(
-    useCallback(() => {
-      loadProfile();
-    }, [loadProfile])
-  );
-
-  const handleRefresh =
-    useCallback(async () => {
-      if (!user) {
-        return;
-      }
-
-      try {
-        setRefreshing(true);
-
-        await Promise.allSettled([
-          loadProfilePosts(),
-          loadProfileReels(),
-          loadProfileReposts(),
-          loadProfileTagged(),
-          loadHighlights(),
-        ]);
-      } finally {
-        setRefreshing(false);
-      }
-    }, [
-      user,
-      loadProfilePosts,
-      loadProfileReels,
-      loadProfileReposts,
-      loadProfileTagged,
-      loadHighlights,
-    ]);
+    } finally {
+      setRefreshing(false);
+    }
+  }, [
+    user,
+    loadProfilePosts,
+    loadProfileReels,
+    loadProfileReposts,
+    loadProfileTagged,
+    loadHighlights,
+  ]);
 
   const getVisiblePosts = () => {
     switch (activeTab) {
@@ -742,8 +578,7 @@ export default function ProfileScreen() {
     }
   };
 
-  const visiblePosts =
-    getVisiblePosts();
+  const visiblePosts = getVisiblePosts();
 
   const currentTabLoading =
     activeTab === "posts"
@@ -770,61 +605,41 @@ export default function ProfileScreen() {
     0;
 
   const openCreatePost = () => {
-    router.push(
-      "/(tabs)/create"
-    );
+    router.push("/(tabs)/create");
   };
 
   const openSettings = () => {
     setMenuVisible(false);
-
-    router.push(
-      "/settings"
-    );
+    router.push("/settings");
   };
 
   const openActivity = () => {
     setMenuVisible(false);
-
-    router.push(
-      "/settings/activity/activity"
-    );
+    router.push("/settings/activity/activity");
   };
 
   const openArchive = () => {
     setMenuVisible(false);
-
-    router.push(
-      "/settings/activity/archived"
-    );
+    router.push("/settings/activity/archived");
   };
 
   const openSaved = () => {
     setMenuVisible(false);
-
-    router.push(
-      "/saved"
-    );
+    router.push("/saved");
   };
 
   const openCloseFriends = () => {
     setMenuVisible(false);
-
-    router.push(
-      "/settings/privacy/close-friends"
-    );
+    router.push("/settings/privacy/close-friends");
   };
 
   const openFollowers = () => {
     const userId = getId(user);
 
-    if (!userId) {
-      return;
-    }
+    if (!userId) return;
 
     router.push({
-      pathname:
-        "/profile/followers",
+      pathname: "/profile/followers",
       params: {
         userId: String(userId),
       },
@@ -834,13 +649,10 @@ export default function ProfileScreen() {
   const openFollowing = () => {
     const userId = getId(user);
 
-    if (!userId) {
-      return;
-    }
+    if (!userId) return;
 
     router.push({
-      pathname:
-        "/profile/following",
+      pathname: "/profile/following",
       params: {
         userId: String(userId),
       },
@@ -851,33 +663,44 @@ export default function ProfileScreen() {
     try {
       const currentUsername = getUsername(user);
 
-      if (!currentUsername || currentUsername === "username") {
+      if (
+        !currentUsername ||
+        currentUsername === "username"
+      ) {
         Alert.alert(
           "Unable to share",
           "Your username is not available."
         );
+
         return;
       }
 
-      const profileUrl = `https://snapgram.app/${currentUsername}`;
+      const profileUrl = getProfileUrl(currentUsername);
 
       await Share.share({
         message:
-          `Check out @${currentUsername} on Snapgram\\n${profileUrl}`,
+          `Check out @${currentUsername} on Snapgram\n${profileUrl}`,
       });
     } catch (error) {
-      console.error("[PROFILE] SHARE ERROR:", error);
+      console.error(
+        "[PROFILE] SHARE ERROR:",
+        error
+      );
     }
   };
 
   const openProfileQR = () => {
     const currentUsername = getUsername(user);
 
-    if (!currentUsername || currentUsername === "username") {
+    if (
+      !currentUsername ||
+      currentUsername === "username"
+    ) {
       Alert.alert(
         "Unable to create QR code",
         "Your username is not available."
       );
+
       return;
     }
 
@@ -894,26 +717,20 @@ export default function ProfileScreen() {
     user?.link ||
     website;
 
-  const openWebsite =
-    async () => {
-      const url =
-        normalizeWebsite(
-          websiteValue
-        );
+  const openWebsite = async () => {
+    const url = normalizeWebsite(websiteValue);
 
-      if (!url) {
-        return;
-      }
+    if (!url) return;
 
-      try {
-        await Linking.openURL(url);
-      } catch (error) {
-        Alert.alert(
-          "Unable to open link",
-          "This website could not be opened."
-        );
-      }
-    };
+    try {
+      await Linking.openURL(url);
+    } catch (error) {
+      Alert.alert(
+        "Unable to open link",
+        "This website could not be opened."
+      );
+    }
+  };
 
   const openThreads = () => {
     Alert.alert(
@@ -922,317 +739,249 @@ export default function ProfileScreen() {
     );
   };
 
-  const pickAvatar =
-    async () => {
-      try {
-        const permission =
-          await ImagePicker.requestMediaLibraryPermissionsAsync();
+  const pickAvatar = async () => {
+    try {
+      const permission =
+        await ImagePicker.requestMediaLibraryPermissionsAsync();
 
-        if (!permission.granted) {
-          Alert.alert(
-            "Photo access needed",
-            "Allow photo access to change your profile picture."
-          );
-
-          return;
-        }
-
-        const result =
-          await ImagePicker.launchImageLibraryAsync(
-            {
-              mediaTypes: [
-                "images",
-              ],
-              allowsEditing: true,
-              aspect: [1, 1],
-              quality: 0.9,
-            }
-          );
-
-        if (
-          result.canceled ||
-          !result.assets?.length
-        ) {
-          return;
-        }
-
-        setSelectedAvatar(
-          result.assets[0].uri
-        );
-      } catch (error) {
-        console.error(
-          "[PROFILE] AVATAR PICKER ERROR:",
-          error
-        );
-
+      if (!permission.granted) {
         Alert.alert(
-          "Couldn't select photo",
-          "Please try again."
-        );
-      }
-    };
-
-  const saveProfile =
-    async () => {
-      const cleanUsername =
-        username
-          .trim()
-          .toLowerCase();
-
-      const cleanName =
-        name.trim();
-
-      const cleanBio =
-        bio.trim();
-
-      const cleanWebsite =
-        website.trim();
-
-      const cleanPronouns =
-        pronouns.trim();
-
-      const cleanGender =
-        gender.trim();
-
-      if (
-        cleanUsername.length < 3
-      ) {
-        Alert.alert(
-          "Invalid username",
-          "Username must contain at least 3 characters."
+          "Photo access needed",
+          "Allow photo access to change your profile picture."
         );
 
         return;
       }
 
-      try {
-        setSavingProfile(true);
+      const result =
+        await ImagePicker.launchImageLibraryAsync({
+          mediaTypes: ["images"],
+          allowsEditing: true,
+          aspect: [1, 1],
+          quality: 0.9,
+        });
 
-        const payload = {
-          username:
-            cleanUsername,
-          fullName:
-            cleanName,
-          bio:
-            cleanBio,
-          website:
-            cleanWebsite,
-          pronouns:
-            cleanPronouns,
-          gender:
-            cleanGender,
-          avatar:
-            selectedAvatar,
-        };
-
-        const response =
-          await updateProfile(
-            payload
-          );
-
-        const updatedUser =
-          response?.user ||
-          response?.data?.user ||
-          response?.data ||
-          response;
-
-        setUsername(
-          updatedUser?.username ||
-            cleanUsername
-        );
-
-        setName(
-          updatedUser?.fullName ||
-            updatedUser?.name ||
-            cleanName
-        );
-
-        setBio(
-          updatedUser?.bio ??
-            cleanBio
-        );
-
-        setWebsite(
-          updatedUser?.website ??
-            cleanWebsite
-        );
-
-        setPronouns(
-          updatedUser?.pronouns ??
-            cleanPronouns
-        );
-
-        setGender(
-          updatedUser?.gender ??
-            cleanGender
-        );
-
-        const updatedAvatar =
-          getProfileAvatar(
-            updatedUser
-          );
-
-        if (updatedAvatar) {
-          setSelectedAvatar(
-            updatedAvatar
-          );
-        }
-
-        setEditVisible(false);
-
-        await loadProfilePosts();
-      } catch (error) {
-        console.error(
-          "[PROFILE] SAVE PROFILE ERROR:",
-          error?.response?.data ||
-            error?.message ||
-            error
-        );
-
-        Alert.alert(
-          "Couldn't save profile",
-          getErrorMessage(
-            error,
-            "Please try again."
-          )
-        );
-      } finally {
-        setSavingProfile(false);
+      if (
+        result.canceled ||
+        !result.assets?.length
+      ) {
+        return;
       }
-    };
 
-  const openCreateHighlight =
-    async () => {
+      setSelectedAvatar(
+        result.assets[0].uri
+      );
+    } catch (error) {
+      console.error(
+        "[PROFILE] AVATAR PICKER ERROR:",
+        error
+      );
+
+      Alert.alert(
+        "Couldn't select photo",
+        "Please try again."
+      );
+    }
+  };
+
+  const saveProfile = async () => {
+    const cleanUsername =
+      username.trim().toLowerCase();
+
+    const cleanName = name.trim();
+    const cleanBio = bio.trim();
+    const cleanWebsite = website.trim();
+    const cleanPronouns = pronouns.trim();
+    const cleanGender = gender.trim();
+
+    if (cleanUsername.length < 3) {
+      Alert.alert(
+        "Invalid username",
+        "Username must contain at least 3 characters."
+      );
+
+      return;
+    }
+
+    try {
+      setSavingProfile(true);
+
+      const payload = {
+        username: cleanUsername,
+        fullName: cleanName,
+        bio: cleanBio,
+        website: cleanWebsite,
+        pronouns: cleanPronouns,
+        gender: cleanGender,
+        avatar: selectedAvatar,
+      };
+
+      const response =
+        await updateProfile(payload);
+
+      const updatedUser =
+        response?.user ||
+        response?.data?.user ||
+        response?.data ||
+        response;
+
+      setUsername(
+        updatedUser?.username ||
+          cleanUsername
+      );
+
+      setName(
+        updatedUser?.fullName ||
+          updatedUser?.name ||
+          cleanName
+      );
+
+      setBio(
+        updatedUser?.bio ??
+          cleanBio
+      );
+
+      setWebsite(
+        updatedUser?.website ??
+          cleanWebsite
+      );
+
+      setPronouns(
+        updatedUser?.pronouns ??
+          cleanPronouns
+      );
+
+      setGender(
+        updatedUser?.gender ??
+          cleanGender
+      );
+
+      const updatedAvatar =
+        getProfileAvatar(updatedUser);
+
+      if (updatedAvatar) {
+        setSelectedAvatar(updatedAvatar);
+      }
+
+      setEditVisible(false);
+
+      await loadProfilePosts();
+    } catch (error) {
+      console.error(
+        "[PROFILE] SAVE PROFILE ERROR:",
+        error?.response?.data ||
+          error?.message ||
+          error
+      );
+
+      Alert.alert(
+        "Couldn't save profile",
+        getErrorMessage(error)
+      );
+    } finally {
+      setSavingProfile(false);
+    }
+  };
+
+  const openCreateHighlight = async () => {
+    setSelectedStories([]);
+    setHighlightName("");
+
+    const stories =
+      await loadMyStories();
+
+    if (!stories.length) {
+      Alert.alert(
+        "No stories available",
+        "Post a Story first, then you can add it to a Highlight."
+      );
+
+      return;
+    }
+
+    setHighlightVisible(true);
+  };
+
+  const toggleStorySelection = (storyId) => {
+    if (!storyId) return;
+
+    setSelectedStories((current) =>
+      current.includes(storyId)
+        ? current.filter(
+            (id) => id !== storyId
+          )
+        : [...current, storyId]
+    );
+  };
+
+  const saveHighlight = async () => {
+    if (!selectedStories.length) {
+      Alert.alert(
+        "Select a Story",
+        "Choose at least one Story."
+      );
+
+      return;
+    }
+
+    try {
+      setCreatingHighlight(true);
+
+      const response =
+        await createHighlight({
+          title:
+            highlightName.trim() ||
+            "Highlights",
+          storyIds: selectedStories,
+        });
+
+      const created =
+        response?.highlight ||
+        response?.data?.highlight ||
+        response?.data ||
+        response;
+
+      if (created) {
+        setHighlights((current) => [
+          created,
+          ...current,
+        ]);
+      } else {
+        await loadHighlights();
+      }
+
+      setHighlightVisible(false);
       setSelectedStories([]);
       setHighlightName("");
-
-      const stories =
-        await loadMyStories();
-
-      if (!stories.length) {
-        Alert.alert(
-          "No stories available",
-          "Post a Story first, then you can add it to a Highlight."
-        );
-
-        return;
-      }
-
-      setHighlightVisible(true);
-    };
-
-  const toggleStorySelection =
-    (storyId) => {
-      if (!storyId) {
-        return;
-      }
-
-      setSelectedStories(
-        (current) => {
-          if (
-            current.includes(
-              storyId
-            )
-          ) {
-            return current.filter(
-              (id) =>
-                id !== storyId
-            );
-          }
-
-          return [
-            ...current,
-            storyId,
-          ];
-        }
+    } catch (error) {
+      console.error(
+        "[PROFILE] CREATE HIGHLIGHT ERROR:",
+        error?.response?.data ||
+          error?.message ||
+          error
       );
-    };
 
-  const saveHighlight =
-    async () => {
-      if (
-        !selectedStories.length
-      ) {
-        Alert.alert(
-          "Select a Story",
-          "Choose at least one Story."
-        );
-
-        return;
-      }
-
-      try {
-        setCreatingHighlight(
-          true
-        );
-
-        const response =
-          await createHighlight({
-            title:
-              highlightName.trim() ||
-              "Highlights",
-            storyIds:
-              selectedStories,
-          });
-
-        const created =
-          response?.highlight ||
-          response?.data?.highlight ||
-          response?.data ||
-          response;
-
-        if (created) {
-          setHighlights(
-            (current) => [
-              created,
-              ...current,
-            ]
-          );
-        } else {
-          await loadHighlights();
-        }
-
-        setHighlightVisible(
-          false
-        );
-
-        setSelectedStories([]);
-        setHighlightName("");
-      } catch (error) {
-        console.error(
-          "[PROFILE] CREATE HIGHLIGHT ERROR:",
-          error?.response?.data ||
-            error?.message ||
-            error
-        );
-
-        Alert.alert(
-          "Couldn't create Highlight",
-          getErrorMessage(
-            error,
-            "Please try again."
-          )
-        );
-      } finally {
-        setCreatingHighlight(
-          false
-        );
-      }
-    };
-
-  const openHighlight =
-    (highlight) => {
-      const highlightId =
-        getId(highlight);
-
-      if (!highlightId) {
-        return;
-      }
-
-      router.push(
-        `/stories/${highlightId}`
+      Alert.alert(
+        "Couldn't create Highlight",
+        getErrorMessage(error)
       );
-    };
+    } finally {
+      setCreatingHighlight(false);
+    }
+  };
+
+  const openHighlight = (highlight) => {
+    const highlightId = getId(highlight);
+
+    if (!highlightId) return;
+
+    router.push({
+      pathname: "/stories/[id]",
+      params: {
+        id: String(highlightId),
+      },
+    });
+  };
 
   if (authLoading) {
     return (
@@ -1240,11 +989,7 @@ export default function ProfileScreen() {
         style={styles.loadingScreen}
         edges={["top"]}
       >
-        <Text
-          style={
-            styles.loadingText
-          }
-        >
+        <Text style={styles.loadingText}>
           Loading profile...
         </Text>
       </SafeAreaView>
@@ -1257,11 +1002,7 @@ export default function ProfileScreen() {
         style={styles.loadingScreen}
         edges={["top"]}
       >
-        <Text
-          style={
-            styles.loadingText
-          }
-        >
+        <Text style={styles.loadingText}>
           Profile unavailable
         </Text>
       </SafeAreaView>
@@ -1288,90 +1029,62 @@ export default function ProfileScreen() {
     null;
 
   const isPrivate =
-    Boolean(
-      user?.isPrivate
-    );
+    Boolean(user?.isPrivate);
 
   const isVerified =
     Boolean(
       user?.isVerified ||
         user?.verified ||
-        user?.verification
-          ?.isVerified ||
-        user?.verification
-          ?.verified
+        user?.verification?.isVerified ||
+        user?.verification?.verified
     );
+
+  const qrProfileUrl =
+    getProfileUrl(displayUsername);
 
   return (
     <SafeAreaView
       style={styles.safeArea}
       edges={["top"]}
     >
-      <View
-        style={styles.screen}
-      >
+      <View style={styles.screen}>
         <ScrollView
-          showsVerticalScrollIndicator={
-            false
-          }
+          showsVerticalScrollIndicator={false}
           refreshControl={
             <RefreshControl
-              refreshing={
-                refreshing
-              }
-              onRefresh={
-                handleRefresh
-              }
-              tintColor={
-                COLORS.black
-              }
+              refreshing={refreshing}
+              onRefresh={handleRefresh}
+              tintColor={COLORS.black}
             />
           }
         >
-
-          <View
-            style={styles.header}
-          >
+          <View style={styles.header}>
             <TouchableOpacity
-              style={
-                styles.headerIcon
-              }
-              onPress={
-                openCreatePost
-              }
+              style={styles.headerIcon}
+              onPress={openCreatePost}
               activeOpacity={0.7}
             >
               <Ionicons
                 name="add-outline"
                 size={31}
-                color={
-                  COLORS.black
-                }
+                color={COLORS.black}
               />
             </TouchableOpacity>
 
             <View
-              style={
-                styles.usernameHeader
-              }
+              style={styles.usernameHeader}
             >
               {isPrivate && (
                 <Ionicons
                   name="lock-closed"
                   size={15}
-                  color={
-                    COLORS.black
-                  }
-                  style={
-                    styles.lockIcon
-                  }
+                  color={COLORS.black}
+                  style={styles.lockIcon}
                 />
               )}
 
               <Text
-                style={
-                  styles.headerUsername
-                }
+                style={styles.headerUsername}
                 numberOfLines={1}
               >
                 {displayUsername}
@@ -1380,79 +1093,54 @@ export default function ProfileScreen() {
               <Ionicons
                 name="chevron-down"
                 size={17}
-                color={
-                  COLORS.black
-                }
+                color={COLORS.black}
               />
             </View>
 
             <View
-              style={
-                styles.headerRight
-              }
+              style={styles.headerRight}
             >
               <TouchableOpacity
-                style={
-                  styles.headerIcon
-                }
-                onPress={
-                  openThreads
-                }
+                style={styles.headerIcon}
+                onPress={openThreads}
                 activeOpacity={0.7}
               >
                 <Ionicons
                   name="at-outline"
                   size={28}
-                  color={
-                    COLORS.black
-                  }
+                  color={COLORS.black}
                 />
               </TouchableOpacity>
 
               <TouchableOpacity
-                style={
-                  styles.headerIcon
-                }
+                style={styles.headerIcon}
                 onPress={() =>
-                  setMenuVisible(
-                    true
-                  )
+                  setMenuVisible(true)
                 }
                 activeOpacity={0.7}
               >
                 <Ionicons
                   name="menu-outline"
                   size={31}
-                  color={
-                    COLORS.black
-                  }
+                  color={COLORS.black}
                 />
               </TouchableOpacity>
             </View>
           </View>
 
           <View
-            style={
-              styles.profileSection
-            }
+            style={styles.profileSection}
           >
             <View
-              style={
-                styles.topProfileRow
-              }
+              style={styles.topProfileRow}
             >
-
               <View
-                style={
-                  styles.avatarWrapper
-                }
+                style={styles.avatarWrapper}
               >
                 <TouchableOpacity
                   activeOpacity={0.8}
                   onPress={() =>
-                    setEditVisible(
-                      true
-                    )
+                    setEditVisible(true)
                   }
                 >
                   {avatarUri ? (
@@ -1460,9 +1148,7 @@ export default function ProfileScreen() {
                       source={{
                         uri: avatarUri,
                       }}
-                      style={
-                        styles.avatar
-                      }
+                      style={styles.avatar}
                     />
                   ) : (
                     <View
@@ -1474,37 +1160,27 @@ export default function ProfileScreen() {
                       <Ionicons
                         name="person"
                         size={44}
-                        color={
-                          COLORS.gray
-                        }
+                        color={COLORS.gray}
                       />
                     </View>
                   )}
                 </TouchableOpacity>
 
                 <TouchableOpacity
-                  style={
-                    styles.addStoryButton
-                  }
-                  onPress={
-                    openCreatePost
-                  }
+                  style={styles.addStoryButton}
+                  onPress={openCreatePost}
                   activeOpacity={0.8}
                 >
                   <Ionicons
                     name="add"
                     size={19}
-                    color={
-                      COLORS.white
-                    }
+                    color={COLORS.white}
                   />
                 </TouchableOpacity>
               </View>
 
               <View
-                style={
-                  styles.statsRow
-                }
+                style={styles.statsRow}
               >
                 <Stat
                   value={formatCount(
@@ -1514,12 +1190,8 @@ export default function ProfileScreen() {
                 />
 
                 <TouchableOpacity
-                  style={
-                    styles.stat
-                  }
-                  onPress={
-                    openFollowers
-                  }
+                  style={styles.stat}
+                  onPress={openFollowers}
                   activeOpacity={0.7}
                 >
                   <Text
@@ -1542,12 +1214,8 @@ export default function ProfileScreen() {
                 </TouchableOpacity>
 
                 <TouchableOpacity
-                  style={
-                    styles.stat
-                  }
-                  onPress={
-                    openFollowing
-                  }
+                  style={styles.stat}
+                  onPress={openFollowing}
                   activeOpacity={0.7}
                 >
                   <Text
@@ -1572,19 +1240,13 @@ export default function ProfileScreen() {
             </View>
 
             <View
-              style={
-                styles.bioSection
-              }
+              style={styles.bioSection}
             >
               <View
-                style={
-                  styles.nameRow
-                }
+                style={styles.nameRow}
               >
                 <Text
-                  style={
-                    styles.displayName
-                  }
+                  style={styles.displayName}
                 >
                   {displayName}
                 </Text>
@@ -1598,9 +1260,7 @@ export default function ProfileScreen() {
 
               {user?.bio ? (
                 <Text
-                  style={
-                    styles.bioText
-                  }
+                  style={styles.bioText}
                 >
                   {user.bio}
                 </Text>
@@ -1608,20 +1268,14 @@ export default function ProfileScreen() {
 
               {websiteValue ? (
                 <TouchableOpacity
-                  onPress={
-                    openWebsite
-                  }
-                  style={
-                    styles.websiteRow
-                  }
+                  onPress={openWebsite}
+                  style={styles.websiteRow}
                   activeOpacity={0.7}
                 >
                   <Ionicons
                     name="link-outline"
                     size={18}
-                    color={
-                      COLORS.black
-                    }
+                    color={COLORS.black}
                   />
 
                   <Text
@@ -1642,22 +1296,16 @@ export default function ProfileScreen() {
 
               {musicTitle ? (
                 <View
-                  style={
-                    styles.musicRow
-                  }
+                  style={styles.musicRow}
                 >
                   <Ionicons
                     name="musical-notes-outline"
                     size={18}
-                    color={
-                      COLORS.black
-                    }
+                    color={COLORS.black}
                   />
 
                   <Text
-                    style={
-                      styles.musicText
-                    }
+                    style={styles.musicText}
                     numberOfLines={1}
                   >
                     {musicTitle}
@@ -1670,9 +1318,7 @@ export default function ProfileScreen() {
             </View>
 
             <View
-              style={
-                styles.actionRow
-              }
+              style={styles.actionRow}
             >
               <TouchableOpacity
                 style={[
@@ -1680,9 +1326,7 @@ export default function ProfileScreen() {
                   styles.profileButtonLarge,
                 ]}
                 onPress={() =>
-                  setEditVisible(
-                    true
-                  )
+                  setEditVisible(true)
                 }
                 activeOpacity={0.8}
               >
@@ -1700,9 +1344,7 @@ export default function ProfileScreen() {
                   styles.profileButton,
                   styles.profileButtonLarge,
                 ]}
-                onPress={
-                  openShareProfile
-                }
+                onPress={openShareProfile}
                 activeOpacity={0.8}
               >
                 <Text
@@ -1732,25 +1374,19 @@ export default function ProfileScreen() {
                 style={
                   styles.addPersonButton
                 }
-                onPress={
-                  openFollowers
-                }
+                onPress={openFollowers}
                 activeOpacity={0.8}
               >
                 <Ionicons
                   name="person-add-outline"
                   size={20}
-                  color={
-                    COLORS.black
-                  }
+                  color={COLORS.black}
                 />
               </TouchableOpacity>
             </View>
 
             <View
-              style={
-                styles.highlightsSection
-              }
+              style={styles.highlightsSection}
             >
               <ScrollView
                 horizontal
@@ -1761,11 +1397,8 @@ export default function ProfileScreen() {
                   styles.highlightsContent
                 }
               >
-
                 <TouchableOpacity
-                  style={
-                    styles.highlightItem
-                  }
+                  style={styles.highlightItem}
                   onPress={
                     openCreateHighlight
                   }
@@ -1780,9 +1413,7 @@ export default function ProfileScreen() {
                     <Ionicons
                       name="add"
                       size={31}
-                      color={
-                        COLORS.black
-                      }
+                      color={COLORS.black}
                     />
                   </View>
 
@@ -1796,14 +1427,9 @@ export default function ProfileScreen() {
                 </TouchableOpacity>
 
                 {highlights.map(
-                  (
-                    highlight,
-                    index
-                  ) => {
+                  (highlight, index) => {
                     const id =
-                      getId(
-                        highlight
-                      ) ||
+                      getId(highlight) ||
                       `highlight-${index}`;
 
                     const cover =
@@ -1827,9 +1453,7 @@ export default function ProfileScreen() {
                             highlight
                           )
                         }
-                        activeOpacity={
-                          0.8
-                        }
+                        activeOpacity={0.8}
                       >
                         <View
                           style={
@@ -1866,9 +1490,7 @@ export default function ProfileScreen() {
                           style={
                             styles.highlightLabel
                           }
-                          numberOfLines={
-                            1
-                          }
+                          numberOfLines={1}
                         >
                           {title}
                         </Text>
@@ -1881,100 +1503,93 @@ export default function ProfileScreen() {
           </View>
 
           <View
-            style={
-              styles.tabsContainer
-            }
+            style={styles.tabsContainer}
           >
-            {TABS.map(
-              (tab) => {
-                const selected =
-                  activeTab ===
-                  tab.key;
+            {TABS.map((tab) => {
+              const selected =
+                activeTab === tab.key;
 
-                return (
-                  <TouchableOpacity
-                    key={tab.key}
-                    style={
-                      styles.tabButton
+              return (
+                <TouchableOpacity
+                  key={tab.key}
+                  style={styles.tabButton}
+                  onPress={() =>
+                    setActiveTab(tab.key)
+                  }
+                  activeOpacity={0.7}
+                >
+                  <Ionicons
+                    name={tab.icon}
+                    size={25}
+                    color={
+                      selected
+                        ? COLORS.black
+                        : COLORS.muted
                     }
-                    onPress={() =>
-                      setActiveTab(
-                        tab.key
-                      )
-                    }
-                    activeOpacity={
-                      0.7
-                    }
-                  >
-                    <Ionicons
-                      name={
-                        tab.icon
-                      }
-                      size={25}
-                      color={
-                        selected
-                          ? COLORS.black
-                          : COLORS.muted
+                  />
+
+                  {selected && (
+                    <View
+                      style={
+                        styles.activeTabLine
                       }
                     />
-
-                    {selected && (
-                      <View
-                        style={
-                          styles.activeTabLine
-                        }
-                      />
-                    )}
-                  </TouchableOpacity>
-                );
-              }
-            )}
+                  )}
+                </TouchableOpacity>
+              );
+            })}
           </View>
 
           <ProfileGrid
-            posts={
-              visiblePosts
-            }
-            loading={
-              currentTabLoading
-            }
+            posts={visiblePosts}
+            loading={currentTabLoading}
             emptyTitle={
-              activeTab ===
-              "posts"
+              activeTab === "posts"
                 ? "No posts yet"
-                : activeTab ===
-                  "reels"
+                : activeTab === "reels"
                 ? "No reels yet"
-                : activeTab ===
-                  "reposts"
+                : activeTab === "reposts"
                 ? "No reposts yet"
                 : "No tagged posts yet"
             }
           />
 
           <View
-            style={
-              styles.bottomSpacing
-            }
+            style={styles.bottomSpacing}
           />
         </ScrollView>
 
+        {/* PROFILE QR */}
         <Modal
           visible={showProfileQR}
           transparent
           animationType="fade"
-          onRequestClose={() => setShowProfileQR(false)}
+          onRequestClose={() =>
+            setShowProfileQR(false)
+          }
         >
-          <View style={styles.qrOverlay}>
-            <View style={styles.qrModal}>
-              <View style={styles.qrHeader}>
-                <Text style={styles.qrTitle}>Share your profile</Text>
+          <View
+            style={styles.qrOverlay}
+          >
+            <View
+              style={styles.qrModal}
+            >
+              <View
+                style={styles.qrHeader}
+              >
+                <Text
+                  style={styles.qrTitle}
+                >
+                  Share your profile
+                </Text>
 
                 <Pressable
-                  onPress={() => setShowProfileQR(false)}
-                  style={styles.qrCloseButton}
-                  accessibilityRole="button"
-                  accessibilityLabel="Close QR code"
+                  onPress={() =>
+                    setShowProfileQR(false)
+                  }
+                  style={
+                    styles.qrCloseButton
+                  }
                 >
                   <Ionicons
                     name="close"
@@ -1984,34 +1599,49 @@ export default function ProfileScreen() {
                 </Pressable>
               </View>
 
-              <Text style={styles.qrSubtitle}>
-                Scan this QR code to view my Snapgram profile.
+              <Text
+                style={styles.qrSubtitle}
+              >
+                Scan this QR code to view
+                my Snapgram profile.
               </Text>
 
-              <View style={styles.qrCodeContainer}>
+              <View
+                style={
+                  styles.qrCodeContainer
+                }
+              >
                 <QRCode
-                  value={`https://snapgram.app/${getUsername(user)}`}
+                  value={qrProfileUrl}
                   size={220}
-                  backgroundColor={COLORS.white}
+                  backgroundColor={
+                    COLORS.white
+                  }
                   color={COLORS.black}
                 />
               </View>
 
-              <Text style={styles.qrUsername}>
-                @{getUsername(user)}
+              <Text
+                style={styles.qrUsername}
+              >
+                @{displayUsername}
               </Text>
 
               <Pressable
                 style={styles.qrShareButton}
                 onPress={openShareProfile}
-                accessibilityRole="button"
               >
                 <Ionicons
                   name="share-outline"
                   size={20}
                   color={COLORS.white}
                 />
-                <Text style={styles.qrShareButtonText}>
+
+                <Text
+                  style={
+                    styles.qrShareButtonText
+                  }
+                >
                   Share profile
                 </Text>
               </Pressable>
@@ -2019,14 +1649,18 @@ export default function ProfileScreen() {
               <Pressable
                 style={styles.qrScanButton}
                 onPress={openQRScanner}
-                accessibilityRole="button"
               >
                 <Ionicons
                   name="scan-outline"
                   size={20}
                   color={COLORS.black}
                 />
-                <Text style={styles.qrScanButtonText}>
+
+                <Text
+                  style={
+                    styles.qrScanButtonText
+                  }
+                >
                   Scan a QR code
                 </Text>
               </Pressable>
@@ -2034,67 +1668,62 @@ export default function ProfileScreen() {
           </View>
         </Modal>
 
+        {/* QR SCANNER */}
         <Modal
           visible={showQRScanner}
           animationType="slide"
           presentationStyle="fullScreen"
-          onRequestClose={() => setShowQRScanner(false)}
+          onRequestClose={() =>
+            setShowQRScanner(false)
+          }
         >
           <QRScanner
-            onClose={() => setShowQRScanner(false)}
-            onProfileFound={(scannedUsername) => {
+            onClose={() =>
+              setShowQRScanner(false)
+            }
+            onProfileFound={(
+              scannedUsername
+            ) => {
               setShowQRScanner(false);
 
               router.push({
                 pathname: "/[username]",
                 params: {
-                  username: scannedUsername,
+                  username:
+                    scannedUsername,
                 },
               });
             }}
           />
         </Modal>
 
+        {/* MENU */}
         <Modal
-          visible={
-            menuVisible
-          }
+          visible={menuVisible}
           transparent
           animationType="slide"
           onRequestClose={() =>
-            setMenuVisible(
-              false
-            )
+            setMenuVisible(false)
           }
         >
           <Pressable
-            style={
-              styles.modalBackdrop
-            }
+            style={styles.modalBackdrop}
             onPress={() =>
-              setMenuVisible(
-                false
-              )
+              setMenuVisible(false)
             }
           >
             <Pressable
-              style={
-                styles.menuSheet
-              }
+              style={styles.menuSheet}
               onPress={(event) =>
                 event.stopPropagation()
               }
             >
               <View
-                style={
-                  styles.sheetHandle
-                }
+                style={styles.sheetHandle}
               />
 
               <Text
-                style={
-                  styles.menuTitle
-                }
+                style={styles.menuTitle}
               >
                 Menu
               </Text>
@@ -2102,99 +1731,73 @@ export default function ProfileScreen() {
               <MenuItem
                 icon="settings-outline"
                 label="Settings and activity"
-                onPress={
-                  openSettings
-                }
+                onPress={openSettings}
               />
 
               <MenuItem
                 icon="time-outline"
                 label="Your activity"
-                onPress={
-                  openActivity
-                }
+                onPress={openActivity}
               />
 
               <MenuItem
                 icon="archive-outline"
                 label="Archive"
-                onPress={
-                  openArchive
-                }
+                onPress={openArchive}
               />
 
               <MenuItem
                 icon="bookmark-outline"
                 label="Saved"
-                onPress={
-                  openSaved
-                }
+                onPress={openSaved}
               />
 
               <MenuItem
                 icon="people-outline"
                 label="Close friends"
-                onPress={
-                  openCloseFriends
-                }
+                onPress={openCloseFriends}
               />
 
               <View
-                style={
-                  styles.menuDivider
-                }
+                style={styles.menuDivider}
               />
 
               <MenuItem
                 icon="close-outline"
                 label="Cancel"
                 onPress={() =>
-                  setMenuVisible(
-                    false
-                  )
+                  setMenuVisible(false)
                 }
               />
             </Pressable>
           </Pressable>
         </Modal>
 
+        {/* EDIT PROFILE */}
         <Modal
-          visible={
-            editVisible
-          }
+          visible={editVisible}
           animationType="slide"
           presentationStyle="pageSheet"
           onRequestClose={() =>
-            setEditVisible(
-              false
-            )
+            setEditVisible(false)
           }
         >
           <SafeAreaView
-            style={
-              styles.editScreen
-            }
+            style={styles.editScreen}
             edges={["top"]}
           >
             <View
-              style={
-                styles.editHeader
-              }
+              style={styles.editHeader}
             >
               <TouchableOpacity
                 onPress={() =>
-                  setEditVisible(
-                    false
-                  )
+                  setEditVisible(false)
                 }
-                activeOpacity={0.7}
               >
                 <Ionicons
                   name="close-outline"
                   size={31}
-                  color={
-                    COLORS.black
-                  }
+                  color={COLORS.black}
                 />
               </TouchableOpacity>
 
@@ -2207,13 +1810,8 @@ export default function ProfileScreen() {
               </Text>
 
               <TouchableOpacity
-                onPress={
-                  saveProfile
-                }
-                disabled={
-                  savingProfile
-                }
-                activeOpacity={0.7}
+                onPress={saveProfile}
+                disabled={savingProfile}
               >
                 <Text
                   style={[
@@ -2238,24 +1836,18 @@ export default function ProfileScreen() {
                 false
               }
             >
-
               <TouchableOpacity
                 style={
                   styles.editAvatarContainer
                 }
-                onPress={
-                  pickAvatar
-                }
-                activeOpacity={0.8}
+                onPress={pickAvatar}
               >
                 {selectedAvatar ? (
                   <Image
                     source={{
                       uri: selectedAvatar,
                     }}
-                    style={
-                      styles.editAvatar
-                    }
+                    style={styles.editAvatar}
                   />
                 ) : (
                   <View
@@ -2267,9 +1859,7 @@ export default function ProfileScreen() {
                     <Ionicons
                       name="person"
                       size={52}
-                      color={
-                        COLORS.gray
-                      }
+                      color={COLORS.gray}
                     />
                   </View>
                 )}
@@ -2285,32 +1875,22 @@ export default function ProfileScreen() {
 
               <EditField
                 label="Username"
-                value={
-                  username
-                }
-                onChangeText={
-                  setUsername
-                }
+                value={username}
+                onChangeText={setUsername}
                 autoCapitalize="none"
-                autoCorrect={
-                  false
-                }
+                autoCorrect={false}
               />
 
               <EditField
                 label="Name"
                 value={name}
-                onChangeText={
-                  setName
-                }
+                onChangeText={setName}
               />
 
               <EditField
                 label="Bio"
                 value={bio}
-                onChangeText={
-                  setBio
-                }
+                onChangeText={setBio}
                 multiline
                 maxLength={150}
                 inputStyle={
@@ -2320,58 +1900,39 @@ export default function ProfileScreen() {
 
               <EditField
                 label="Website"
-                value={
-                  website
-                }
-                onChangeText={
-                  setWebsite
-                }
+                value={website}
+                onChangeText={setWebsite}
                 autoCapitalize="none"
-                autoCorrect={
-                  false
-                }
+                autoCorrect={false}
                 keyboardType="url"
               />
 
               <EditField
                 label="Pronouns"
-                value={
-                  pronouns
-                }
-                onChangeText={
-                  setPronouns
-                }
+                value={pronouns}
+                onChangeText={setPronouns}
               />
 
               <EditField
                 label="Gender"
-                value={
-                  gender
-                }
-                onChangeText={
-                  setGender
-                }
+                value={gender}
+                onChangeText={setGender}
               />
             </ScrollView>
           </SafeAreaView>
         </Modal>
 
+        {/* CREATE HIGHLIGHT */}
         <Modal
-          visible={
-            highlightVisible
-          }
+          visible={highlightVisible}
           animationType="slide"
           presentationStyle="pageSheet"
           onRequestClose={() =>
-            setHighlightVisible(
-              false
-            )
+            setHighlightVisible(false)
           }
         >
           <SafeAreaView
-            style={
-              styles.highlightModal
-            }
+            style={styles.highlightModal}
             edges={["top"]}
           >
             <View
@@ -2381,18 +1942,13 @@ export default function ProfileScreen() {
             >
               <TouchableOpacity
                 onPress={() =>
-                  setHighlightVisible(
-                    false
-                  )
+                  setHighlightVisible(false)
                 }
-                activeOpacity={0.7}
               >
                 <Ionicons
                   name="close-outline"
                   size={31}
-                  color={
-                    COLORS.black
-                  }
+                  color={COLORS.black}
                 />
               </TouchableOpacity>
 
@@ -2405,13 +1961,8 @@ export default function ProfileScreen() {
               </Text>
 
               <TouchableOpacity
-                onPress={
-                  saveHighlight
-                }
-                disabled={
-                  creatingHighlight
-                }
-                activeOpacity={0.7}
+                onPress={saveHighlight}
+                disabled={creatingHighlight}
               >
                 <Text
                   style={[
@@ -2433,12 +1984,8 @@ export default function ProfileScreen() {
               }
             >
               <TextInput
-                value={
-                  highlightName
-                }
-                onChangeText={
-                  setHighlightName
-                }
+                value={highlightName}
+                onChangeText={setHighlightName}
                 placeholder="Highlight name"
                 placeholderTextColor={
                   COLORS.muted
@@ -2460,9 +2007,7 @@ export default function ProfileScreen() {
                   styles.selectedCountText
                 }
               >
-                {
-                  selectedStories.length
-                }{" "}
+                {selectedStories.length}{" "}
                 selected
               </Text>
             </View>
@@ -2490,8 +2035,7 @@ export default function ProfileScreen() {
                   false
                 }
               >
-                {myStories.length ===
-                0 ? (
+                {myStories.length === 0 ? (
                   <View
                     style={
                       styles.noStoriesContainer
@@ -2500,9 +2044,7 @@ export default function ProfileScreen() {
                     <Ionicons
                       name="images-outline"
                       size={42}
-                      color={
-                        COLORS.gray
-                      }
+                      color={COLORS.gray}
                     />
 
                     <Text
@@ -2518,20 +2060,15 @@ export default function ProfileScreen() {
                         styles.noStoriesText
                       }
                     >
-                      Your active Stories will
-                      appear here.
+                      Your active Stories
+                      will appear here.
                     </Text>
                   </View>
                 ) : (
                   myStories.map(
-                    (
-                      story,
-                      index
-                    ) => {
+                    (story, index) => {
                       const storyId =
-                        getId(
-                          story
-                        ) ||
+                        getId(story) ||
                         `story-${index}`;
 
                       const image =
@@ -2546,9 +2083,7 @@ export default function ProfileScreen() {
 
                       return (
                         <TouchableOpacity
-                          key={
-                            storyId
-                          }
+                          key={storyId}
                           style={
                             styles.storyPickerItem
                           }
@@ -2557,9 +2092,7 @@ export default function ProfileScreen() {
                               storyId
                             )
                           }
-                          activeOpacity={
-                            0.8
-                          }
+                          activeOpacity={0.8}
                         >
                           {image ? (
                             <Image
@@ -2621,27 +2154,14 @@ export default function ProfileScreen() {
   );
 }
 
-function Stat({
-  value,
-  label,
-}) {
+function Stat({ value, label }) {
   return (
-    <View
-      style={styles.stat}
-    >
-      <Text
-        style={
-          styles.statNumber
-        }
-      >
+    <View style={styles.stat}>
+      <Text style={styles.statNumber}>
         {value}
       </Text>
 
-      <Text
-        style={
-          styles.statLabel
-        }
-      >
+      <Text style={styles.statLabel}>
         {label}
       </Text>
     </View>
@@ -2666,22 +2186,17 @@ function MenuItem({
       />
 
       <Text
-        style={
-          styles.menuItemText
-        }
+        style={styles.menuItemText}
       >
         {label}
       </Text>
 
-      {label !==
-        "Cancel" && (
+      {label !== "Cancel" && (
         <Ionicons
           name="chevron-forward"
           size={19}
           color={COLORS.gray}
-          style={
-            styles.menuChevron
-          }
+          style={styles.menuChevron}
         />
       )}
     </TouchableOpacity>
@@ -2700,37 +2215,19 @@ function EditField({
   inputStyle,
 }) {
   return (
-    <View
-      style={styles.editField}
-    >
-      <Text
-        style={
-          styles.editLabel
-        }
-      >
+    <View style={styles.editField}>
+      <Text style={styles.editLabel}>
         {label}
       </Text>
 
       <TextInput
         value={value}
-        onChangeText={
-          onChangeText
-        }
-        multiline={
-          multiline
-        }
-        maxLength={
-          maxLength
-        }
-        autoCapitalize={
-          autoCapitalize
-        }
-        autoCorrect={
-          autoCorrect
-        }
-        keyboardType={
-          keyboardType
-        }
+        onChangeText={onChangeText}
+        multiline={multiline}
+        maxLength={maxLength}
+        autoCapitalize={autoCapitalize}
+        autoCorrect={autoCorrect}
+        keyboardType={keyboardType}
         style={[
           styles.editInput,
           inputStyle,
@@ -2743,49 +2240,75 @@ function EditField({
   );
 }
 
-function QRScanner({ onClose, onProfileFound }) {
-  const [permission, requestPermission] =
-    useCameraPermissions();
-  const [scanned, setScanned] = useState(false);
+function QRScanner({
+  onClose,
+  onProfileFound,
+}) {
+  const [
+    permission,
+    requestPermission,
+  ] = useCameraPermissions();
+
+  const [scanned, setScanned] =
+    useState(false);
 
   useEffect(() => {
-    if (permission && !permission.granted && permission.canAskAgain) {
+    if (
+      permission &&
+      !permission.granted &&
+      permission.canAskAgain
+    ) {
       requestPermission();
     }
-  }, [permission, requestPermission]);
+  }, [
+    permission,
+    requestPermission,
+  ]);
 
-  const handleBarcodeScanned = ({ data }) => {
+  const handleBarcodeScanned = ({
+    data,
+  }) => {
     if (scanned || !data) {
       return;
     }
 
     try {
       const value = String(data).trim();
-      
+
       const match = value.match(
         /^https?:\/\/(?:www\.)?snapgram\.app\/([^/?#]+)\/?$/i
       );
+
       if (!match?.[1]) {
         Alert.alert(
           "Invalid QR code",
           "This QR code is not a Snapgram profile."
         );
+
         return;
       }
 
-      const scannedUsername = decodeURIComponent(match[1])
-        .trim()
-        .replace(/^@/, "")
-        .toLowerCase();
+      const scannedUsername =
+        decodeURIComponent(match[1])
+          .trim()
+          .replace(/^@/, "")
+          .toLowerCase();
 
       if (!scannedUsername) {
         return;
       }
 
       setScanned(true);
-      onProfileFound?.(scannedUsername);
+
+      onProfileFound?.(
+        scannedUsername
+      );
     } catch (error) {
-      console.error("[PROFILE] QR SCAN ERROR:", error);
+      console.error(
+        "[PROFILE] QR SCAN ERROR:",
+        error
+      );
+
       Alert.alert(
         "Invalid QR code",
         "This QR code could not be read."
@@ -2795,9 +2318,18 @@ function QRScanner({ onClose, onProfileFound }) {
 
   if (!permission) {
     return (
-      <SafeAreaView style={styles.scannerScreen} edges={["top"]}>
-        <View style={styles.scannerCenter}>
-          <Text style={styles.scannerMessage}>
+      <SafeAreaView
+        style={styles.scannerScreen}
+        edges={["top"]}
+      >
+        <View
+          style={styles.scannerCenter}
+        >
+          <Text
+            style={
+              styles.scannerMessage
+            }
+          >
             Preparing camera...
           </Text>
         </View>
@@ -2807,13 +2339,18 @@ function QRScanner({ onClose, onProfileFound }) {
 
   if (!permission.granted) {
     return (
-      <SafeAreaView style={styles.scannerScreen} edges={["top"]}>
-        <View style={styles.scannerHeader}>
+      <SafeAreaView
+        style={styles.scannerScreen}
+        edges={["top"]}
+      >
+        <View
+          style={styles.scannerHeader}
+        >
           <Pressable
             onPress={onClose}
-            style={styles.scannerCloseButton}
-            accessibilityRole="button"
-            accessibilityLabel="Close scanner"
+            style={
+              styles.scannerCloseButton
+            }
           >
             <Ionicons
               name="close"
@@ -2822,39 +2359,68 @@ function QRScanner({ onClose, onProfileFound }) {
             />
           </Pressable>
 
-          <Text style={styles.scannerTitle}>
+          <Text
+            style={styles.scannerTitle}
+          >
             Scan QR code
           </Text>
 
-          <View style={styles.scannerHeaderSpacer} />
+          <View
+            style={
+              styles.scannerHeaderSpacer
+            }
+          />
         </View>
 
-        <View style={styles.scannerCenter}>
+        <View
+          style={styles.scannerCenter}
+        >
           <Ionicons
             name="camera-outline"
             size={56}
             color={COLORS.white}
           />
 
-          <Text style={styles.scannerMessage}>
-            Camera access is required to scan Snapgram QR codes.
+          <Text
+            style={
+              styles.scannerMessage
+            }
+          >
+            Camera access is required
+            to scan Snapgram QR codes.
           </Text>
 
           {permission.canAskAgain ? (
             <Pressable
-              style={styles.scannerPermissionButton}
-              onPress={requestPermission}
+              style={
+                styles.scannerPermissionButton
+              }
+              onPress={
+                requestPermission
+              }
             >
-              <Text style={styles.scannerPermissionText}>
+              <Text
+                style={
+                  styles.scannerPermissionText
+                }
+              >
                 Allow camera
               </Text>
             </Pressable>
           ) : (
             <Pressable
-              style={styles.scannerPermissionButton}
-              onPress={() => Linking.openSettings()}
+              style={
+                styles.scannerPermissionButton
+              }
+              onPress={() =>
+                Linking.openSettings()
+              }
             >
-              <Text style={styles.scannerPermissionText}>
+              <Text
+                style={
+                  styles.scannerPermissionText
+                }
+              >
                 Open settings
               </Text>
             </Pressable>
@@ -2873,7 +2439,9 @@ function QRScanner({ onClose, onProfileFound }) {
           barcodeTypes: ["qr"],
         }}
         onBarcodeScanned={
-          scanned ? undefined : handleBarcodeScanned
+          scanned
+            ? undefined
+            : handleBarcodeScanned
         }
       />
 
@@ -2881,12 +2449,14 @@ function QRScanner({ onClose, onProfileFound }) {
         style={styles.scannerOverlay}
         edges={["top", "bottom"]}
       >
-        <View style={styles.scannerHeader}>
+        <View
+          style={styles.scannerHeader}
+        >
           <Pressable
             onPress={onClose}
-            style={styles.scannerCloseButton}
-            accessibilityRole="button"
-            accessibilityLabel="Close scanner"
+            style={
+              styles.scannerCloseButton
+            }
           >
             <Ionicons
               name="close"
@@ -2895,23 +2465,61 @@ function QRScanner({ onClose, onProfileFound }) {
             />
           </Pressable>
 
-          <Text style={styles.scannerTitle}>
+          <Text
+            style={styles.scannerTitle}
+          >
             Scan QR code
           </Text>
 
-          <View style={styles.scannerHeaderSpacer} />
+          <View
+            style={
+              styles.scannerHeaderSpacer
+            }
+          />
         </View>
 
-        <View style={styles.scannerContent}>
-          <Text style={styles.scannerInstruction}>
-            Point your camera at a Snapgram profile QR code.
+        <View
+          style={styles.scannerContent}
+        >
+          <Text
+            style={
+              styles.scannerInstruction
+            }
+          >
+            Point your camera at a
+            Snapgram profile QR code.
           </Text>
 
-          <View style={styles.scannerFrame}>
-            <View style={[styles.scannerCorner, styles.cornerTopLeft]} />
-            <View style={[styles.scannerCorner, styles.cornerTopRight]} />
-            <View style={[styles.scannerCorner, styles.cornerBottomLeft]} />
-            <View style={[styles.scannerCorner, styles.cornerBottomRight]} />
+          <View
+            style={styles.scannerFrame}
+          >
+            <View
+              style={[
+                styles.scannerCorner,
+                styles.cornerTopLeft,
+              ]}
+            />
+
+            <View
+              style={[
+                styles.scannerCorner,
+                styles.cornerTopRight,
+              ]}
+            />
+
+            <View
+              style={[
+                styles.scannerCorner,
+                styles.cornerBottomLeft,
+              ]}
+            />
+
+            <View
+              style={[
+                styles.scannerCorner,
+                styles.cornerBottomRight,
+              ]}
+            />
           </View>
         </View>
       </SafeAreaView>
@@ -2919,817 +2527,649 @@ function QRScanner({ onClose, onProfileFound }) {
   );
 }
 
-const styles =
-  StyleSheet.create({
-    safeArea: {
-      flex: 1,
-      backgroundColor:
-        COLORS.white,
-    },
-
-    screen: {
-      flex: 1,
-      backgroundColor:
-        COLORS.white,
-    },
-
-    loadingScreen: {
-      flex: 1,
-      alignItems:
-        "center",
-      justifyContent:
-        "center",
-      backgroundColor:
-        COLORS.white,
-    },
-
-    loadingText: {
-      fontSize: 15,
-      color:
-        COLORS.gray,
-    },
-
-    header: {
-      height: 58,
-      paddingHorizontal: 12,
-      flexDirection:
-        "row",
-      alignItems:
-        "center",
-      justifyContent:
-        "space-between",
-    },
-
-    headerIcon: {
-      width: 42,
-      height: 42,
-      alignItems:
-        "center",
-      justifyContent:
-        "center",
-    },
-
-    usernameHeader: {
-      flex: 1,
-      flexDirection:
-        "row",
-      alignItems:
-        "center",
-      justifyContent:
-        "center",
-      paddingHorizontal: 6,
-    },
-
-    lockIcon: {
-      marginRight: 7,
-    },
-
-    headerUsername: {
-      maxWidth: 180,
-      fontSize: 20,
-      fontWeight:
-        "700",
-      color:
-        COLORS.black,
-    },
-
-    headerRight: {
-      flexDirection:
-        "row",
-      alignItems:
-        "center",
-    },
-
-    profileSection: {
-      paddingHorizontal: 12,
-    },
-
-    topProfileRow: {
-      flexDirection:
-        "row",
-      alignItems:
-        "center",
-      paddingTop: 8,
-    },
-
-    avatarWrapper: {
-      width: 96,
-      height: 96,
-      position:
-        "relative",
-      marginRight: 18,
-    },
-
-    avatar: {
-      width: 96,
-      height: 96,
-      borderRadius: 48,
-      backgroundColor:
-        COLORS.lightGray,
-    },
-
-    avatarPlaceholder: {
-      alignItems:
-        "center",
-      justifyContent:
-        "center",
-    },
-
-    addStoryButton: {
-      position:
-        "absolute",
-      right: -1,
-      bottom: -1,
-      width: 29,
-      height: 29,
-      borderRadius: 15,
-      backgroundColor:
-        COLORS.blue,
-      borderWidth: 3,
-      borderColor:
-        COLORS.white,
-      alignItems:
-        "center",
-      justifyContent:
-        "center",
-    },
-
-    statsRow: {
-      flex: 1,
-      flexDirection:
-        "row",
-      alignItems:
-        "center",
-      justifyContent:
-        "space-around",
-    },
-
-    stat: {
-      minWidth: 72,
-      alignItems:
-        "center",
-      justifyContent:
-        "center",
-    },
-
-    statNumber: {
-      fontSize: 20,
-      lineHeight: 24,
-      fontWeight:
-        "700",
-      color:
-        COLORS.black,
-    },
-
-    statLabel: {
-      marginTop: 2,
-      fontSize: 14,
-      color:
-        COLORS.black,
-    },
-
-    bioSection: {
-      marginTop: 18,
-    },
-
-    nameRow: {
-      flexDirection:
-        "row",
-      alignItems:
-        "center",
-    },
-
-    displayName: {
-      marginRight: 5,
-      fontSize: 15,
-      fontWeight:
-        "700",
-      color:
-        COLORS.black,
-    },
-
-    bioText: {
-      marginTop: 3,
-      fontSize: 14,
-      lineHeight: 19,
-      color:
-        COLORS.black,
-    },
-
-    websiteRow: {
-      marginTop: 5,
-      flexDirection:
-        "row",
-      alignItems:
-        "center",
-    },
-
-    websiteText: {
-      flex: 1,
-      marginLeft: 6,
-      fontSize: 14,
-      lineHeight: 19,
-      fontWeight:
-        "600",
-      color:
-        COLORS.black,
-    },
-
-    musicRow: {
-      marginTop: 7,
-      flexDirection:
-        "row",
-      alignItems:
-        "center",
-    },
-
-    musicText: {
-      flex: 1,
-      marginLeft: 6,
-      fontSize: 14,
-      color:
-        COLORS.black,
-    },
-
-    actionRow: {
-      marginTop: 15,
-      flexDirection:
-        "row",
-      alignItems:
-        "center",
-    },
-
-    profileButton: {
-      height: 38,
-      borderRadius: 9,
-      backgroundColor:
-        COLORS.lightGray,
-      alignItems:
-        "center",
-      justifyContent:
-        "center",
-    },
-
-    profileButtonLarge: {
-      flex: 1,
-      marginRight: 7,
-    },
-
-    profileButtonText: {
-      fontSize: 14,
-      fontWeight:
-        "700",
-      color:
-        COLORS.black,
-    },
-
-    addPersonButton: {
-      width: 43,
-      height: 38,
-      borderRadius: 9,
-      backgroundColor:
-        COLORS.lightGray,
-      alignItems:
-        "center",
-      justifyContent:
-        "center",
-    },
-
-    highlightsSection: {
-      marginTop: 21,
-      marginHorizontal: -12,
-    },
-
-    highlightsContent: {
-      paddingHorizontal: 4,
-      paddingBottom: 13,
-    },
-
-    highlightItem: {
-      width: 82,
-      alignItems:
-        "center",
-      marginHorizontal: 7,
-    },
-
-    highlightCircle: {
-      width: 72,
-      height: 72,
-      borderRadius: 36,
-      padding: 4,
-      backgroundColor:
-        COLORS.white,
-      borderWidth: 3,
-      borderColor:
-        "#D9DDE1",
-      alignItems:
-        "center",
-      justifyContent:
-        "center",
-    },
-
-    newHighlightCircle: {
-      borderColor:
-        "#E1E5E9",
-    },
-
-    highlightImage: {
-      width: "100%",
-      height: "100%",
-      borderRadius: 34,
-    },
-
-    highlightPlaceholder: {
-      width: "100%",
-      height: "100%",
-      borderRadius: 34,
-      alignItems:
-        "center",
-      justifyContent:
-        "center",
-      backgroundColor:
-        COLORS.lightGray,
-    },
-
-    highlightLabel: {
-      width: 78,
-      marginTop: 6,
-      textAlign:
-        "center",
-      fontSize: 12,
-      color:
-        COLORS.black,
-    },
-
-    tabsContainer: {
-      height: 51,
-      marginTop: 3,
-      borderTopWidth:
-        StyleSheet.hairlineWidth,
-      borderTopColor:
-        COLORS.border,
-      flexDirection:
-        "row",
-    },
-
-    tabButton: {
-      flex: 1,
-      height: 51,
-      alignItems:
-        "center",
-      justifyContent:
-        "center",
-      position:
-        "relative",
-    },
-
-    activeTabLine: {
-      position:
-        "absolute",
-      left: 0,
-      right: 0,
-      bottom: 0,
-      height: 1.5,
-      backgroundColor:
-        COLORS.black,
-    },
-
-    bottomSpacing: {
-      height: 30,
-    },
-
-    modalBackdrop: {
-      flex: 1,
-      backgroundColor:
-        "rgba(0,0,0,0.45)",
-      justifyContent:
-        "flex-end",
-    },
-
-    menuSheet: {
-      backgroundColor:
-        COLORS.white,
-      borderTopLeftRadius: 18,
-      borderTopRightRadius: 18,
-      paddingTop: 9,
-      paddingBottom: 30,
-    },
-
-    sheetHandle: {
-      alignSelf:
-        "center",
-      width: 38,
-      height: 4,
-      borderRadius: 2,
-      backgroundColor:
-        "#C7C7C7",
-      marginBottom: 12,
-    },
-
-    menuTitle: {
-      paddingHorizontal: 22,
-      paddingBottom: 12,
-      fontSize: 18,
-      fontWeight:
-        "700",
-      color:
-        COLORS.black,
-    },
-
-    menuItem: {
-      minHeight: 56,
-      paddingHorizontal: 22,
-      flexDirection:
-        "row",
-      alignItems:
-        "center",
-    },
-
-    menuItemText: {
-      marginLeft: 16,
-      fontSize: 15,
-      fontWeight:
-        "500",
-      color:
-        COLORS.black,
-    },
-
-    menuChevron: {
-      marginLeft:
-        "auto",
-    },
-
-    menuDivider: {
-      height:
-        StyleSheet.hairlineWidth,
-      backgroundColor:
-        COLORS.border,
-      marginVertical: 7,
-    },
-
-    editScreen: {
-      flex: 1,
-      backgroundColor:
-        COLORS.white,
-    },
-
-    editHeader: {
-      height: 55,
-      paddingHorizontal: 16,
-      borderBottomWidth:
-        StyleSheet.hairlineWidth,
-      borderBottomColor:
-        COLORS.border,
-      flexDirection:
-        "row",
-      alignItems:
-        "center",
-      justifyContent:
-        "space-between",
-    },
-
-    editHeaderTitle: {
-      fontSize: 17,
-      fontWeight:
-        "700",
-      color:
-        COLORS.black,
-    },
-
-    saveText: {
-      fontSize: 15,
-      fontWeight:
-        "700",
-      color:
-        COLORS.blue,
-    },
-
-    disabledText: {
-      opacity: 0.4,
-    },
-
-    editContent: {
-      paddingHorizontal: 18,
-      paddingTop: 24,
-      paddingBottom: 50,
-    },
-
-    editAvatarContainer: {
-      alignItems:
-        "center",
-      marginBottom: 26,
-    },
-
-    editAvatar: {
-      width: 92,
-      height: 92,
-      borderRadius: 46,
-      backgroundColor:
-        COLORS.lightGray,
-    },
-
-    changePhotoText: {
-      marginTop: 11,
-      fontSize: 14,
-      fontWeight:
-        "600",
-      color:
-        COLORS.blue,
-    },
-
-    editField: {
-      marginBottom: 20,
-    },
-
-    editLabel: {
-      marginBottom: 7,
-      fontSize: 13,
-      color:
-        COLORS.gray,
-    },
-
-    editInput: {
-      minHeight: 44,
-      borderWidth: 1,
-      borderColor:
-        COLORS.border,
-      borderRadius: 9,
-      paddingHorizontal: 13,
-      paddingVertical: 10,
-      fontSize: 15,
-      color:
-        COLORS.black,
-      backgroundColor:
-        COLORS.white,
-    },
-
-    bioInput: {
-      minHeight: 90,
-      textAlignVertical:
-        "top",
-    },
-
-    highlightModal: {
-      flex: 1,
-      backgroundColor:
-        COLORS.white,
-    },
-
-    highlightModalHeader: {
-      height: 55,
-      paddingHorizontal: 16,
-      borderBottomWidth:
-        StyleSheet.hairlineWidth,
-      borderBottomColor:
-        COLORS.border,
-      flexDirection:
-        "row",
-      alignItems:
-        "center",
-      justifyContent:
-        "space-between",
-    },
-
-    highlightModalTitle: {
-      fontSize: 17,
-      fontWeight:
-        "700",
-      color:
-        COLORS.black,
-    },
-
-    highlightNameContainer: {
-      paddingHorizontal: 16,
-      paddingTop: 14,
-    },
-
-    highlightNameInput: {
-      height: 44,
-      borderWidth: 1,
-      borderColor:
-        COLORS.border,
-      borderRadius: 9,
-      paddingHorizontal: 13,
-      fontSize: 15,
-      color:
-        COLORS.black,
-    },
-
-    selectedCountContainer: {
-      paddingHorizontal: 16,
-      paddingVertical: 14,
-    },
-
-    selectedCountText: {
-      fontSize: 14,
-      fontWeight:
-        "600",
-      color:
-        COLORS.black,
-    },
-
-    highlightLoading: {
-      flex: 1,
-      alignItems:
-        "center",
-      justifyContent:
-        "center",
-    },
-
-    highlightLoadingText: {
-      fontSize: 15,
-      color:
-        COLORS.gray,
-    },
-
-    storyPickerGrid: {
-      flexDirection:
-        "row",
-      flexWrap:
-        "wrap",
-    },
-
-    storyPickerItem: {
-      width: "33.3333%",
-      aspectRatio: 0.72,
-      padding: 1,
-      position:
-        "relative",
-    },
-
-    storyPickerImage: {
-      width: "100%",
-      height: "100%",
-    },
-
-    storyPickerPlaceholder: {
-      flex: 1,
-      alignItems:
-        "center",
-      justifyContent:
-        "center",
-      backgroundColor:
-        COLORS.lightGray,
-    },
-
-    storySelectedOverlay: {
-      ...StyleSheet.absoluteFillObject,
-      backgroundColor:
-        "rgba(0,0,0,0.25)",
-      alignItems:
-        "flex-end",
-      justifyContent:
-        "flex-start",
-      padding: 8,
-    },
-
-    storyCheck: {
-      width: 25,
-      height: 25,
-      borderRadius: 13,
-      backgroundColor:
-        COLORS.blue,
-      borderWidth: 2,
-      borderColor:
-        COLORS.white,
-      alignItems:
-        "center",
-      justifyContent:
-        "center",
-    },
-
-    noStoriesContainer: {
-      width: "100%",
-      minHeight: 260,
-      alignItems:
-        "center",
-      justifyContent:
-        "center",
-      paddingHorizontal: 30,
-    },
-
-    noStoriesTitle: {
-      marginTop: 12,
-      fontSize: 18,
-      fontWeight:
-        "700",
-      color:
-        COLORS.black,
-    },
-
-    noStoriesText: {
-      marginTop: 6,
-      textAlign:
-        "center",
-      fontSize: 14,
-      lineHeight: 20,
-      color:
-        COLORS.gray,
-    },
-    qrOverlay: {
-  flex: 1,
-  backgroundColor: "rgba(0,0,0,0.55)",
-  justifyContent: "center",
-  alignItems: "center",
-  padding: 24,
-},
-
-qrModal: {
-  width: "100%",
-  maxWidth: 380,
-  backgroundColor: "#FFFFFF",
-  borderRadius: 24,
-  padding: 24,
-  alignItems: "center",
-},
-
-qrHeader: {
-  width: "100%",
-  flexDirection: "row",
-  alignItems: "center",
-  justifyContent: "space-between",
-},
-
-qrTitle: {
-  fontSize: 22,
-  fontWeight: "700",
-  color: "#000000",
-},
-
-qrCloseButton: {
-  width: 36,
-  height: 36,
-  borderRadius: 18,
-  alignItems: "center",
-  justifyContent: "center",
-  backgroundColor: "#F2F2F2",
-},
-
-qrSubtitle: {
-  width: "100%",
-  marginTop: 10,
-  marginBottom: 24,
-  textAlign: "center",
-  fontSize: 14,
-  lineHeight: 20,
-  color: "#666666",
-},
-
-qrCodeContainer: {
-  padding: 18,
-  backgroundColor: "#FFFFFF",
-  borderRadius: 18,
-  borderWidth: 1,
-  borderColor: "#E5E5E5",
-},
-
-qrUsername: {
-  marginTop: 18,
-  fontSize: 17,
-  fontWeight: "600",
-  color: "#000000",
-},
-
-qrShareButton: {
-  width: "100%",
-  height: 50,
-  marginTop: 22,
-  borderRadius: 12,
-  backgroundColor: "#0095F6",
-  flexDirection: "row",
-  alignItems: "center",
-  justifyContent: "center",
-  gap: 8,
-},
-
-qrShareButtonText: {
-  color: "#FFFFFF",
-  fontSize: 16,
-  fontWeight: "700",
-},
-
-profileActions: {
-  flexDirection: "row",
-  gap: 8,
-},
-
-profileActionButton: {
-  flex: 1,
-  height: 42,
-  borderRadius: 9,
-  backgroundColor: "#EFEFEF",
-  flexDirection: "row",
-  alignItems: "center",
-  justifyContent: "center",
-  gap: 7,
-},
-
-profileActionText: {
-  color: "#000000",
-  fontSize: 14,
-  fontWeight: "600",
-},
-
+const styles = StyleSheet.create({
+  safeArea: {
+    flex: 1,
+    backgroundColor: COLORS.white,
+  },
+
+  screen: {
+    flex: 1,
+    backgroundColor: COLORS.white,
+  },
+
+  loadingScreen: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: COLORS.white,
+  },
+
+  loadingText: {
+    fontSize: 15,
+    color: COLORS.gray,
+  },
+
+  header: {
+    height: 58,
+    paddingHorizontal: 12,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+
+  headerIcon: {
+    width: 42,
+    height: 42,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  usernameHeader: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 6,
+  },
+
+  lockIcon: {
+    marginRight: 7,
+  },
+
+  headerUsername: {
+    maxWidth: 180,
+    fontSize: 20,
+    fontWeight: "700",
+    color: COLORS.black,
+  },
+
+  headerRight: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+
+  profileSection: {
+    paddingHorizontal: 12,
+  },
+
+  topProfileRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingTop: 8,
+  },
+
+  avatarWrapper: {
+    width: 96,
+    height: 96,
+    position: "relative",
+    marginRight: 18,
+  },
+
+  avatar: {
+    width: 96,
+    height: 96,
+    borderRadius: 48,
+    backgroundColor: COLORS.lightGray,
+  },
+
+  avatarPlaceholder: {
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  addStoryButton: {
+    position: "absolute",
+    right: -1,
+    bottom: -1,
+    width: 29,
+    height: 29,
+    borderRadius: 15,
+    backgroundColor: COLORS.blue,
+    borderWidth: 3,
+    borderColor: COLORS.white,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  statsRow: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-around",
+  },
+
+  stat: {
+    minWidth: 72,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  statNumber: {
+    fontSize: 20,
+    lineHeight: 24,
+    fontWeight: "700",
+    color: COLORS.black,
+  },
+
+  statLabel: {
+    marginTop: 2,
+    fontSize: 14,
+    color: COLORS.black,
+  },
+
+  bioSection: {
+    marginTop: 18,
+  },
+
+  nameRow: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+
+  displayName: {
+    marginRight: 5,
+    fontSize: 15,
+    fontWeight: "700",
+    color: COLORS.black,
+  },
+
+  bioText: {
+    marginTop: 3,
+    fontSize: 14,
+    lineHeight: 19,
+    color: COLORS.black,
+  },
+
+  websiteRow: {
+    marginTop: 5,
+    flexDirection: "row",
+    alignItems: "center",
+  },
+
+  websiteText: {
+    flex: 1,
+    marginLeft: 6,
+    fontSize: 14,
+    lineHeight: 19,
+    fontWeight: "600",
+    color: COLORS.black,
+  },
+
+  musicRow: {
+    marginTop: 7,
+    flexDirection: "row",
+    alignItems: "center",
+  },
+
+  musicText: {
+    flex: 1,
+    marginLeft: 6,
+    fontSize: 14,
+    color: COLORS.black,
+  },
+
+  actionRow: {
+    marginTop: 15,
+    flexDirection: "row",
+    alignItems: "center",
+  },
+
+  profileButton: {
+    height: 38,
+    borderRadius: 9,
+    backgroundColor: COLORS.lightGray,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  profileButtonLarge: {
+    flex: 1,
+    marginRight: 7,
+  },
+
+  profileButtonText: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: COLORS.black,
+  },
+
+  addPersonButton: {
+    width: 43,
+    height: 38,
+    borderRadius: 9,
+    backgroundColor: COLORS.lightGray,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  highlightsSection: {
+    marginTop: 21,
+    marginHorizontal: -12,
+  },
+
+  highlightsContent: {
+    paddingHorizontal: 4,
+    paddingBottom: 13,
+  },
+
+  highlightItem: {
+    width: 82,
+    alignItems: "center",
+    marginHorizontal: 7,
+  },
+
+  highlightCircle: {
+    width: 72,
+    height: 72,
+    borderRadius: 36,
+    padding: 4,
+    backgroundColor: COLORS.white,
+    borderWidth: 3,
+    borderColor: "#D9DDE1",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  newHighlightCircle: {
+    borderColor: "#E1E5E9",
+  },
+
+  highlightImage: {
+    width: "100%",
+    height: "100%",
+    borderRadius: 34,
+  },
+
+  highlightPlaceholder: {
+    width: "100%",
+    height: "100%",
+    borderRadius: 34,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: COLORS.lightGray,
+  },
+
+  highlightLabel: {
+    width: 78,
+    marginTop: 6,
+    textAlign: "center",
+    fontSize: 12,
+    color: COLORS.black,
+  },
+
+  tabsContainer: {
+    height: 51,
+    marginTop: 3,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: COLORS.border,
+    flexDirection: "row",
+  },
+
+  tabButton: {
+    flex: 1,
+    height: 51,
+    alignItems: "center",
+    justifyContent: "center",
+    position: "relative",
+  },
+
+  activeTabLine: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    bottom: 0,
+    height: 1.5,
+    backgroundColor: COLORS.black,
+  },
+
+  bottomSpacing: {
+    height: 30,
+  },
+
+  modalBackdrop: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.45)",
+    justifyContent: "flex-end",
+  },
+
+  menuSheet: {
+    backgroundColor: COLORS.white,
+    borderTopLeftRadius: 18,
+    borderTopRightRadius: 18,
+    paddingTop: 9,
+    paddingBottom: 30,
+  },
+
+  sheetHandle: {
+    alignSelf: "center",
+    width: 38,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: "#C7C7C7",
+    marginBottom: 12,
+  },
+
+  menuTitle: {
+    paddingHorizontal: 22,
+    paddingBottom: 12,
+    fontSize: 18,
+    fontWeight: "700",
+    color: COLORS.black,
+  },
+
+  menuItem: {
+    minHeight: 56,
+    paddingHorizontal: 22,
+    flexDirection: "row",
+    alignItems: "center",
+  },
+
+  menuItemText: {
+    marginLeft: 16,
+    fontSize: 15,
+    fontWeight: "500",
+    color: COLORS.black,
+  },
+
+  menuChevron: {
+    marginLeft: "auto",
+  },
+
+  menuDivider: {
+    height: StyleSheet.hairlineWidth,
+    backgroundColor: COLORS.border,
+    marginVertical: 7,
+  },
+
+  editScreen: {
+    flex: 1,
+    backgroundColor: COLORS.white,
+  },
+
+  editHeader: {
+    height: 55,
+    paddingHorizontal: 16,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: COLORS.border,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+
+  editHeaderTitle: {
+    fontSize: 17,
+    fontWeight: "700",
+    color: COLORS.black,
+  },
+
+  saveText: {
+    fontSize: 15,
+    fontWeight: "700",
+    color: COLORS.blue,
+  },
+
+  disabledText: {
+    opacity: 0.4,
+  },
+
+  editContent: {
+    paddingHorizontal: 18,
+    paddingTop: 24,
+    paddingBottom: 50,
+  },
+
+  editAvatarContainer: {
+    alignItems: "center",
+    marginBottom: 26,
+  },
+
+  editAvatar: {
+    width: 92,
+    height: 92,
+    borderRadius: 46,
+    backgroundColor: COLORS.lightGray,
+  },
+
+  changePhotoText: {
+    marginTop: 11,
+    fontSize: 14,
+    fontWeight: "600",
+    color: COLORS.blue,
+  },
+
+  editField: {
+    marginBottom: 20,
+  },
+
+  editLabel: {
+    marginBottom: 7,
+    fontSize: 13,
+    color: COLORS.gray,
+  },
+
+  editInput: {
+    minHeight: 44,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    borderRadius: 9,
+    paddingHorizontal: 13,
+    paddingVertical: 10,
+    fontSize: 15,
+    color: COLORS.black,
+    backgroundColor: COLORS.white,
+  },
+
+  bioInput: {
+    minHeight: 90,
+    textAlignVertical: "top",
+  },
+
+  highlightModal: {
+    flex: 1,
+    backgroundColor: COLORS.white,
+  },
+
+  highlightModalHeader: {
+    height: 55,
+    paddingHorizontal: 16,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: COLORS.border,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+
+  highlightModalTitle: {
+    fontSize: 17,
+    fontWeight: "700",
+    color: COLORS.black,
+  },
+
+  highlightNameContainer: {
+    paddingHorizontal: 16,
+    paddingTop: 14,
+  },
+
+  highlightNameInput: {
+    height: 44,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    borderRadius: 9,
+    paddingHorizontal: 13,
+    fontSize: 15,
+    color: COLORS.black,
+  },
+
+  selectedCountContainer: {
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+  },
+
+  selectedCountText: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: COLORS.black,
+  },
+
+  highlightLoading: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  highlightLoadingText: {
+    fontSize: 15,
+    color: COLORS.gray,
+  },
+
+  storyPickerGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+  },
+
+  storyPickerItem: {
+    width: "33.3333%",
+    aspectRatio: 0.72,
+    padding: 1,
+    position: "relative",
+  },
+
+  storyPickerImage: {
+    width: "100%",
+    height: "100%",
+  },
+
+  storyPickerPlaceholder: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: COLORS.lightGray,
+  },
+
+  storySelectedOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: "rgba(0,0,0,0.25)",
+    alignItems: "flex-end",
+    justifyContent: "flex-start",
+    padding: 8,
+  },
+
+  storyCheck: {
+    width: 25,
+    height: 25,
+    borderRadius: 13,
+    backgroundColor: COLORS.blue,
+    borderWidth: 2,
+    borderColor: COLORS.white,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  noStoriesContainer: {
+    width: "100%",
+    minHeight: 260,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 30,
+  },
+
+  noStoriesTitle: {
+    marginTop: 12,
+    fontSize: 18,
+    fontWeight: "700",
+    color: COLORS.black,
+  },
+
+  noStoriesText: {
+    marginTop: 6,
+    textAlign: "center",
+    fontSize: 14,
+    lineHeight: 20,
+    color: COLORS.gray,
+  },
+
+  qrOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.55)",
+    justifyContent: "center",
+    alignItems: "center",
+    padding: 24,
+  },
+
+  qrModal: {
+    width: "100%",
+    maxWidth: 380,
+    backgroundColor: COLORS.white,
+    borderRadius: 24,
+    padding: 24,
+    alignItems: "center",
+  },
+
+  qrHeader: {
+    width: "100%",
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+
+  qrTitle: {
+    fontSize: 22,
+    fontWeight: "700",
+    color: COLORS.black,
+  },
+
+  qrCloseButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#F2F2F2",
+  },
+
+  qrSubtitle: {
+    width: "100%",
+    marginTop: 10,
+    marginBottom: 24,
+    textAlign: "center",
+    fontSize: 14,
+    lineHeight: 20,
+    color: "#666666",
+  },
+
+  qrCodeContainer: {
+    padding: 18,
+    backgroundColor: COLORS.white,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: "#E5E5E5",
+  },
+
+  qrUsername: {
+    marginTop: 18,
+    fontSize: 17,
+    fontWeight: "600",
+    color: COLORS.black,
+  },
+
+  qrShareButton: {
+    width: "100%",
+    height: 50,
+    marginTop: 22,
+    borderRadius: 12,
+    backgroundColor: COLORS.blue,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+  },
+
+  qrShareButtonText: {
+    color: COLORS.white,
+    fontSize: 16,
+    fontWeight: "700",
+  },
 
   qrScanButton: {
     width: "100%",
@@ -3881,4 +3321,4 @@ profileActionText: {
     borderRightWidth: 4,
     borderBottomRightRadius: 10,
   },
-  });
+});

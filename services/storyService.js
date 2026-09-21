@@ -122,17 +122,25 @@ export async function createStory(
   }
 
   try {
+    console.log("[STORY] UPLOADING STORY:", {
+      mediaType: type,
+      hasCaption: Boolean(cleanCaption),
+    });
+
     const response = await api.post(
       "/stories",
       formData,
       {
         headers: {
           Accept: "application/json",
-          "Content-Type":
-            "multipart/form-data",
         },
         timeout: 120000,
       }
+    );
+
+    console.log(
+      "[STORY] CREATE SUCCESS:",
+      response.status
     );
 
     return (
@@ -142,7 +150,7 @@ export async function createStory(
     );
   } catch (error) {
     console.error(
-      "CREATE STORY FAILED:",
+      "[STORY] CREATE FAILED:",
       getErrorDetails(error)
     );
 

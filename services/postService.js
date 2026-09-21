@@ -1,45 +1,57 @@
 import api from "./api";
 
+/* -------------------------------------------------------------------------- */
+/* Helpers                                                                    */
+/* -------------------------------------------------------------------------- */
+
 function getMimeType(item) {
-  const mimeType =
+  const explicitType =
     item?.mimeType ||
     item?.type ||
     item?.file?.type ||
     item?.asset?.mimeType ||
     "";
 
-  if (mimeType === "image") {
+  const type = String(explicitType).toLowerCase().trim();
+
+  if (type === "image") {
     return "image/jpeg";
   }
 
-  if (mimeType === "video") {
+  if (type === "video") {
     return "video/mp4";
   }
 
-  if (mimeType.startsWith("image/")) {
-    return mimeType;
+  if (type.startsWith("image/")) {
+    return type;
   }
 
-  if (mimeType.startsWith("video/")) {
-    return mimeType;
+  if (type.startsWith("video/")) {
+    return type;
   }
 
-  const uri = String(item?.uri || "").toLowerCase();
+  const uri = String(item?.uri || "")
+    .toLowerCase()
+    .split("?")[0];
 
-  if (/\.(mp4|mov|m4v|avi|webm)(\?.*)?$/.test(uri)) {
+  if (/\.(mp4|mov|m4v|avi|webm)$/i.test(uri)) {
     return "video/mp4";
   }
 
-  if (/\.(png)(\?.*)?$/.test(uri)) {
+  if (/\.png$/i.test(uri)) {
     return "image/png";
   }
 
-  if (/\.(webp)(\?.*)?$/.test(uri)) {
+  if (/\.webp$/i.test(uri)) {
     return "image/webp";
   }
 
-  if (/\.(heic|heif)(\?.*)?$/.test(uri)) {
+  if (/\.(heic|heif)$/i.test(uri)) {
     return "image/heic";
+  }
+
+  if (/\.(jpg|jpeg)$/i.test(uri)) {
+    return "image/jpeg";
   }
 
   return "image/jpeg";
@@ -55,7 +67,7 @@ function getFileName(item, index = 0) {
     "";
 
   if (originalName) {
-    return originalName;
+    return String(originalName);
   }
 
   const mimeType = getMimeType(item);
@@ -81,7 +93,10 @@ function getFileName(item, index = 0) {
 }
 
 function appendJsonField(formData, key, value) {
-  if (value === undefined || value === null) {
+  if (
+    value === undefined ||
+    value === null
+  ) {
     return;
   }
 
@@ -91,17 +106,23 @@ function appendJsonField(formData, key, value) {
   }
 
   try {
-    formData.append(key, JSON.stringify(value));
+    formData.append(
+      key,
+      JSON.stringify(value)
+    );
   } catch (error) {
     console.warn(
-      `[POST SERVICE] Unable to stringify ${key}:`,
-      error
+      `[POST SERVICE] Unable to serialize ${key}:`,
+      error?.message || error
     );
   }
 }
 
 function normalizeMusic(music) {
-  if (!music || typeof music !== "object") {
+  if (
+    !music ||
+    typeof music !== "object"
+  ) {
     return null;
   }
 
@@ -115,37 +136,23 @@ function normalizeMusic(music) {
     return null;
   }
 
-  const startMs = Math.max(
-    Number(music.startMs) || 0,
-    0
-  );
-
-  const durationMs = Math.max(
-    Number(music.durationMs) || 0,
-    0
-  );
-
   return {
     trackId: String(trackId),
 
     title: String(
-      music.title ||
-        ""
+      music.title || ""
     ),
 
     artist: String(
-      music.artist ||
-        ""
+      music.artist || ""
     ),
 
     album: String(
-      music.album ||
-        ""
+      music.album || ""
     ),
 
     artworkUrl: String(
-      music.artworkUrl ||
-        ""
+      music.artworkUrl || ""
     ),
 
     provider: String(
@@ -158,8 +165,15 @@ function normalizeMusic(music) {
         trackId
     ),
 
-    startMs,
-    durationMs,
+    startMs: Math.max(
+      Number(music.startMs) || 0,
+      0
+    ),
+
+    durationMs: Math.max(
+      Number(music.durationMs) || 0,
+      0
+    ),
   };
 }
 
@@ -205,6 +219,45 @@ function extractPosts(response) {
   return [];
 }
 
+function logRequestError(
+  label,
+  error
+) {
+  console.error(
+    `[POST SERVICE] ${label} ERROR MESSAGE:`,
+    error?.message
+  );
+
+  console.error(
+    `[POST SERVICE] ${label} ERROR CODE:`,
+    error?.code
+  );
+
+  console.error(
+    `[POST SERVICE] ${label} ERROR STATUS:`,
+    error?.response?.status
+  );
+
+  console.error(
+    `[POST SERVICE] ${label} ERROR DATA:`,
+    error?.response?.data
+  );
+
+  console.error(
+    `[POST SERVICE] ${label} ERROR URL:`,
+    error?.config?.url
+  );
+
+  console.error(
+    `[POST SERVICE] ${label} ERROR BASE URL:`,
+    error?.config?.baseURL
+  );
+}
+
+/* -------------------------------------------------------------------------- */
+/* Create post / reel                                                         */
+/* -------------------------------------------------------------------------- */
+
 export async function createPost({
   media = [],
   caption = "",
@@ -213,11 +266,15 @@ export async function createPost({
   postType = "post",
   visibility = "public",
   music = null,
-
   onUploadProgress,
 } = {}) {
-  if (!Array.isArray(media) || media.length === 0) {
-    throw new Error("Please select at least one media file.");
+  if (
+    !Array.isArray(media) ||
+    media.length === 0
+  ) {
+    throw new Error(
+      "Please select at least one media file."
+    );
   }
 
   if (media.length > 10) {
@@ -231,12 +288,25 @@ export async function createPost({
       ? "reel"
       : "post";
 
-  if (normalizedPostType === "reel") {
-    const hasVideo = media.some((item) => {
-      const mimeType = getMimeType(item);
+  const validMedia = media.filter(
+    (item) => Boolean(item?.uri)
+  );
 
-      return mimeType.startsWith("video/");
-    });
+  if (validMedia.length === 0) {
+    throw new Error(
+      "No valid media files were found."
+    );
+  }
+
+  if (
+    normalizedPostType === "reel"
+  ) {
+    const hasVideo = validMedia.some(
+      (item) =>
+        getMimeType(item).startsWith(
+          "video/"
+        )
+    );
 
     if (!hasVideo) {
       throw new Error(
@@ -245,45 +315,36 @@ export async function createPost({
     }
   }
 
-  const normalizedMusic = normalizeMusic(music);
+  const normalizedMusic =
+    normalizeMusic(music);
 
   const formData = new FormData();
 
-  let validMediaCount = 0;
+  validMedia.forEach(
+    (item, index) => {
+      const mimeType =
+        getMimeType(item);
 
-  media.forEach((item, index) => {
-    if (!item?.uri) {
-      console.warn(
-        `[POST SERVICE] Skipping media ${index}: missing URI`
-      );
+      const name =
+        getFileName(item, index);
 
-      return;
+      formData.append("media", {
+        uri: item.uri,
+        type: mimeType,
+        name,
+      });
     }
-
-    const mimeType = getMimeType(item);
-    const name = getFileName(item, index);
-
-    formData.append("media", {
-      uri: item.uri,
-      type: mimeType,
-      name,
-    });
-
-    validMediaCount += 1;
-  });
-
-  if (validMediaCount === 0) {
-    throw new Error(
-      "No valid media files were found."
-    );
-  }
+  );
 
   formData.append(
     "postType",
     normalizedPostType
   );
 
-  if (caption && String(caption).trim()) {
+  if (
+    caption &&
+    String(caption).trim()
+  ) {
     formData.append(
       "caption",
       String(caption).trim()
@@ -328,59 +389,40 @@ export async function createPost({
   }
 
   console.log(
-    "[POST SERVICE] CREATE POST:",
+    "[POST SERVICE] CREATE:",
     {
+      endpoint: "/posts",
       postType: normalizedPostType,
-      mediaCount: validMediaCount,
-      captionLength: String(
-        caption || ""
-      ).length,
-
-      hasMusic: Boolean(
-        normalizedMusic
-      ),
-
-      music: normalizedMusic
-        ? {
-            trackId:
-              normalizedMusic.trackId,
-            provider:
-              normalizedMusic.provider,
-            providerTrackId:
-              normalizedMusic.providerTrackId,
-            startMs:
-              normalizedMusic.startMs,
-            durationMs:
-              normalizedMusic.durationMs,
-          }
-        : null,
+      mediaCount: validMedia.length,
+      hasCaption:
+        Boolean(
+          String(caption || "").trim()
+        ),
+      hasMusic:
+        Boolean(normalizedMusic),
     }
   );
 
   try {
-    const response = await api.post(
-      "/posts",
-      formData,
-      {
-        timeout: 120000,
+    const response =
+      await api.post(
+        "/posts",
+        formData,
+        {
+          timeout: 120000,
 
-        headers: {
-          "Content-Type":
-            "multipart/form-data",
-        },
+          headers: {
+            "Content-Type":
+              "multipart/form-data",
+          },
 
-        onUploadProgress,
-      }
-    );
+          onUploadProgress,
+        }
+      );
 
     console.log(
-      "[POST SERVICE] CREATE RESPONSE:",
-      {
-        status:
-          response?.status,
-        data:
-          response?.data,
-      }
+      "[POST SERVICE] CREATE SUCCESS:",
+      response?.status
     );
 
     return (
@@ -388,41 +430,69 @@ export async function createPost({
       response?.data
     );
   } catch (error) {
-    console.error(
-      "[POST SERVICE] CREATE ERROR STATUS:",
-      error?.response?.status
-    );
-
-    console.error(
-      "[POST SERVICE] CREATE ERROR DATA:",
-      error?.response?.data
-    );
-
-    console.error(
-      "[POST SERVICE] CREATE ERROR MESSAGE:",
-      error?.message
+    logRequestError(
+      "CREATE POST",
+      error
     );
 
     throw error;
   }
 }
 
+/* -------------------------------------------------------------------------- */
+/* Feed                                                                       */
+/* -------------------------------------------------------------------------- */
+
 export async function getFeed(
   page = 1,
   limit = 30
 ) {
-  const response = await api.get(
-    "/posts/feed",
-    {
-      params: {
+  try {
+    console.log(
+      "[POST SERVICE] GET FEED:",
+      {
+        endpoint: "/feed",
         page,
         limit,
-      },
-    }
-  );
+      }
+    );
 
-  return extractPosts(response);
+    const response =
+      await api.get(
+        "/feed",
+        {
+          params: {
+            page,
+            limit,
+          },
+        }
+      );
+
+    const posts =
+      extractPosts(response);
+
+    console.log(
+      "[POST SERVICE] GET FEED SUCCESS:",
+      {
+        status: response?.status,
+        count: posts.length,
+      }
+    );
+
+    return posts;
+  } catch (error) {
+    logRequestError(
+      "GET FEED",
+      error
+    );
+
+    throw error;
+  }
 }
+
+/* -------------------------------------------------------------------------- */
+/* My posts                                                                   */
+/* -------------------------------------------------------------------------- */
 
 export async function getUserPosts(
   page = 1,
@@ -438,54 +508,42 @@ export async function getUserPosts(
       }
     );
 
-    const response = await api.get(
-      "/posts/mine",
-      {
-        params: {
-          page,
-          limit,
-        },
-      }
-    );
-
-    console.log(
-      "[POST SERVICE] /posts/mine STATUS:",
-      response?.status
-    );
-
-    console.log(
-      "[POST SERVICE] /posts/mine DATA:",
-      response?.data
-    );
+    const response =
+      await api.get(
+        "/posts/mine",
+        {
+          params: {
+            page,
+            limit,
+          },
+        }
+      );
 
     const posts =
       extractPosts(response);
 
     console.log(
-      "[POST SERVICE] /posts/mine NORMALIZED:",
-      posts.length
+      "[POST SERVICE] GET USER POSTS SUCCESS:",
+      {
+        status: response?.status,
+        count: posts.length,
+      }
     );
 
     return posts;
   } catch (error) {
-    console.error(
-      "[POST SERVICE] /posts/mine ERROR STATUS:",
-      error?.response?.status
-    );
-
-    console.error(
-      "[POST SERVICE] /posts/mine ERROR DATA:",
-      error?.response?.data
-    );
-
-    console.error(
-      "[POST SERVICE] /posts/mine ERROR MESSAGE:",
-      error?.message
+    logRequestError(
+      "GET USER POSTS",
+      error
     );
 
     throw error;
   }
 }
+
+/* -------------------------------------------------------------------------- */
+/* My reels                                                                   */
+/* -------------------------------------------------------------------------- */
 
 export async function getUserReels(
   page = 1,
@@ -501,162 +559,166 @@ export async function getUserReels(
       }
     );
 
-    const response = await api.get(
-      "/posts/reels",
-      {
-        params: {
-          page,
-          limit,
-        },
-      }
-    );
-
-    console.log(
-      "[POST SERVICE] /posts/reels STATUS:",
-      response?.status
-    );
-
-    console.log(
-      "[POST SERVICE] /posts/reels DATA:",
-      response?.data
-    );
+    const response =
+      await api.get(
+        "/posts/reels",
+        {
+          params: {
+            page,
+            limit,
+          },
+        }
+      );
 
     const reels =
       extractPosts(response);
 
     console.log(
-      "[POST SERVICE] /posts/reels NORMALIZED:",
-      reels.length
+      "[POST SERVICE] GET USER REELS SUCCESS:",
+      {
+        status: response?.status,
+        count: reels.length,
+      }
     );
 
     return reels;
   } catch (error) {
-    console.error(
-      "[POST SERVICE] /posts/reels ERROR STATUS:",
-      error?.response?.status
-    );
-
-    console.error(
-      "[POST SERVICE] /posts/reels ERROR DATA:",
-      error?.response?.data
-    );
-
-    console.error(
-      "[POST SERVICE] /posts/reels ERROR MESSAGE:",
-      error?.message
+    logRequestError(
+      "GET USER REELS",
+      error
     );
 
     throw error;
   }
 }
+
+/* -------------------------------------------------------------------------- */
+/* Saved posts                                                                */
+/* -------------------------------------------------------------------------- */
 
 export async function getSavedPosts(
   page = 1,
   limit = 50
 ) {
   try {
-    const response = await api.get(
-      "/posts/saved",
-      {
-        params: {
-          page,
-          limit,
-        },
-      }
-    );
+    const response =
+      await api.get(
+        "/posts/saved",
+        {
+          params: {
+            page,
+            limit,
+          },
+        }
+      );
 
     return extractPosts(response);
   } catch (error) {
-    console.error(
-      "[POST SERVICE] GET SAVED POSTS ERROR:",
-      error?.response?.data ||
-        error?.message
+    logRequestError(
+      "GET SAVED POSTS",
+      error
     );
 
     throw error;
   }
 }
+
+/* -------------------------------------------------------------------------- */
+/* Liked posts                                                                */
+/* -------------------------------------------------------------------------- */
 
 export async function getLikedPosts(
   page = 1,
   limit = 50
 ) {
   try {
-    const response = await api.get(
-      "/posts/liked",
-      {
-        params: {
-          page,
-          limit,
-        },
-      }
-    );
+    const response =
+      await api.get(
+        "/posts/liked",
+        {
+          params: {
+            page,
+            limit,
+          },
+        }
+      );
 
     return extractPosts(response);
   } catch (error) {
-    console.error(
-      "[POST SERVICE] GET LIKED POSTS ERROR:",
-      error?.response?.data ||
-        error?.message
+    logRequestError(
+      "GET LIKED POSTS",
+      error
     );
 
     throw error;
   }
 }
+
+/* -------------------------------------------------------------------------- */
+/* Tagged posts                                                               */
+/* -------------------------------------------------------------------------- */
 
 export async function getTaggedPosts(
   page = 1,
   limit = 50
 ) {
   try {
-    const response = await api.get(
-      "/posts/tagged",
-      {
-        params: {
-          page,
-          limit,
-        },
-      }
-    );
+    const response =
+      await api.get(
+        "/posts/tagged",
+        {
+          params: {
+            page,
+            limit,
+          },
+        }
+      );
 
     return extractPosts(response);
   } catch (error) {
-    console.error(
-      "[POST SERVICE] GET TAGGED POSTS ERROR:",
-      error?.response?.data ||
-        error?.message
+    logRequestError(
+      "GET TAGGED POSTS",
+      error
     );
 
     throw error;
   }
 }
+
+/* -------------------------------------------------------------------------- */
+/* Reposts                                                                    */
+/* -------------------------------------------------------------------------- */
 
 export async function getUserReposts(
   page = 1,
   limit = 50
 ) {
   try {
-    const response = await api.get(
-      "/posts/reposts",
-      {
-        params: {
-          page,
-          limit,
-        },
-      }
-    );
+    const response =
+      await api.get(
+        "/posts/reposts",
+        {
+          params: {
+            page,
+            limit,
+          },
+        }
+      );
 
     return extractPosts(response);
   } catch (error) {
-    console.error(
-      "[POST SERVICE] GET REPOSTS ERROR:",
-      error?.response?.data ||
-        error?.message
+    logRequestError(
+      "GET REPOSTS",
+      error
     );
 
     throw error;
   }
 }
+
+/* -------------------------------------------------------------------------- */
+/* Single post                                                                */
+/* -------------------------------------------------------------------------- */
 
 export async function getPost(
   postId
@@ -667,15 +729,29 @@ export async function getPost(
     );
   }
 
-  const response = await api.get(
-    `/posts/${postId}`
-  );
+  try {
+    const response =
+      await api.get(
+        `/posts/${postId}`
+      );
 
-  return (
-    response?.data?.post ||
-    response?.data
-  );
+    return (
+      response?.data?.post ||
+      response?.data
+    );
+  } catch (error) {
+    logRequestError(
+      "GET POST",
+      error
+    );
+
+    throw error;
+  }
 }
+
+/* -------------------------------------------------------------------------- */
+/* Delete post                                                                */
+/* -------------------------------------------------------------------------- */
 
 export async function deletePost(
   postId
@@ -686,12 +762,26 @@ export async function deletePost(
     );
   }
 
-  const response = await api.delete(
-    `/posts/${postId}`
-  );
+  try {
+    const response =
+      await api.delete(
+        `/posts/${postId}`
+      );
 
-  return response?.data;
+    return response?.data;
+  } catch (error) {
+    logRequestError(
+      "DELETE POST",
+      error
+    );
+
+    throw error;
+  }
 }
+
+/* -------------------------------------------------------------------------- */
+/* Likes                                                                      */
+/* -------------------------------------------------------------------------- */
 
 export async function likePost(
   postId
@@ -702,11 +792,21 @@ export async function likePost(
     );
   }
 
-  const response = await api.post(
-    `/posts/${postId}/like`
-  );
+  try {
+    const response =
+      await api.post(
+        `/posts/${postId}/like`
+      );
 
-  return response?.data;
+    return response?.data;
+  } catch (error) {
+    logRequestError(
+      "LIKE POST",
+      error
+    );
+
+    throw error;
+  }
 }
 
 export async function unlikePost(
@@ -718,11 +818,21 @@ export async function unlikePost(
     );
   }
 
-  const response = await api.delete(
-    `/posts/${postId}/like`
-  );
+  try {
+    const response =
+      await api.delete(
+        `/posts/${postId}/like`
+      );
 
-  return response?.data;
+    return response?.data;
+  } catch (error) {
+    logRequestError(
+      "UNLIKE POST",
+      error
+    );
+
+    throw error;
+  }
 }
 
 export async function togglePostLike(
@@ -734,12 +844,26 @@ export async function togglePostLike(
     );
   }
 
-  const response = await api.post(
-    `/posts/${postId}/toggle-like`
-  );
+  try {
+    const response =
+      await api.post(
+        `/posts/${postId}/toggle-like`
+      );
 
-  return response?.data;
+    return response?.data;
+  } catch (error) {
+    logRequestError(
+      "TOGGLE POST LIKE",
+      error
+    );
+
+    throw error;
+  }
 }
+
+/* -------------------------------------------------------------------------- */
+/* Saves                                                                      */
+/* -------------------------------------------------------------------------- */
 
 export async function savePost(
   postId
@@ -750,11 +874,21 @@ export async function savePost(
     );
   }
 
-  const response = await api.post(
-    `/posts/${postId}/save`
-  );
+  try {
+    const response =
+      await api.post(
+        `/posts/${postId}/save`
+      );
 
-  return response?.data;
+    return response?.data;
+  } catch (error) {
+    logRequestError(
+      "SAVE POST",
+      error
+    );
+
+    throw error;
+  }
 }
 
 export async function unsavePost(
@@ -766,11 +900,21 @@ export async function unsavePost(
     );
   }
 
-  const response = await api.delete(
-    `/posts/${postId}/save`
-  );
+  try {
+    const response =
+      await api.delete(
+        `/posts/${postId}/save`
+      );
 
-  return response?.data;
+    return response?.data;
+  } catch (error) {
+    logRequestError(
+      "UNSAVE POST",
+      error
+    );
+
+    throw error;
+  }
 }
 
 export async function toggleSave(
@@ -782,12 +926,26 @@ export async function toggleSave(
     );
   }
 
-  const response = await api.post(
-    `/posts/${postId}/toggle-save`
-  );
+  try {
+    const response =
+      await api.post(
+        `/posts/${postId}/toggle-save`
+      );
 
-  return response?.data;
+    return response?.data;
+  } catch (error) {
+    logRequestError(
+      "TOGGLE SAVE",
+      error
+    );
+
+    throw error;
+  }
 }
+
+/* -------------------------------------------------------------------------- */
+/* Reposts                                                                    */
+/* -------------------------------------------------------------------------- */
 
 export async function repostPost(
   postId
@@ -798,14 +956,24 @@ export async function repostPost(
     );
   }
 
-  const response = await api.post(
-    `/posts/${postId}/repost`
-  );
+  try {
+    const response =
+      await api.post(
+        `/posts/${postId}/repost`
+      );
 
-  return (
-    response?.data?.post ||
-    response?.data
-  );
+    return (
+      response?.data?.post ||
+      response?.data
+    );
+  } catch (error) {
+    logRequestError(
+      "REPOST POST",
+      error
+    );
+
+    throw error;
+  }
 }
 
 export async function unrepostPost(
@@ -817,12 +985,26 @@ export async function unrepostPost(
     );
   }
 
-  const response = await api.delete(
-    `/posts/${postId}/repost`
-  );
+  try {
+    const response =
+      await api.delete(
+        `/posts/${postId}/repost`
+      );
 
-  return response?.data;
+    return response?.data;
+  } catch (error) {
+    logRequestError(
+      "UNREPOST POST",
+      error
+    );
+
+    throw error;
+  }
 }
+
+/* -------------------------------------------------------------------------- */
+/* Comments                                                                   */
+/* -------------------------------------------------------------------------- */
 
 export async function createComment(
   postId,
@@ -834,26 +1016,36 @@ export async function createComment(
     );
   }
 
-  if (
-    !text ||
-    !String(text).trim()
-  ) {
+  const cleanText =
+    String(text || "").trim();
+
+  if (!cleanText) {
     throw new Error(
       "Comment cannot be empty."
     );
   }
 
-  const response = await api.post(
-    `/posts/${postId}/comments`,
-    {
-      text: String(text).trim(),
-    }
-  );
+  try {
+    const response =
+      await api.post(
+        `/posts/${postId}/comments`,
+        {
+          text: cleanText,
+        }
+      );
 
-  return (
-    response?.data?.comment ||
-    response?.data
-  );
+    return (
+      response?.data?.comment ||
+      response?.data
+    );
+  } catch (error) {
+    logRequestError(
+      "CREATE COMMENT",
+      error
+    );
+
+    throw error;
+  }
 }
 
 export async function getComments(
@@ -867,61 +1059,111 @@ export async function getComments(
     );
   }
 
-  const response = await api.get(
-    `/posts/${postId}/comments`,
-    {
-      params: {
-        page,
-        limit,
-      },
+  try {
+    const response =
+      await api.get(
+        `/posts/${postId}/comments`,
+        {
+          params: {
+            page,
+            limit,
+          },
+        }
+      );
+
+    const body =
+      response?.data;
+
+    if (Array.isArray(body)) {
+      return body;
     }
-  );
 
-  const body =
-    response?.data;
+    if (
+      Array.isArray(
+        body?.comments
+      )
+    ) {
+      return body.comments;
+    }
 
-  if (Array.isArray(body)) {
-    return body;
+    if (
+      Array.isArray(body?.data)
+    ) {
+      return body.data;
+    }
+
+    return [];
+  } catch (error) {
+    logRequestError(
+      "GET COMMENTS",
+      error
+    );
+
+    throw error;
   }
-
-  if (
-    Array.isArray(
-      body?.comments
-    )
-  ) {
-    return body.comments;
-  }
-
-  if (
-    Array.isArray(body?.data)
-  ) {
-    return body.data;
-  }
-
-  return [];
 }
+
+/* -------------------------------------------------------------------------- */
+/* Archived posts                                                             */
+/* -------------------------------------------------------------------------- */
 
 export async function getArchivedPosts(
   page = 1,
   limit = 50
 ) {
   try {
-    const response = await api.get(
-      "/posts/archived",
-      {
-        params: {
-          page,
-          limit,
-        },
-      }
-    );
+    const response =
+      await api.get(
+        "/posts/archived",
+        {
+          params: {
+            page,
+            limit,
+          },
+        }
+      );
 
     return extractPosts(response);
   } catch (error) {
-    console.error(
-      "[POST SERVICE] GET ARCHIVED POSTS ERROR:",
-      error?.response?.data ||
-        error?.message
+    logRequestError(
+      "GET ARCHIVED POSTS",
+      error
+    );
+
+    throw error;
+  }
+}
+
+/* -------------------------------------------------------------------------- */
+/* Archive / restore                                                          */
+/* -------------------------------------------------------------------------- */
+
+export async function archivePost(
+  postId
+) {
+  if (!postId) {
+    throw new Error(
+      "Post ID is required."
+    );
+  }
+
+  try {
+    const response =
+      await api.patch(
+        `/posts/${postId}/archive`,
+        {
+          archived: true,
+        }
+      );
+
+    return (
+      response?.data?.post ||
+      response?.data
+    );
+  } catch (error) {
+    logRequestError(
+      "ARCHIVE POST",
+      error
     );
 
     throw error;
@@ -937,40 +1179,32 @@ export async function restorePost(
     );
   }
 
-  const response = await api.patch(
-    `/posts/${postId}/archive`,
-    {
-      archived: false,
-    }
-  );
+  try {
+    const response =
+      await api.patch(
+        `/posts/${postId}/archive`,
+        {
+          archived: false,
+        }
+      );
 
-  return (
-    response?.data?.post ||
-    response?.data
-  );
-}
-
-export async function archivePost(
-  postId
-) {
-  if (!postId) {
-    throw new Error(
-      "Post ID is required."
+    return (
+      response?.data?.post ||
+      response?.data
     );
+  } catch (error) {
+    logRequestError(
+      "RESTORE POST",
+      error
+    );
+
+    throw error;
   }
-
-  const response = await api.patch(
-    `/posts/${postId}/archive`,
-    {
-      archived: true,
-    }
-  );
-
-  return (
-    response?.data?.post ||
-    response?.data
-  );
 }
+
+/* -------------------------------------------------------------------------- */
+/* Default export                                                             */
+/* -------------------------------------------------------------------------- */
 
 export default {
   createPost,
