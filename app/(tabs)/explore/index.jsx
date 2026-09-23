@@ -32,22 +32,24 @@ import {
 
 import VerifiedBadge from "../../../components/common/VerifiedBadge";
 
+/* -------------------------------------------------------------------------- */
+/* Constants                                                                  */
+/* -------------------------------------------------------------------------- */
+
 const COLORS = {
   background: "#FFFFFF",
   text: "#111111",
   secondaryText: "#737373",
   border: "#DBDBDB",
-  muted: "#F5F5F5",
   blue: "#0095F6",
   white: "#FFFFFF",
   black: "#000000",
-  placeholder: "#8E8E8E",
+  danger: "#D00",
 };
 
 const GRID_COLUMNS = 3;
 const GRID_GAP = 2;
 const PAGE_LIMIT = 30;
-const GRID_BLOCK_SIZE = 6;
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
 
@@ -55,10 +57,11 @@ const TILE_SIZE =
   (SCREEN_WIDTH - GRID_GAP * (GRID_COLUMNS - 1)) /
   GRID_COLUMNS;
 
-const BIG_TILE_SIZE = TILE_SIZE * 2 + GRID_GAP;
+const DOUBLE_TILE_SIZE =
+  TILE_SIZE * 2 + GRID_GAP;
 
 /* -------------------------------------------------------------------------- */
-/* Helpers                                                                    */
+/* Safe helpers                                                               */
 /* -------------------------------------------------------------------------- */
 
 function getPostId(post) {
@@ -140,15 +143,30 @@ function getPostMedia(post) {
   }
 
   if (post.image) {
-    return [{ url: post.image, type: "image" }];
+    return [
+      {
+        url: post.image,
+        type: "image",
+      },
+    ];
   }
 
   if (post.imageUrl) {
-    return [{ url: post.imageUrl, type: "image" }];
+    return [
+      {
+        url: post.imageUrl,
+        type: "image",
+      },
+    ];
   }
 
   if (post.thumbnailUrl) {
-    return [{ url: post.thumbnailUrl, type: "image" }];
+    return [
+      {
+        url: post.thumbnailUrl,
+        type: "image",
+      },
+    ];
   }
 
   return [];
@@ -193,9 +211,9 @@ function isVideoMedia(media) {
     return true;
   }
 
-  const url = getMediaUrl(media);
-
-  return /\.(mp4|mov|m4v|webm)(\?.*)?$/i.test(url);
+  return /\.(mp4|mov|m4v|webm)(\?.*)?$/i.test(
+    getMediaUrl(media)
+  );
 }
 
 function getMediaCount(post) {
@@ -203,9 +221,7 @@ function getMediaCount(post) {
 }
 
 function getFirstMedia(post) {
-  const media = getPostMedia(post);
-
-  return media[0] ?? null;
+  return getPostMedia(post)[0] ?? null;
 }
 
 function getThumbnail(post) {
@@ -224,36 +240,22 @@ function getThumbnail(post) {
   );
 }
 
-function chunkPosts(posts, size) {
-  const chunks = [];
+function getExploreLayout(post) {
+  const layout = String(
+    post?.exploreLayout ??
+      post?.layout ??
+      "normal"
+  ).toLowerCase();
 
-  for (let i = 0; i < posts.length; i += size) {
-    chunks.push(posts.slice(i, i + size));
+  if (
+    layout === "large" ||
+    layout === "wide" ||
+    layout === "tall"
+  ) {
+    return layout;
   }
 
-  return chunks;
-}
-
-function mergeUniquePosts(existing, incoming) {
-  const result = [];
-  const seen = new Set();
-
-  [...existing, ...incoming].forEach((post) => {
-    const id = getPostId(post);
-
-    if (!id) {
-      return;
-    }
-
-    if (seen.has(id)) {
-      return;
-    }
-
-    seen.add(id);
-    result.push(post);
-  });
-
-  return result;
+  return "normal";
 }
 
 function getHasMore(result) {
@@ -306,278 +308,618 @@ function getResultHashtags(result) {
   return [];
 }
 
-/* -------------------------------------------------------------------------- */
-/* Skeleton                                                                    */
-/* -------------------------------------------------------------------------- */
+function getResultReels(result) {
+  if (Array.isArray(result?.reels)) {
+    return result.reels;
+  }
 
-function SkeletonTile({ size = TILE_SIZE }) {
-  return (
-    <View
-      style={[
-        styles.skeletonTile,
-        {
-          width: size,
-          height: size,
-        },
-      ]}
-    />
-  );
+  if (Array.isArray(result?.data?.reels)) {
+    return result.data.reels;
+  }
+
+  return [];
 }
 
+function mergeUniquePosts(existing, incoming) {
+  const result = [];
+  const seen = new Set();
+
+  [...existing, ...incoming].forEach((post) => {
+    const id = getPostId(post);
+
+    if (!id || seen.has(id)) {
+      return;
+    }
+
+    seen.add(id);
+    result.push(post);
+  });
+
+  return result;
+}
+
+/* -------------------------------------------------------------------------- */
+/* Explore grid placement                                                     */
+/* -------------------------------------------------------------------------- */
+
+/*
+ * We maintain a 3-column occupancy grid.
+ *
+ * normal = 1x1
+ * wide   = 2x1
+ * tall   = 1x2
+ * large  = 2x2
+ *
+ * The algorithm finds the first available location where the tile fits.
+ * This produces a much more organic Explore layout than grouping every
+ * five posts into the same fixed pattern.
+ */
+
+function canPlace(grid, row, column, width, height) {
+  if (
+    column + width >
+    GRID_COLUMNS
+  ) {
+    return false;
+  }
+
+  for (
+    let r = row;
+    r < row + height;
+    r += 1
+  ) {
+    const currentRow =
+      grid[r] || [];
+
+    for (
+      let c = column;
+      c < column + width;
+      c += 1
+    ) {
+      if (currentRow[c]) {
+        return false;
+      }
+    }
+  }
+
+  return true;
+}
+
+function occupy(
+  grid,
+  row,
+  column,
+  width,
+  height
+) {
+  for (
+    let r = row;
+    r < row + height;
+    r += 1
+  ) {
+    if (!grid[r]) {
+      grid[r] = [];
+    }
+
+    for (
+      let c = column;
+      c < column + width;
+      c += 1
+    ) {
+      grid[r][c] = true;
+    }
+  }
+}
+
+function findPlacement(
+  grid,
+  width,
+  height
+) {
+  let row = 0;
+
+  while (row < 10000) {
+    for (
+      let column = 0;
+      column < GRID_COLUMNS;
+      column += 1
+    ) {
+      if (
+        canPlace(
+          grid,
+          row,
+          column,
+          width,
+          height
+        )
+      ) {
+        return {
+          row,
+          column,
+        };
+      }
+    }
+
+    row += 1;
+  }
+
+  return {
+    row,
+    column: 0,
+  };
+}
+
+function getTileDimensions(layout) {
+  switch (layout) {
+    case "large":
+      return {
+        width: 2,
+        height: 2,
+      };
+
+    case "wide":
+      return {
+        width: 2,
+        height: 1,
+      };
+
+    case "tall":
+      return {
+        width: 1,
+        height: 2,
+      };
+
+    default:
+      return {
+        width: 1,
+        height: 1,
+      };
+  }
+}
+
+function getTilePixelSize(layout) {
+  const { width, height } =
+    getTileDimensions(layout);
+
+  return {
+    width:
+      TILE_SIZE * width +
+      GRID_GAP * (width - 1),
+
+    height:
+      TILE_SIZE * height +
+      GRID_GAP * (height - 1),
+  };
+}
+
+function buildExploreRows(posts) {
+  const grid = [];
+  const placements = [];
+
+  const sortedPosts = posts.map(
+    (post, index) => ({
+      post,
+      originalIndex: index,
+    })
+  );
+
+  const priority = {
+    large: 0,
+    wide: 1,
+    tall: 2,
+    normal: 3,
+  };
+
+  sortedPosts.sort((a, b) => {
+    const aPriority =
+      priority[
+        getExploreLayout(a.post)
+      ] ?? 3;
+
+    const bPriority =
+      priority[
+        getExploreLayout(b.post)
+      ] ?? 3;
+
+    if (aPriority !== bPriority) {
+      return (
+        aPriority - bPriority
+      );
+    }
+
+    return (
+      a.originalIndex -
+      b.originalIndex
+    );
+  });
+
+  /*
+   * We don't want sorting to completely destroy chronological order.
+   *
+   * Therefore only use the backend layout as a placement hint.
+   * The final visual ordering is reconstructed below.
+   */
+  const placementGrid = [];
+  const placementMap = new Map();
+
+  for (const item of sortedPosts) {
+    const layout =
+      getExploreLayout(
+        item.post
+      );
+
+    const {
+      width,
+      height,
+    } = getTileDimensions(
+      layout
+    );
+
+    const placement =
+      findPlacement(
+        placementGrid,
+        width,
+        height
+      );
+
+    occupy(
+      placementGrid,
+      placement.row,
+      placement.column,
+      width,
+      height
+    );
+
+    const tileSize =
+      getTilePixelSize(layout);
+
+    const placementData = {
+      ...item,
+      layout,
+      row: placement.row,
+      column: placement.column,
+      width: tileSize.width,
+      height: tileSize.height,
+    };
+
+    placements.push(
+      placementData
+    );
+
+    placementMap.set(
+      item.originalIndex,
+      placementData
+    );
+  }
+
+  /*
+   * Build actual rows from the occupancy grid.
+   *
+   * Each row is a 3-column horizontal strip.
+   */
+  const maxRow =
+    placementGrid.length;
+
+  const rows = [];
+
+  for (
+    let row = 0;
+    row < maxRow;
+    row += 1
+  ) {
+    const rowTiles =
+      placements.filter(
+        (item) =>
+          item.row === row
+      );
+
+    if (rowTiles.length) {
+      rows.push({
+        id: `row-${row}`,
+        tiles: rowTiles,
+      });
+    }
+  }
+
+  /*
+   * Keep React stable and ensure unused placementMap
+   * doesn't affect output.
+   */
+  placementMap.clear();
+
+  return rows;
+}
+
+/* -------------------------------------------------------------------------- */
+/* Explore tile                                                               */
+/* -------------------------------------------------------------------------- */
+
+const ExploreTile = memo(
+  function ExploreTile({
+    post,
+    layout = "normal",
+    width = TILE_SIZE,
+    height = TILE_SIZE,
+    onPress,
+  }) {
+    const media =
+      getFirstMedia(post);
+
+    const imageUri =
+      getThumbnail(post);
+
+    const video =
+      isVideoMedia(media);
+
+    const mediaCount =
+      getMediaCount(post);
+
+    const hasMultiple =
+      mediaCount > 1;
+
+    return (
+      <Pressable
+        onPress={() =>
+          onPress(post)
+        }
+        style={[
+          styles.tile,
+          {
+            width,
+            height,
+          },
+        ]}
+      >
+        {imageUri ? (
+          <Image
+            source={{
+              uri: imageUri,
+            }}
+            style={styles.tileImage}
+            resizeMode="cover"
+          />
+        ) : (
+          <View
+            style={
+              styles.emptyTile
+            }
+          >
+            <Ionicons
+              name="image-outline"
+              size={28}
+              color="#BDBDBD"
+            />
+          </View>
+        )}
+
+        {(video || hasMultiple) ? (
+          <View
+            style={
+              styles.tileIndicators
+            }
+          >
+            {video ? (
+              <View
+                style={
+                  styles.indicator
+                }
+              >
+                <Ionicons
+                  name="play"
+                  size={14}
+                  color={
+                    COLORS.white
+                  }
+                />
+              </View>
+            ) : null}
+
+            {hasMultiple ? (
+              <View
+                style={[
+                  styles.indicator,
+                  video &&
+                    styles.indicatorSpacing,
+                ]}
+              >
+                <Ionicons
+                  name="copy-outline"
+                  size={15}
+                  color={
+                    COLORS.white
+                  }
+                />
+              </View>
+            ) : null}
+          </View>
+        ) : null}
+
+        {layout === "large" ? (
+          <View
+            style={
+              styles.largeTileOverlay
+            }
+          />
+        ) : null}
+      </Pressable>
+    );
+  }
+);
+
+/* -------------------------------------------------------------------------- */
+/* Explore row                                                                */
+/* -------------------------------------------------------------------------- */
+
+const ExploreGridRow = memo(
+  function ExploreGridRow({
+    row,
+    onPostPress,
+  }) {
+    return (
+      <View
+        style={styles.gridRow}
+      >
+        {row.tiles.map(
+          (tile) => (
+            <ExploreTile
+              key={getPostId(
+                tile.post
+              )}
+              post={tile.post}
+              layout={tile.layout}
+              width={tile.width}
+              height={tile.height}
+              onPress={
+                onPostPress
+              }
+            />
+          )
+        )}
+      </View>
+    );
+  }
+);
+
+/* -------------------------------------------------------------------------- */
+/* Skeleton                                                                   */
+/* -------------------------------------------------------------------------- */
+
 function ExploreSkeleton() {
+  const skeletons =
+    Array.from({
+      length: 18,
+    });
+
   return (
-    <View style={styles.skeletonContainer}>
-      {Array.from({ length: 12 }).map((_, index) => (
-        <SkeletonTile key={index} />
-      ))}
+    <View
+      style={
+        styles.skeletonContainer
+      }
+    >
+      {skeletons.map(
+        (_, index) => (
+          <View
+            key={index}
+            style={[
+              styles.skeletonTile,
+              {
+                width:
+                  TILE_SIZE,
+                height:
+                  TILE_SIZE,
+              },
+            ]}
+          />
+        )
+      )}
     </View>
   );
 }
 
 /* -------------------------------------------------------------------------- */
-/* Explore tile                                                                */
+/* Search user                                                                */
 /* -------------------------------------------------------------------------- */
 
-const ExploreTile = memo(function ExploreTile({
-  post,
-  size = TILE_SIZE,
-  onPress,
-}) {
-  const media = getFirstMedia(post);
-  const imageUri = getThumbnail(post);
-  const video = isVideoMedia(media);
-  const mediaCount = getMediaCount(post);
+const SearchUserRow = memo(
+  function SearchUserRow({
+    user,
+    onPress,
+  }) {
+    const username =
+      getUsername(user);
 
-  if (!imageUri) {
+    const displayName =
+      getDisplayName(user);
+
+    const avatar =
+      getAvatar(user);
+
+    const verified =
+      isVerified(user);
+
     return (
       <Pressable
-        onPress={() => onPress(post)}
-        style={[
-          styles.tile,
-          {
-            width: size,
-            height: size,
-          },
-        ]}
+        onPress={() =>
+          onPress(user)
+        }
+        style={
+          styles.userRow
+        }
       >
-        <View style={styles.emptyTile}>
-          <Ionicons
-            name="image-outline"
-            size={30}
-            color="#BDBDBD"
+        {avatar ? (
+          <Image
+            source={{
+              uri: avatar,
+            }}
+            style={
+              styles.userAvatar
+            }
           />
+        ) : (
+          <View
+            style={
+              styles.userAvatarPlaceholder
+            }
+          >
+            <Ionicons
+              name="person"
+              size={22}
+              color="#A0A0A0"
+            />
+          </View>
+        )}
+
+        <View
+          style={
+            styles.userTextContainer
+          }
+        >
+          <View
+            style={
+              styles.usernameLine
+            }
+          >
+            <Text
+              style={
+                styles.username
+              }
+              numberOfLines={1}
+            >
+              {username ||
+                displayName ||
+                "User"}
+            </Text>
+
+            {verified ? (
+              <VerifiedBadge
+                size={14}
+                style={
+                  styles.verifiedBadge
+                }
+              />
+            ) : null}
+          </View>
+
+          {displayName &&
+          displayName !==
+            username ? (
+            <Text
+              style={
+                styles.displayName
+              }
+              numberOfLines={1}
+            >
+              {displayName}
+            </Text>
+          ) : null}
         </View>
       </Pressable>
     );
   }
-
-  return (
-    <Pressable
-      onPress={() => onPress(post)}
-      style={[
-        styles.tile,
-        {
-          width: size,
-          height: size,
-        },
-      ]}
-    >
-      <Image
-        source={{ uri: imageUri }}
-        style={styles.tileImage}
-        resizeMode="cover"
-      />
-
-      <View style={styles.tileOverlay}>
-        {video ? (
-          <Ionicons
-            name="play"
-            size={18}
-            color={COLORS.white}
-          />
-        ) : null}
-
-        {mediaCount > 1 ? (
-          <Ionicons
-            name="copy-outline"
-            size={18}
-            color={COLORS.white}
-            style={video ? styles.overlaySpacing : undefined}
-          />
-        ) : null}
-      </View>
-    </Pressable>
-  );
-});
+);
 
 /* -------------------------------------------------------------------------- */
-/* Instagram-style grid                                                        */
-/* -------------------------------------------------------------------------- */
-
-function ExploreGridBlock({ posts, onPostPress }) {
-  if (!posts.length) {
-    return null;
-  }
-
-  const first = posts[0];
-  const second = posts[1];
-  const third = posts[2];
-  const fourth = posts[3];
-  const fifth = posts[4];
-  const sixth = posts[5];
-
-  return (
-    <View style={styles.gridBlock}>
-      <View style={styles.gridColumn}>
-        {first ? (
-          <ExploreTile
-            post={first}
-            onPress={onPostPress}
-          />
-        ) : null}
-
-        {second ? (
-          <ExploreTile
-            post={second}
-            onPress={onPostPress}
-          />
-        ) : null}
-
-        {third ? (
-          <ExploreTile
-            post={third}
-            onPress={onPostPress}
-          />
-        ) : null}
-      </View>
-
-      <View style={styles.gridColumn}>
-        {fourth ? (
-          <ExploreTile
-            post={fourth}
-            size={BIG_TILE_SIZE}
-            onPress={onPostPress}
-          />
-        ) : null}
-      </View>
-
-      <View style={styles.gridColumn}>
-        {fifth ? (
-          <ExploreTile
-            post={fifth}
-            onPress={onPostPress}
-          />
-        ) : null}
-
-        {sixth ? (
-          <ExploreTile
-            post={sixth}
-            onPress={onPostPress}
-          />
-        ) : null}
-      </View>
-    </View>
-  );
-}
-
-/* -------------------------------------------------------------------------- */
-/* Search user row                                                             */
-/* -------------------------------------------------------------------------- */
-
-const SearchUserRow = memo(function SearchUserRow({
-  user,
-  onPress,
-}) {
-  const username = getUsername(user);
-  const displayName = getDisplayName(user);
-  const avatar = getAvatar(user);
-  const verified = isVerified(user);
-
-  return (
-    <Pressable
-      onPress={() => onPress(user)}
-      style={styles.userRow}
-    >
-      {avatar ? (
-        <Image
-          source={{ uri: avatar }}
-          style={styles.userAvatar}
-        />
-      ) : (
-        <View style={styles.userAvatarPlaceholder}>
-          <Ionicons
-            name="person"
-            size={22}
-            color="#A0A0A0"
-          />
-        </View>
-      )}
-
-      <View style={styles.userTextContainer}>
-        <View style={styles.usernameLine}>
-          <Text
-            style={styles.username}
-            numberOfLines={1}
-          >
-            {username || displayName || "User"}
-          </Text>
-
-          {verified ? (
-            <VerifiedBadge
-              size={14}
-              style={styles.verifiedBadge}
-            />
-          ) : null}
-        </View>
-
-        {displayName &&
-        displayName !== username ? (
-          <Text
-            style={styles.displayName}
-            numberOfLines={1}
-          >
-            {displayName}
-          </Text>
-        ) : null}
-      </View>
-    </Pressable>
-  );
-});
-
-/* -------------------------------------------------------------------------- */
-/* Empty state                                                                 */
-/* -------------------------------------------------------------------------- */
-
-function EmptyState({
-  icon = "search-outline",
-  title,
-  message,
-}) {
-  return (
-    <View style={styles.emptyState}>
-      <View style={styles.emptyIconCircle}>
-        <Ionicons
-          name={icon}
-          size={34}
-          color={COLORS.text}
-        />
-      </View>
-
-      <Text style={styles.emptyTitle}>
-        {title}
-      </Text>
-
-      {message ? (
-        <Text style={styles.emptyMessage}>
-          {message}
-        </Text>
-      ) : null}
-    </View>
-  );
-}
-
-/* -------------------------------------------------------------------------- */
-/* Search section title                                                        */
+/* Search section title                                                       */
 /* -------------------------------------------------------------------------- */
 
 function SearchSectionTitle({
@@ -585,13 +927,26 @@ function SearchSectionTitle({
   count,
 }) {
   return (
-    <View style={styles.sectionTitleContainer}>
-      <Text style={styles.sectionTitle}>
+    <View
+      style={
+        styles.sectionTitleContainer
+      }
+    >
+      <Text
+        style={
+          styles.sectionTitle
+        }
+      >
         {title}
       </Text>
 
-      {typeof count === "number" ? (
-        <Text style={styles.sectionCount}>
+      {typeof count ===
+      "number" ? (
+        <Text
+          style={
+            styles.sectionCount
+          }
+        >
           {count}
         </Text>
       ) : null}
@@ -600,269 +955,417 @@ function SearchSectionTitle({
 }
 
 /* -------------------------------------------------------------------------- */
-/* Main screen                                                                 */
+/* Empty state                                                                */
+/* -------------------------------------------------------------------------- */
+
+function EmptyState({
+  icon = "search-outline",
+  title,
+  message,
+}) {
+  return (
+    <View
+      style={styles.emptyState}
+    >
+      <View
+        style={
+          styles.emptyIconCircle
+        }
+      >
+        <Ionicons
+          name={icon}
+          size={34}
+          color={COLORS.text}
+        />
+      </View>
+
+      <Text
+        style={styles.emptyTitle}
+      >
+        {title}
+      </Text>
+
+      {message ? (
+        <Text
+          style={
+            styles.emptyMessage
+          }
+        >
+          {message}
+        </Text>
+      ) : null}
+    </View>
+  );
+}
+
+/* -------------------------------------------------------------------------- */
+/* Main screen                                                                */
 /* -------------------------------------------------------------------------- */
 
 export default function ExploreScreen() {
   const router = useRouter();
 
-  const [query, setQuery] = useState("");
+  const [query, setQuery] =
+    useState("");
 
-  const [posts, setPosts] = useState([]);
-  const [users, setUsers] = useState([]);
-  const [hashtags, setHashtags] = useState([]);
-  const [searchPosts, setSearchPosts] = useState([]);
+  const [posts, setPosts] =
+    useState([]);
 
-  const [loading, setLoading] = useState(true);
-  const [searching, setSearching] = useState(false);
-  const [refreshing, setRefreshing] = useState(false);
-  const [loadingMore, setLoadingMore] = useState(false);
+  const [users, setUsers] =
+    useState([]);
 
-  const [error, setError] = useState("");
+  const [hashtags, setHashtags] =
+    useState([]);
 
-  const [hasMore, setHasMore] = useState(true);
-  const [searchHasMore, setSearchHasMore] =
+  const [searchPosts, setSearchPosts] =
+    useState([]);
+
+  const [searchReels, setSearchReels] =
+    useState([]);
+
+  const [loading, setLoading] =
+    useState(true);
+
+  const [searching, setSearching] =
     useState(false);
 
-  const pageRef = useRef(1);
-  const searchPageRef = useRef(1);
+  const [refreshing, setRefreshing] =
+    useState(false);
 
-  const mountedRef = useRef(true);
+  const [loadingMore, setLoadingMore] =
+    useState(false);
 
-  const searchTimerRef = useRef(null);
+  const [error, setError] =
+    useState("");
 
-  const exploreRequestRef = useRef(0);
-  const searchRequestRef = useRef(0);
+  const [hasMore, setHasMore] =
+    useState(true);
 
-  const loadingMoreRef = useRef(false);
-  const searchLoadingMoreRef = useRef(false);
+  const [
+    searchHasMore,
+    setSearchHasMore,
+  ] = useState(false);
 
-  const isSearching = query.trim().length > 0;
+  const pageRef =
+    useRef(1);
 
-  /* ------------------------------------------------------------------------ */
-  /* Lifecycle                                                                */
-  /* ------------------------------------------------------------------------ */
+  const searchPageRef =
+    useRef(1);
+
+  const mountedRef =
+    useRef(true);
+
+  const searchTimerRef =
+    useRef(null);
+
+  const exploreRequestRef =
+    useRef(0);
+
+  const searchRequestRef =
+    useRef(0);
+
+  const loadingMoreRef =
+    useRef(false);
+
+  const searchLoadingMoreRef =
+    useRef(false);
+
+  const isSearching =
+    query.trim().length > 0;
+
+  /* ---------------------------------------------------------------------- */
+  /* Lifecycle                                                              */
+  /* ---------------------------------------------------------------------- */
 
   useEffect(() => {
     mountedRef.current = true;
 
     return () => {
-      mountedRef.current = false;
+      mountedRef.current =
+        false;
 
-      if (searchTimerRef.current) {
-        clearTimeout(searchTimerRef.current);
+      if (
+        searchTimerRef.current
+      ) {
+        clearTimeout(
+          searchTimerRef.current
+        );
       }
     };
   }, []);
 
-  /* ------------------------------------------------------------------------ */
-  /* Load Explore                                                              */
-  /* ------------------------------------------------------------------------ */
+  /* ---------------------------------------------------------------------- */
+  /* Explore                                                                */
+  /* ---------------------------------------------------------------------- */
 
-  const loadExplore = useCallback(
-    async ({
-      page = 1,
-      replace = false,
-      refresh = false,
-    } = {}) => {
-      if (!mountedRef.current) {
-        return;
-      }
+  const loadExplore =
+    useCallback(
+      async ({
+        page = 1,
+        replace = false,
+        refresh = false,
+      } = {}) => {
+        if (
+          !mountedRef.current
+        ) {
+          return;
+        }
 
-      const requestId =
-        ++exploreRequestRef.current;
+        if (
+          !replace &&
+          loadingMoreRef.current
+        ) {
+          return;
+        }
 
-      if (replace) {
-        if (refresh) {
-          setRefreshing(true);
+        const requestId =
+          ++exploreRequestRef.current;
+
+        if (replace) {
+          if (refresh) {
+            setRefreshing(true);
+          } else {
+            setLoading(true);
+          }
+
+          setError("");
         } else {
-          setLoading(true);
+          loadingMoreRef.current =
+            true;
+
+          setLoadingMore(true);
         }
 
-        setError("");
-      } else {
-        if (loadingMoreRef.current) {
-          return;
-        }
+        try {
+          const result =
+            await getExplorePosts(
+              page,
+              PAGE_LIMIT
+            );
 
-        loadingMoreRef.current = true;
-        setLoadingMore(true);
-      }
+          if (
+            !mountedRef.current ||
+            requestId !==
+              exploreRequestRef.current
+          ) {
+            return;
+          }
 
-      try {
-        const result = await getExplorePosts(
-          page,
-          PAGE_LIMIT
-        );
+          const nextPosts =
+            getResultPosts(
+              result
+            );
 
-        if (
-          !mountedRef.current ||
-          requestId !== exploreRequestRef.current
-        ) {
-          return;
-        }
-
-        const nextPosts = getResultPosts(result);
-
-        setPosts((current) =>
-          replace
-            ? nextPosts
-            : mergeUniquePosts(current, nextPosts)
-        );
-
-        setHasMore(getHasMore(result));
-
-        pageRef.current = page;
-      } catch (err) {
-        console.error(
-          "[Explore] load error:",
-          err
-        );
-
-        if (
-          mountedRef.current &&
-          requestId === exploreRequestRef.current
-        ) {
-          setError(
-            err?.message ||
-              "Unable to load Explore right now."
+          setPosts((current) =>
+            replace
+              ? nextPosts
+              : mergeUniquePosts(
+                  current,
+                  nextPosts
+                )
           );
-        }
-      } finally {
-        if (
-          mountedRef.current &&
-          requestId === exploreRequestRef.current
-        ) {
-          setLoading(false);
-          setRefreshing(false);
-          setLoadingMore(false);
-          loadingMoreRef.current = false;
-        }
-      }
-    },
-    []
-  );
 
-  /* ------------------------------------------------------------------------ */
-  /* Search                                                                    */
-  /* ------------------------------------------------------------------------ */
-
-  const executeSearch = useCallback(
-    async ({
-      value,
-      page = 1,
-      replace = true,
-    }) => {
-      const cleanQuery = String(
-        value || ""
-      ).trim();
-
-      if (!cleanQuery) {
-        return;
-      }
-
-      const requestId =
-        ++searchRequestRef.current;
-
-      if (replace) {
-        setSearching(true);
-      } else {
-        if (searchLoadingMoreRef.current) {
-          return;
-        }
-
-        searchLoadingMoreRef.current = true;
-        setLoadingMore(true);
-      }
-
-      try {
-        const result = await searchExplore(
-          cleanQuery,
-          page,
-          PAGE_LIMIT
-        );
-
-        if (
-          !mountedRef.current ||
-          requestId !== searchRequestRef.current
-        ) {
-          return;
-        }
-
-        const nextUsers =
-          getResultUsers(result);
-
-        const nextHashtags =
-          getResultHashtags(result);
-
-        const nextPosts =
-          getResultPosts(result);
-
-        setUsers((current) =>
-          replace
-            ? nextUsers
-            : [...current, ...nextUsers]
-        );
-
-        setHashtags((current) =>
-          replace
-            ? nextHashtags
-            : [...current, ...nextHashtags]
-        );
-
-        setSearchPosts((current) =>
-          replace
-            ? nextPosts
-            : mergeUniquePosts(
-                current,
-                nextPosts
-              )
-        );
-
-        setSearchHasMore(
-          getHasMore(result)
-        );
-
-        searchPageRef.current = page;
-      } catch (err) {
-        console.error(
-          "[Explore] search error:",
-          err
-        );
-
-        if (
-          mountedRef.current &&
-          requestId === searchRequestRef.current
-        ) {
-          setError(
-            err?.message ||
-              "Search failed. Please try again."
+          setHasMore(
+            getHasMore(result)
           );
+
+          pageRef.current =
+            page;
+        } catch (err) {
+          console.error(
+            "[Explore] load error:",
+            err
+          );
+
+          if (
+            mountedRef.current &&
+            requestId ===
+              exploreRequestRef.current
+          ) {
+            setError(
+              err?.message ||
+                "Unable to load Explore right now."
+            );
+          }
+        } finally {
+          if (
+            mountedRef.current &&
+            requestId ===
+              exploreRequestRef.current
+          ) {
+            setLoading(false);
+            setRefreshing(false);
+            setLoadingMore(false);
+
+            loadingMoreRef.current =
+              false;
+          }
         }
-      } finally {
+      },
+      []
+    );
+
+  /* ---------------------------------------------------------------------- */
+  /* Search                                                                 */
+  /* ---------------------------------------------------------------------- */
+
+  const executeSearch =
+    useCallback(
+      async ({
+        value,
+        page = 1,
+        replace = true,
+      }) => {
+        const cleanQuery =
+          String(value || "")
+            .trim();
+
+        if (!cleanQuery) {
+          return;
+        }
+
         if (
-          mountedRef.current &&
-          requestId === searchRequestRef.current
+          !replace &&
+          searchLoadingMoreRef.current
         ) {
-          setSearching(false);
-          setLoadingMore(false);
+          return;
+        }
+
+        const requestId =
+          ++searchRequestRef.current;
+
+        if (replace) {
+          setSearching(true);
+          setError("");
+        } else {
           searchLoadingMoreRef.current =
-            false;
-        }
-      }
-    },
-    []
-  );
+            true;
 
-  /* ------------------------------------------------------------------------ */
-  /* Search debounce                                                           */
-  /* ------------------------------------------------------------------------ */
+          setLoadingMore(true);
+        }
+
+        try {
+          const result =
+            await searchExplore(
+              cleanQuery,
+              page,
+              PAGE_LIMIT
+            );
+
+          if (
+            !mountedRef.current ||
+            requestId !==
+              searchRequestRef.current
+          ) {
+            return;
+          }
+
+          const nextUsers =
+            getResultUsers(
+              result
+            );
+
+          const nextHashtags =
+            getResultHashtags(
+              result
+            );
+
+          const nextPosts =
+            getResultPosts(
+              result
+            );
+
+          const nextReels =
+            getResultReels(
+              result
+            );
+
+          setUsers((current) =>
+            replace
+              ? nextUsers
+              : [...current, ...nextUsers]
+          );
+
+          setHashtags((current) =>
+            replace
+              ? nextHashtags
+              : [
+                  ...current,
+                  ...nextHashtags,
+                ]
+          );
+
+          setSearchPosts((current) =>
+            replace
+              ? nextPosts
+              : mergeUniquePosts(
+                  current,
+                  nextPosts
+                )
+          );
+
+          setSearchReels((current) =>
+            replace
+              ? nextReels
+              : mergeUniquePosts(
+                  current,
+                  nextReels
+                )
+          );
+
+          setSearchHasMore(
+            getHasMore(result)
+          );
+
+          searchPageRef.current =
+            page;
+        } catch (err) {
+          console.error(
+            "[Explore] search error:",
+            err
+          );
+
+          if (
+            mountedRef.current &&
+            requestId ===
+              searchRequestRef.current
+          ) {
+            setError(
+              err?.message ||
+                "Search failed. Please try again."
+            );
+          }
+        } finally {
+          if (
+            mountedRef.current &&
+            requestId ===
+              searchRequestRef.current
+          ) {
+            setSearching(false);
+            setLoadingMore(false);
+
+            searchLoadingMoreRef.current =
+              false;
+          }
+        }
+      },
+      []
+    );
+
+  /* ---------------------------------------------------------------------- */
+  /* Search debounce                                                        */
+  /* ---------------------------------------------------------------------- */
 
   useEffect(() => {
-    const cleanQuery = query.trim();
+    const cleanQuery =
+      query.trim();
 
-    if (searchTimerRef.current) {
-      clearTimeout(searchTimerRef.current);
+    if (
+      searchTimerRef.current
+    ) {
+      clearTimeout(
+        searchTimerRef.current
+      );
     }
 
     if (!cleanQuery) {
@@ -871,6 +1374,7 @@ export default function ExploreScreen() {
       setUsers([]);
       setHashtags([]);
       setSearchPosts([]);
+      setSearchReels([]);
       setSearchHasMore(false);
       setSearching(false);
       setError("");
@@ -878,26 +1382,34 @@ export default function ExploreScreen() {
       return;
     }
 
-    searchTimerRef.current = setTimeout(() => {
-      searchPageRef.current = 1;
+    searchTimerRef.current =
+      setTimeout(() => {
+        searchPageRef.current = 1;
 
-      executeSearch({
-        value: cleanQuery,
-        page: 1,
-        replace: true,
-      });
-    }, 300);
+        executeSearch({
+          value: cleanQuery,
+          page: 1,
+          replace: true,
+        });
+      }, 350);
 
     return () => {
-      if (searchTimerRef.current) {
-        clearTimeout(searchTimerRef.current);
+      if (
+        searchTimerRef.current
+      ) {
+        clearTimeout(
+          searchTimerRef.current
+        );
       }
     };
-  }, [query, executeSearch]);
+  }, [
+    query,
+    executeSearch,
+  ]);
 
-  /* ------------------------------------------------------------------------ */
-  /* Initial load / focus                                                      */
-  /* ------------------------------------------------------------------------ */
+  /* ---------------------------------------------------------------------- */
+  /* Initial load                                                           */
+  /* ---------------------------------------------------------------------- */
 
   useEffect(() => {
     loadExplore({
@@ -914,214 +1426,184 @@ export default function ExploreScreen() {
           replace: true,
         });
       }
-    }, [loadExplore, query])
+    }, [
+      loadExplore,
+      query,
+    ])
   );
 
-  /* ------------------------------------------------------------------------ */
-  /* Actions                                                                   */
-  /* ------------------------------------------------------------------------ */
+  /* ---------------------------------------------------------------------- */
+  /* Actions                                                                */
+  /* ---------------------------------------------------------------------- */
 
-  const handleRefresh = useCallback(() => {
-    if (isSearching) {
-      const cleanQuery = query.trim();
+  const handleRefresh =
+    useCallback(() => {
+      if (isSearching) {
+        const cleanQuery =
+          query.trim();
 
-      if (!cleanQuery) {
+        if (!cleanQuery) {
+          return;
+        }
+
+        searchPageRef.current = 1;
+
+        executeSearch({
+          value: cleanQuery,
+          page: 1,
+          replace: true,
+        });
+
         return;
       }
 
-      searchPageRef.current = 1;
+      pageRef.current = 1;
 
-      executeSearch({
-        value: cleanQuery,
+      loadExplore({
         page: 1,
         replace: true,
+        refresh: true,
       });
+    }, [
+      executeSearch,
+      isSearching,
+      loadExplore,
+      query,
+    ]);
 
-      return;
-    }
+  const handleLoadMore =
+    useCallback(() => {
+      if (isSearching) {
+        if (
+          !searchHasMore ||
+          searching ||
+          searchLoadingMoreRef.current
+        ) {
+          return;
+        }
 
-    pageRef.current = 1;
+        executeSearch({
+          value: query,
+          page:
+            searchPageRef.current +
+            1,
+          replace: false,
+        });
 
-    loadExplore({
-      page: 1,
-      replace: true,
-      refresh: true,
-    });
-  }, [
-    executeSearch,
-    isSearching,
-    loadExplore,
-    query,
-  ]);
+        return;
+      }
 
-  const handleLoadMore = useCallback(() => {
-    if (isSearching) {
       if (
-        !searchHasMore ||
-        searching ||
-        searchLoadingMoreRef.current
+        !hasMore ||
+        loading ||
+        loadingMoreRef.current
       ) {
         return;
       }
 
-      const nextPage =
-        searchPageRef.current + 1;
-
-      executeSearch({
-        value: query,
-        page: nextPage,
+      loadExplore({
+        page:
+          pageRef.current + 1,
         replace: false,
       });
+    }, [
+      executeSearch,
+      hasMore,
+      isSearching,
+      loadExplore,
+      loading,
+      query,
+      searchHasMore,
+      searching,
+    ]);
 
-      return;
-    }
+  const clearSearch =
+    useCallback(() => {
+      Keyboard.dismiss();
+      setQuery("");
+    }, []);
 
-    if (
-      !hasMore ||
-      loading ||
-      loadingMoreRef.current
-    ) {
-      return;
-    }
+  const handlePostPress =
+    useCallback(
+      (post) => {
+        const id =
+          getPostId(post);
 
-    const nextPage = pageRef.current + 1;
+        if (!id) {
+          return;
+        }
 
-    loadExplore({
-      page: nextPage,
-      replace: false,
-    });
-  }, [
-    executeSearch,
-    hasMore,
-    isSearching,
-    loadExplore,
-    loading,
-    query,
-    searchHasMore,
-    searching,
-  ]);
-
-  const clearSearch = useCallback(() => {
-    Keyboard.dismiss();
-    setQuery("");
-  }, []);
-
-  const handlePostPress = useCallback(
-    (post) => {
-      const id = getPostId(post);
-
-      if (!id) {
-        return;
-      }
-
-      router.push({
-        pathname: "/post/[id]",
-        params: {
-          id,
-        },
-      });
-    },
-    [router]
-  );
-
-  const handleUserPress = useCallback(
-    (user) => {
-      const username = getUsername(user);
-
-      if (!username) {
-        return;
-      }
-
-      router.push({
-        pathname: "/profile/[username]",
-        params: {
-          username: String(username),
-        },
-      });
-    },
-    [router]
-  );
-
-  /* ------------------------------------------------------------------------ */
-  /* Explore grid                                                              */
-  /* ------------------------------------------------------------------------ */
-
-  const gridBlocks = useMemo(
-    () => chunkPosts(posts, GRID_BLOCK_SIZE),
-    [posts]
-  );
-
-  const renderExploreGrid = useMemo(() => {
-    return (
-      <View style={styles.exploreContainer}>
-        {gridBlocks.map((block, index) => (
-          <ExploreGridBlock
-            key={`block-${index}`}
-            posts={block}
-            onPostPress={handlePostPress}
-          />
-        ))}
-      </View>
+        router.push({
+          pathname: "/post/[id]",
+          params: {
+            id,
+          },
+        });
+      },
+      [router]
     );
-  }, [gridBlocks, handlePostPress]);
 
-  /* ------------------------------------------------------------------------ */
-  /* Search results                                                            */
-  /* ------------------------------------------------------------------------ */
+  const handleUserPress =
+    useCallback(
+      (user) => {
+        const username =
+          getUsername(user);
 
-  const renderSearchPosts = useCallback(() => {
-    if (!searchPosts.length) {
-      return null;
-    }
+        if (!username) {
+          return;
+        }
 
-    return (
-      <View style={styles.searchPostsGrid}>
-        {searchPosts.map((post) => (
-          <ExploreTile
-            key={getPostId(post)}
-            post={post}
-            onPress={handlePostPress}
-          />
-        ))}
-      </View>
+        router.push({
+          pathname:
+            "/profile/[username]",
+          params: {
+            username:
+              String(username),
+          },
+        });
+      },
+      [router]
     );
-  }, [handlePostPress, searchPosts]);
 
-  /* ------------------------------------------------------------------------ */
-  /* Footer                                                                    */
-  /* ------------------------------------------------------------------------ */
+  /* ---------------------------------------------------------------------- */
+  /* Grid                                                                    */
+  /* ---------------------------------------------------------------------- */
 
-  const renderFooter = useCallback(() => {
-    if (!loadingMore) {
-      return <View style={styles.footerSpace} />;
-    }
-
-    return (
-      <View style={styles.loadingMoreContainer}>
-        <ActivityIndicator
-          size="small"
-          color={COLORS.secondaryText}
-        />
-      </View>
+  const exploreRows =
+    useMemo(
+      () =>
+        buildExploreRows(
+          posts
+        ),
+      [posts]
     );
-  }, [loadingMore]);
 
-  /* ------------------------------------------------------------------------ */
-  /* Header                                                                    */
-  /* ------------------------------------------------------------------------ */
+  /* ---------------------------------------------------------------------- */
+  /* Header                                                                  */
+  /* ---------------------------------------------------------------------- */
 
   const header = (
-    <View style={styles.header}>
-      <View style={styles.searchContainer}>
+    <View
+      style={styles.header}
+    >
+      <View
+        style={
+          styles.searchContainer
+        }
+      >
         <Ionicons
           name="search"
           size={19}
-          color={COLORS.secondaryText}
+          color={
+            COLORS.secondaryText
+          }
         />
 
         <TextInput
           value={query}
-          onChangeText={setQuery}
+          onChangeText={
+            setQuery
+          }
           placeholder="Search"
           placeholderTextColor={
             COLORS.secondaryText
@@ -1129,14 +1611,20 @@ export default function ExploreScreen() {
           autoCapitalize="none"
           autoCorrect={false}
           returnKeyType="search"
-          style={styles.searchInput}
+          style={
+            styles.searchInput
+          }
         />
 
         {query.length > 0 ? (
           <Pressable
-            onPress={clearSearch}
+            onPress={
+              clearSearch
+            }
             hitSlop={10}
-            style={styles.clearButton}
+            style={
+              styles.clearButton
+            }
           >
             <Ionicons
               name="close-circle"
@@ -1149,92 +1637,178 @@ export default function ExploreScreen() {
     </View>
   );
 
-  /* ------------------------------------------------------------------------ */
-  /* Search content                                                            */
-  /* ------------------------------------------------------------------------ */
+  /* ---------------------------------------------------------------------- */
+  /* Search grid                                                             */
+  /* ---------------------------------------------------------------------- */
+
+  const renderSearchGrid =
+    (items) => {
+      if (!items.length) {
+        return null;
+      }
+
+      return (
+        <View
+          style={
+            styles.searchGrid
+          }
+        >
+          {items.map(
+            (post) => (
+              <ExploreTile
+                key={getPostId(
+                  post
+                )}
+                post={post}
+                layout="normal"
+                width={
+                  TILE_SIZE
+                }
+                height={
+                  TILE_SIZE
+                }
+                onPress={
+                  handlePostPress
+                }
+              />
+            )
+          )}
+        </View>
+      );
+    };
+
+  /* ---------------------------------------------------------------------- */
+  /* Search screen                                                           */
+  /* ---------------------------------------------------------------------- */
 
   if (isSearching) {
+    const hasSearchResults =
+      users.length > 0 ||
+      hashtags.length > 0 ||
+      searchPosts.length > 0 ||
+      searchReels.length > 0;
+
     return (
-      <SafeAreaView style={styles.safeArea}>
+      <SafeAreaView
+        style={
+          styles.safeArea
+        }
+      >
         {header}
 
         {searching &&
-        !users.length &&
-        !hashtags.length &&
-        !searchPosts.length ? (
-          <View style={styles.searchLoading}>
+        !hasSearchResults ? (
+          <View
+            style={
+              styles.searchLoading
+            }
+          >
             <ActivityIndicator
               size="small"
-              color={COLORS.text}
+              color={
+                COLORS.text
+              }
             />
           </View>
         ) : null}
 
         {!searching &&
-        !users.length &&
-        !hashtags.length &&
-        !searchPosts.length ? (
+        !hasSearchResults ? (
           <EmptyState
             icon="search-outline"
             title="No results found"
-            message={`Try searching for another username, hashtag, or post.`}
+            message="Try searching for another username, hashtag, or post."
           />
         ) : null}
 
         {error ? (
-          <View style={styles.errorBanner}>
+          <View
+            style={
+              styles.errorBanner
+            }
+          >
             <Ionicons
               name="alert-circle-outline"
               size={18}
-              color="#D00"
+              color={
+                COLORS.danger
+              }
             />
 
-            <Text style={styles.errorText}>
+            <Text
+              style={
+                styles.errorText
+              }
+            >
               {error}
             </Text>
           </View>
         ) : null}
 
-        <FlatList
-          data={[{ key: "search-content" }]}
-          keyExtractor={(item) => item.key}
-          renderItem={() => (
-            <View>
-              {users.length > 0 ? (
-                <View>
-                  <SearchSectionTitle
-                    title="People"
-                    count={users.length}
-                  />
-
+        {hasSearchResults ? (
+          <FlatList
+            data={[
+              {
+                id: "search",
+              },
+            ]}
+            keyExtractor={(
+              item
+            ) => item.id}
+            renderItem={() => (
+              <View>
+                {users.length >
+                0 ? (
                   <View>
-                    {users.map((user, index) => (
-                      <SearchUserRow
-                        key={
-                          getUserId(user) ||
-                          getUsername(user) ||
-                          `user-${index}`
-                        }
-                        user={user}
-                        onPress={
-                          handleUserPress
-                        }
-                      />
-                    ))}
+                    <SearchSectionTitle
+                      title="People"
+                      count={
+                        users.length
+                      }
+                    />
+
+                    {users.map(
+                      (
+                        user,
+                        index
+                      ) => (
+                        <SearchUserRow
+                          key={
+                            getUserId(
+                              user
+                            ) ||
+                            getUsername(
+                              user
+                            ) ||
+                            `user-${index}`
+                          }
+                          user={
+                            user
+                          }
+                          onPress={
+                            handleUserPress
+                          }
+                        />
+                      )
+                    )}
                   </View>
-                </View>
-              ) : null}
+                ) : null}
 
-              {hashtags.length > 0 ? (
-                <View>
-                  <SearchSectionTitle
-                    title="Hashtags"
-                    count={hashtags.length}
-                  />
-
+                {hashtags.length >
+                0 ? (
                   <View>
+                    <SearchSectionTitle
+                      title="Hashtags"
+                      count={
+                        hashtags.length
+                      }
+                    />
+
                     {hashtags.map(
-                      (hashtag, index) => {
+                      (
+                        hashtag,
+                        index
+                      ) => {
                         const value =
                           typeof hashtag ===
                           "string"
@@ -1262,7 +1836,7 @@ export default function ExploreScreen() {
                             >
                               <Ionicons
                                 name="pricetag-outline"
-                                size={21}
+                                size={20}
                                 color={
                                   COLORS.text
                                 }
@@ -1288,8 +1862,10 @@ export default function ExploreScreen() {
                                 )}
                               </Text>
 
-                              {hashtag?.postsCount !=
-                              null ? (
+                              {typeof hashtag ===
+                                "object" &&
+                              hashtag?.postsCount !=
+                                null ? (
                                 <Text
                                   style={
                                     styles.hashtagCount
@@ -1307,82 +1883,127 @@ export default function ExploreScreen() {
                       }
                     )}
                   </View>
-                </View>
-              ) : null}
+                ) : null}
 
-              {searchPosts.length > 0 ? (
-                <View>
-                  <SearchSectionTitle
-                    title="Posts"
-                    count={
-                      searchPosts.length
+                {searchPosts.length >
+                0 ? (
+                  <View>
+                    <SearchSectionTitle
+                      title="Posts"
+                      count={
+                        searchPosts.length
+                      }
+                    />
+
+                    {renderSearchGrid(
+                      searchPosts
+                    )}
+                  </View>
+                ) : null}
+
+                {searchReels.length >
+                0 ? (
+                  <View>
+                    <SearchSectionTitle
+                      title="Reels"
+                      count={
+                        searchReels.length
+                      }
+                    />
+
+                    {renderSearchGrid(
+                      searchReels
+                    )}
+                  </View>
+                ) : null}
+
+                {searching ? (
+                  <View
+                    style={
+                      styles.searchBottomLoader
                     }
-                  />
-
-                  {renderSearchPosts()}
-                </View>
-              ) : null}
-
-              {searching ? (
-                <View
-                  style={
-                    styles.searchBottomLoader
-                  }
-                >
-                  <ActivityIndicator
-                    size="small"
-                    color={
-                      COLORS.secondaryText
-                    }
-                  />
-                </View>
-              ) : null}
-            </View>
-          )}
-          refreshControl={
-            <RefreshControl
-              refreshing={false}
-              onRefresh={handleRefresh}
-              tintColor={COLORS.text}
-            />
-          }
-          onEndReached={handleLoadMore}
-          onEndReachedThreshold={0.6}
-          keyboardShouldPersistTaps="handled"
-          showsVerticalScrollIndicator={false}
-          contentContainerStyle={
-            styles.searchContentContainer
-          }
-        />
+                  >
+                    <ActivityIndicator
+                      size="small"
+                      color={
+                        COLORS.secondaryText
+                      }
+                    />
+                  </View>
+                ) : null}
+              </View>
+            )}
+            refreshControl={
+              <RefreshControl
+                refreshing={false}
+                onRefresh={
+                  handleRefresh
+                }
+                tintColor={
+                  COLORS.text
+                }
+              />
+            }
+            onEndReached={
+              handleLoadMore
+            }
+            onEndReachedThreshold={
+              0.6
+            }
+            keyboardShouldPersistTaps="handled"
+            showsVerticalScrollIndicator={
+              false
+            }
+            contentContainerStyle={
+              styles.searchContent
+            }
+          />
+        ) : null}
       </SafeAreaView>
     );
   }
 
-  /* ------------------------------------------------------------------------ */
-  /* Normal Explore                                                            */
-  /* ------------------------------------------------------------------------ */
+  /* ---------------------------------------------------------------------- */
+  /* Normal Explore                                                         */
+  /* ---------------------------------------------------------------------- */
 
   return (
-    <SafeAreaView style={styles.safeArea}>
+    <SafeAreaView
+      style={
+        styles.safeArea
+      }
+    >
       {header}
 
       {error ? (
-        <View style={styles.errorBanner}>
+        <View
+          style={
+            styles.errorBanner
+          }
+        >
           <Ionicons
             name="alert-circle-outline"
             size={18}
-            color="#D00"
+            color={
+              COLORS.danger
+            }
           />
 
-          <Text style={styles.errorText}>
+          <Text
+            style={
+              styles.errorText
+            }
+          >
             {error}
           </Text>
         </View>
       ) : null}
 
-      {loading && !posts.length ? (
+      {loading &&
+      !posts.length ? (
         <ExploreSkeleton />
-      ) : posts.length === 0 ? (
+      ) : posts.length ===
+        0 ? (
         <EmptyState
           icon="compass-outline"
           title="Nothing to explore yet"
@@ -1390,23 +2011,67 @@ export default function ExploreScreen() {
         />
       ) : (
         <FlatList
-          data={[{ key: "explore" }]}
-          keyExtractor={(item) => item.key}
-          renderItem={() => renderExploreGrid}
+          data={exploreRows}
+          keyExtractor={(
+            item
+          ) => item.id}
+          renderItem={({
+            item,
+          }) => (
+            <ExploreGridRow
+              row={item}
+              onPostPress={
+                handlePostPress
+              }
+            />
+          )}
           refreshControl={
             <RefreshControl
-              refreshing={refreshing}
-              onRefresh={handleRefresh}
-              tintColor={COLORS.text}
+              refreshing={
+                refreshing
+              }
+              onRefresh={
+                handleRefresh
+              }
+              tintColor={
+                COLORS.text
+              }
             />
           }
-          onEndReached={handleLoadMore}
-          onEndReachedThreshold={0.7}
-          showsVerticalScrollIndicator={false}
+          onEndReached={
+            handleLoadMore
+          }
+          onEndReachedThreshold={
+            0.7
+          }
+          showsVerticalScrollIndicator={
+            false
+          }
           contentContainerStyle={
             styles.exploreContent
           }
-          ListFooterComponent={renderFooter}
+          ListFooterComponent={
+            loadingMore ? (
+              <View
+                style={
+                  styles.loadingMoreContainer
+                }
+              >
+                <ActivityIndicator
+                  size="small"
+                  color={
+                    COLORS.secondaryText
+                  }
+                />
+              </View>
+            ) : (
+              <View
+                style={
+                  styles.footerSpace
+                }
+              />
+            )
+          }
         />
       )}
     </SafeAreaView>
@@ -1414,17 +2079,19 @@ export default function ExploreScreen() {
 }
 
 /* -------------------------------------------------------------------------- */
-/* Styles                                                                      */
+/* Styles                                                                     */
 /* -------------------------------------------------------------------------- */
 
 const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
-    backgroundColor: COLORS.background,
+    backgroundColor:
+      COLORS.background,
   },
 
   header: {
-    backgroundColor: COLORS.background,
+    backgroundColor:
+      COLORS.background,
     paddingHorizontal: 12,
     paddingTop: 8,
     paddingBottom: 8,
@@ -1433,7 +2100,8 @@ const styles = StyleSheet.create({
   searchContainer: {
     height: 40,
     borderRadius: 10,
-    backgroundColor: "#EFEFEF",
+    backgroundColor:
+      "#EFEFEF",
     flexDirection: "row",
     alignItems: "center",
     paddingHorizontal: 12,
@@ -1452,46 +2120,26 @@ const styles = StyleSheet.create({
     paddingLeft: 8,
   },
 
-  exploreContent: {
-    paddingBottom: 24,
-  },
+  /* ---------------------------------------------------------------------- */
+  /* Instagram-style Explore grid                                           */
+  /* ---------------------------------------------------------------------- */
 
-  exploreContainer: {
+  gridRow: {
     width: SCREEN_WIDTH,
-    backgroundColor: COLORS.background,
-  },
-
-  gridBlock: {
     flexDirection: "row",
-    gap: GRID_GAP,
+    alignItems: "flex-start",
     marginBottom: GRID_GAP,
-  },
-
-  gridColumn: {
-    flex: 1,
-    gap: GRID_GAP,
   },
 
   tile: {
     overflow: "hidden",
     backgroundColor: "#EFEFEF",
+    position: "relative",
   },
 
   tileImage: {
     width: "100%",
     height: "100%",
-  },
-
-  tileOverlay: {
-    position: "absolute",
-    top: 8,
-    right: 8,
-    flexDirection: "row",
-    alignItems: "center",
-  },
-
-  overlaySpacing: {
-    marginLeft: 7,
   },
 
   emptyTile: {
@@ -1500,6 +2148,42 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     backgroundColor: "#F2F2F2",
   },
+
+  tileIndicators: {
+    position: "absolute",
+    top: 8,
+    right: 8,
+    flexDirection: "row",
+    alignItems: "center",
+  },
+
+  indicator: {
+    width: 25,
+    height: 25,
+    borderRadius: 13,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor:
+      "rgba(0,0,0,0.42)",
+  },
+
+  indicatorSpacing: {
+    marginLeft: 5,
+  },
+
+  largeTileOverlay: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    bottom: 0,
+    height: 55,
+    backgroundColor:
+      "rgba(0,0,0,0.08)",
+  },
+
+  /* ---------------------------------------------------------------------- */
+  /* Skeleton                                                                */
+  /* ---------------------------------------------------------------------- */
 
   skeletonContainer: {
     flexDirection: "row",
@@ -1510,6 +2194,10 @@ const styles = StyleSheet.create({
   skeletonTile: {
     backgroundColor: "#EEEEEE",
   },
+
+  /* ---------------------------------------------------------------------- */
+  /* Search                                                                  */
+  /* ---------------------------------------------------------------------- */
 
   userRow: {
     minHeight: 68,
@@ -1612,7 +2300,7 @@ const styles = StyleSheet.create({
     color: COLORS.secondaryText,
   },
 
-  searchPostsGrid: {
+  searchGrid: {
     flexDirection: "row",
     flexWrap: "wrap",
     gap: GRID_GAP,
@@ -1628,9 +2316,13 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
 
-  searchContentContainer: {
+  searchContent: {
     paddingBottom: 30,
   },
+
+  /* ---------------------------------------------------------------------- */
+  /* Empty                                                                   */
+  /* ---------------------------------------------------------------------- */
 
   emptyState: {
     flex: 1,
@@ -1665,6 +2357,10 @@ const styles = StyleSheet.create({
     textAlign: "center",
   },
 
+  /* ---------------------------------------------------------------------- */
+  /* Error                                                                   */
+  /* ---------------------------------------------------------------------- */
+
   errorBanner: {
     minHeight: 42,
     paddingHorizontal: 14,
@@ -1677,8 +2373,12 @@ const styles = StyleSheet.create({
     flex: 1,
     marginLeft: 8,
     fontSize: 13,
-    color: "#C00",
+    color: COLORS.danger,
   },
+
+  /* ---------------------------------------------------------------------- */
+  /* Footer                                                                  */
+  /* ---------------------------------------------------------------------- */
 
   loadingMoreContainer: {
     height: 60,
@@ -1687,6 +2387,10 @@ const styles = StyleSheet.create({
   },
 
   footerSpace: {
-    height: 20,
+    height: 24,
+  },
+
+  exploreContent: {
+    paddingBottom: 24,
   },
 });

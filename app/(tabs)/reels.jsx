@@ -34,17 +34,103 @@ const VIEWABILITY_CONFIG = {
   itemVisiblePercentThreshold: 80,
 };
 
+function getId(value) {
+  if (!value) {
+    return null;
+  }
+
+  if (
+    typeof value === "string" ||
+    typeof value === "number"
+  ) {
+    return String(value);
+  }
+
+  if (value?._id) {
+    return String(value._id);
+  }
+
+  if (value?.id) {
+    return String(value.id);
+  }
+
+  return null;
+}
+
+function normalizeReels(result) {
+  if (Array.isArray(result)) {
+    return result.filter(Boolean);
+  }
+
+  if (Array.isArray(result?.reels)) {
+    return result.reels.filter(Boolean);
+  }
+
+  if (Array.isArray(result?.data)) {
+    return result.data.filter(Boolean);
+  }
+
+  if (Array.isArray(result?.posts)) {
+    return result.posts.filter(Boolean);
+  }
+
+  return [];
+}
+
+function getPagination(result, requestedPage, itemCount) {
+  const pagination =
+    result?.pagination ||
+    result?.meta ||
+    {};
+
+  const currentPage = Number(
+    pagination.page ??
+      pagination.currentPage ??
+      requestedPage
+  );
+
+  const totalPages = Number(
+    pagination.pages ??
+      pagination.totalPages ??
+      0
+  );
+
+  let hasMore;
+
+  if (typeof pagination.hasMore === "boolean") {
+    hasMore = pagination.hasMore;
+  } else if (
+    typeof pagination.has_more === "boolean"
+  ) {
+    hasMore = pagination.has_more;
+  } else if (totalPages > 0) {
+    hasMore = currentPage < totalPages;
+  } else {
+    hasMore = itemCount >= PAGE_SIZE;
+  }
+
+  return {
+    page: currentPage,
+    hasMore,
+  };
+}
+
 export default function ReelsScreen() {
   const listRef = useRef(null);
+
   const mountedRef = useRef(true);
+  const loadingMoreRef = useRef(false);
+  const initialLoadedRef = useRef(false);
 
   const [reels, setReels] = useState([]);
 
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [loadingMore, setLoadingMore] = useState(false);
+  const [loadingMore, setLoadingMore] =
+    useState(false);
 
-  const [activeIndex, setActiveIndex] = useState(0);
+  const [activeIndex, setActiveIndex] =
+    useState(0);
 
   const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(true);
@@ -53,6 +139,12 @@ export default function ReelsScreen() {
 
   const [error, setError] = useState("");
 
+  /*
+   * These are UI states for optimistic interaction.
+   *
+   * Your backend should eventually be called from
+   * handleLike / handleSave / handleFollow.
+   */
   const [likedIds, setLikedIds] = useState(
     () => new Set()
   );
@@ -61,9 +153,8 @@ export default function ReelsScreen() {
     () => new Set()
   );
 
-  const [followingIds, setFollowingIds] = useState(
-    () => new Set()
-  );
+  const [followingIds, setFollowingIds] =
+    useState(() => new Set());
 
   useEffect(() => {
     mountedRef.current = true;
@@ -73,18 +164,29 @@ export default function ReelsScreen() {
     };
   }, []);
 
+  /*
+   * Load a page of Reels.
+   */
   const loadReels = useCallback(
     async ({
       refresh = false,
       requestedPage = 1,
     } = {}) => {
+      if (
+        requestedPage > 1 &&
+        loadingMoreRef.current
+      ) {
+        return;
+      }
+
       try {
-        if (refresh) {
-          setRefreshing(true);
-        } else if (requestedPage === 1) {
-          setLoading(true);
-        } else {
+        if (requestedPage > 1) {
+          loadingMoreRef.current = true;
           setLoadingMore(true);
+        } else if (refresh) {
+          setRefreshing(true);
+        } else {
+          setLoading(true);
         }
 
         setError("");
@@ -94,44 +196,97 @@ export default function ReelsScreen() {
           PAGE_SIZE
         );
 
-        const incoming = Array.isArray(result)
-          ? result
-          : result?.reels ||
-            result?.data ||
-            [];
-
-        const normalized = Array.isArray(incoming)
-          ? incoming.filter(Boolean)
-          : [];
-
         if (!mountedRef.current) {
           return;
         }
 
+        const incoming =
+          normalizeReels(result);
+
+        /*
+         * FIRST PAGE
+         */
         if (requestedPage === 1) {
-          setReels(normalized);
-          setActiveIndex(0);
+          setReels(incoming);
           setPage(1);
+          setActiveIndex(0);
+
+          /*
+           * Initialize interaction state from
+           * backend response.
+           */
+          const initialLiked = new Set();
+          const initialSaved = new Set();
+          const initialFollowing = new Set();
+
+          incoming.forEach((reel) => {
+            const reelId = getId(reel);
+
+            if (
+              reelId &&
+              (
+                reel?.isLiked ||
+                reel?.liked
+              )
+            ) {
+              initialLiked.add(reelId);
+            }
+
+            if (
+              reelId &&
+              (
+                reel?.isSaved ||
+                reel?.saved
+              )
+            ) {
+              initialSaved.add(reelId);
+            }
+
+            const user =
+              reel?.user ||
+              reel?.author ||
+              {};
+
+            const userId = getId(user);
+
+            if (
+              userId &&
+              (
+                user?.isFollowing ||
+                user?.following
+              )
+            ) {
+              initialFollowing.add(userId);
+            }
+          });
+
+          setLikedIds(initialLiked);
+          setSavedIds(initialSaved);
+          setFollowingIds(
+            initialFollowing
+          );
         }
 
+        /*
+         * NEXT PAGE
+         */
         else {
           setReels((previous) => {
             const existingIds = new Set(
               previous
-                .map((item) =>
-                  item?._id
-                    ? item._id.toString()
-                    : null
-                )
+                .map(getId)
                 .filter(Boolean)
             );
 
-            const unique = normalized.filter(
-              (item) => {
-                const id = item?._id
-                  ? item._id.toString()
-                  : null;
+            const unique =
+              incoming.filter((item) => {
+                const id = getId(item);
 
+                /*
+                 * If there is no ID, retain it.
+                 * Normally every MongoDB Reel should
+                 * have an _id.
+                 */
                 if (!id) {
                   return true;
                 }
@@ -143,8 +298,7 @@ export default function ReelsScreen() {
                 existingIds.add(id);
 
                 return true;
-              }
-            );
+              });
 
             return [
               ...previous,
@@ -156,37 +310,20 @@ export default function ReelsScreen() {
         }
 
         const pagination =
-          result?.pagination ||
-          result?.meta;
-
-        if (pagination) {
-          const current = Number(
-            pagination.page ??
-              pagination.currentPage ??
-              requestedPage
+          getPagination(
+            result,
+            requestedPage,
+            incoming.length
           );
 
-          const total = Number(
-            pagination.pages ??
-              pagination.totalPages ??
-              0
-          );
+        setHasMore(
+          pagination.hasMore
+        );
 
-          if (total > 0) {
-            setHasMore(current < total);
-          } else {
-            setHasMore(
-              normalized.length >= PAGE_SIZE
-            );
-          }
-        } else {
-          setHasMore(
-            normalized.length >= PAGE_SIZE
-          );
-        }
+        initialLoadedRef.current = true;
       } catch (err) {
         console.error(
-          "Reels loading error:",
+          "[REELS] Load error:",
           err
         );
 
@@ -208,37 +345,59 @@ export default function ReelsScreen() {
         setLoading(false);
         setRefreshing(false);
         setLoadingMore(false);
+
+        loadingMoreRef.current = false;
       }
     },
     []
   );
 
+  /*
+   * Initial load.
+   *
+   * Do not repeatedly reload the entire Reel feed
+   * every time the tab receives focus.
+   */
   useFocusEffect(
     useCallback(() => {
-      if (!reels.length) {
+      if (!initialLoadedRef.current) {
         loadReels({
           requestedPage: 1,
         });
       }
 
       return undefined;
-    }, [loadReels, reels.length])
+    }, [loadReels])
   );
 
+  /*
+   * Pull to refresh.
+   */
   const handleRefresh = useCallback(() => {
+    if (
+      refreshing ||
+      loadingMoreRef.current
+    ) {
+      return;
+    }
+
     loadReels({
       refresh: true,
       requestedPage: 1,
     });
-  }, [loadReels]);
+  }, [loadReels, refreshing]);
 
+  /*
+   * Infinite scroll.
+   */
   const handleEndReached = useCallback(() => {
     if (
       loading ||
-      loadingMore ||
       refreshing ||
+      loadingMore ||
+      loadingMoreRef.current ||
       !hasMore ||
-      !reels.length
+      reels.length === 0
     ) {
       return;
     }
@@ -252,109 +411,55 @@ export default function ReelsScreen() {
     loading,
     loadingMore,
     page,
-    refreshing,
     reels.length,
+    refreshing,
   ]);
 
-  const handleViewableItemsChanged = useRef(
-    ({ viewableItems }) => {
-      const visibleItem =
-        viewableItems?.find(
-          (item) => item?.isViewable
-        ) ||
-        viewableItems?.[0];
+  /*
+   * Detect the Reel currently occupying
+   * the screen.
+   */
+  const handleViewableItemsChanged =
+    useRef(
+      ({ viewableItems }) => {
+        const visible =
+          viewableItems?.find(
+            (item) =>
+              item?.isViewable
+          ) ||
+          viewableItems?.[0];
 
-      const index = visibleItem?.index;
+        const index =
+          visible?.index;
 
-      if (typeof index === "number") {
-        setActiveIndex(index);
+        if (
+          typeof index === "number"
+        ) {
+          setActiveIndex(index);
+        }
       }
-    }
-  ).current;
+    ).current;
 
+  /*
+   * LIKE
+   */
   const handleLike = useCallback(
     (reelId) => {
-      if (!reelId) {
-        return;
-      }
-
-      const id = reelId.toString();
-
-      setLikedIds((previous) => {
-        const next = new Set(previous);
-
-        if (next.has(id)) {
-          next.delete(id);
-        } else {
-          next.add(id);
-        }
-
-        return next;
-      });
-    },
-    []
-  );
-
-  const handleSave = useCallback(
-    (reelId) => {
-      if (!reelId) {
-        return;
-      }
-
-      const id = reelId.toString();
-
-      setSavedIds((previous) => {
-        const next = new Set(previous);
-
-        if (next.has(id)) {
-          next.delete(id);
-        } else {
-          next.add(id);
-        }
-
-        return next;
-      });
-    },
-    []
-  );
-
-  const handleFollow = useCallback(
-    (userId) => {
-      if (!userId) {
-        return;
-      }
-
-      const id = userId.toString();
-
-      setFollowingIds((previous) => {
-        const next = new Set(previous);
-
-        if (next.has(id)) {
-          next.delete(id);
-        } else {
-          next.add(id);
-        }
-
-        return next;
-      });
-    },
-    []
-  );
-
-  const handleDoubleTap = useCallback(
-    (reel) => {
-      const id = reel?._id;
+      const id = getId(reelId);
 
       if (!id) {
         return;
       }
 
-      const normalizedId = id.toString();
-
       setLikedIds((previous) => {
-        const next = new Set(previous);
+        const next =
+          new Set(previous);
 
-        next.add(normalizedId);
+        if (next.has(id)) {
+          next.delete(id);
+        } else {
+          next.add(id);
+        }
 
         return next;
       });
@@ -362,9 +467,89 @@ export default function ReelsScreen() {
     []
   );
 
-  const openComments = useCallback(
-    (reel) => {
-      const id = reel?._id;
+  /*
+   * SAVE
+   */
+  const handleSave = useCallback(
+    (reelId) => {
+      const id = getId(reelId);
+
+      if (!id) {
+        return;
+      }
+
+      setSavedIds((previous) => {
+        const next =
+          new Set(previous);
+
+        if (next.has(id)) {
+          next.delete(id);
+        } else {
+          next.add(id);
+        }
+
+        return next;
+      });
+    },
+    []
+  );
+
+  /*
+   * FOLLOW
+   */
+  const handleFollow = useCallback(
+    (userId) => {
+      const id = getId(userId);
+
+      if (!id) {
+        return;
+      }
+
+      setFollowingIds(
+        (previous) => {
+          const next =
+            new Set(previous);
+
+          if (next.has(id)) {
+            next.delete(id);
+          } else {
+            next.add(id);
+          }
+
+          return next;
+        }
+      );
+    },
+    []
+  );
+
+  /*
+   * Double tap = like.
+   */
+  const handleDoubleTap =
+    useCallback((reel) => {
+      const reelId = getId(reel);
+
+      if (!reelId) {
+        return;
+      }
+
+      setLikedIds((previous) => {
+        const next =
+          new Set(previous);
+
+        next.add(reelId);
+
+        return next;
+      });
+    }, []);
+
+  /*
+   * COMMENTS
+   */
+  const openComments =
+    useCallback((reel) => {
+      const id = getId(reel);
 
       if (!id) {
         return;
@@ -373,16 +558,17 @@ export default function ReelsScreen() {
       router.push({
         pathname: "/reels/comments",
         params: {
-          reelId: id.toString(),
+          reelId: id,
         },
       });
-    },
-    []
-  );
+    }, []);
 
-  const handleShare = useCallback(
-    (reel) => {
-      const id = reel?._id;
+  /*
+   * SHARE
+   */
+  const handleShare =
+    useCallback((reel) => {
+      const id = getId(reel);
 
       if (!id) {
         return;
@@ -392,18 +578,17 @@ export default function ReelsScreen() {
         pathname: "/share",
         params: {
           type: "reel",
-          id: id.toString(),
+          id,
         },
       });
-    },
-    []
-  );
+    }, []);
 
-  const openProfile = useCallback(
-    (user) => {
-      const userId =
-        user?._id ||
-        user?.id;
+  /*
+   * PROFILE
+   */
+  const openProfile =
+    useCallback((user) => {
+      const userId = getId(user);
 
       if (!userId) {
         return;
@@ -412,33 +597,42 @@ export default function ReelsScreen() {
       router.push({
         pathname: "/profile/[id]",
         params: {
-          id: userId.toString(),
+          id: userId,
         },
       });
-    },
-    []
-  );
+    }, []);
 
-  const toggleMute = useCallback(() => {
-    setMuted((previous) => !previous);
-  }, []);
+  /*
+   * MUTE
+   */
+  const toggleMute =
+    useCallback(() => {
+      setMuted(
+        (previous) => !previous
+      );
+    }, []);
 
-  const renderHeader = () => {
-    return (
-      <View
-        pointerEvents="box-none"
-        style={styles.header}
-      >
-        <View style={styles.headerLeft}>
-          <Text style={styles.headerTitle}>
+  /*
+   * HEADER
+   */
+  const renderHeader =
+    useCallback(() => {
+      return (
+        <View
+          pointerEvents="box-none"
+          style={styles.header}
+        >
+          <Text
+            style={styles.headerTitle}
+          >
             Reels
           </Text>
-        </View>
 
-        <View style={styles.headerRight}>
           <Pressable
             onPress={() =>
-              router.push("/create/reel")
+              router.push(
+                "/create/reel"
+              )
             }
             hitSlop={12}
             style={styles.headerButton}
@@ -450,15 +644,16 @@ export default function ReelsScreen() {
             />
           </Pressable>
         </View>
-      </View>
-    );
-  };
+      );
+    }, []);
 
+  /*
+   * REEL ITEM
+   */
   const renderItem = useCallback(
     ({ item, index }) => {
-      const reelId = item?._id
-        ? item._id.toString()
-        : null;
+      const reelId =
+        getId(item);
 
       const user =
         item?.user ||
@@ -466,54 +661,88 @@ export default function ReelsScreen() {
         {};
 
       const authorId =
-        user?._id ||
-        user?.id;
+        getId(user);
 
-      const isLiked = reelId
-        ? likedIds.has(reelId)
-        : Boolean(item?.isLiked);
+      const isLiked =
+        reelId
+          ? likedIds.has(reelId)
+          : Boolean(
+              item?.isLiked
+            );
 
-      const isSaved = reelId
-        ? savedIds.has(reelId)
-        : Boolean(item?.isSaved);
+      const isSaved =
+        reelId
+          ? savedIds.has(reelId)
+          : Boolean(
+              item?.isSaved
+            );
 
-      const isFollowing = authorId
-        ? followingIds.has(
-            authorId.toString()
-          )
-        : Boolean(user?.isFollowing);
+      const isFollowing =
+        authorId
+          ? followingIds.has(
+              authorId
+            )
+          : Boolean(
+              user?.isFollowing
+            );
 
       return (
-        <View style={styles.reelPage}>
+        <View
+          style={styles.reelPage}
+        >
           <ReelItem
             reel={item}
+
+            /*
+             * ONLY THE CURRENTLY VISIBLE
+             * REEL SHOULD PLAY.
+             */
             active={
               index === activeIndex
             }
+
             muted={muted}
+
             isLiked={isLiked}
             isSaved={isSaved}
-            isFollowing={isFollowing}
+            isFollowing={
+              isFollowing
+            }
+
             onLike={() =>
-              handleLike(reelId)
+              handleLike(
+                reelId
+              )
             }
+
             onSave={() =>
-              handleSave(reelId)
+              handleSave(
+                reelId
+              )
             }
+
             onFollow={() =>
-              handleFollow(authorId)
+              handleFollow(
+                authorId
+              )
             }
+
             onComment={() =>
               openComments(item)
             }
+
             onShare={() =>
               handleShare(item)
             }
+
             onProfile={() =>
               openProfile(user)
             }
+
             onDoubleTap={() =>
-              handleDoubleTap(item)
+              handleDoubleTap(
+                item
+              )
             }
           />
         </View>
@@ -535,24 +764,38 @@ export default function ReelsScreen() {
     ]
   );
 
-  const renderFooter = useCallback(() => {
-    if (!loadingMore) {
-      return null;
-    }
+  /*
+   * LOAD MORE FOOTER
+   */
+  const renderFooter =
+    useCallback(() => {
+      if (!loadingMore) {
+        return null;
+      }
 
-    return (
-      <View style={styles.loadingMore}>
-        <ActivityIndicator
-          size="small"
-          color="#fff"
-        />
-      </View>
-    );
-  }, [loadingMore]);
+      return (
+        <View
+          style={styles.loadingMore}
+        >
+          <ActivityIndicator
+            size="small"
+            color="#fff"
+          />
+        </View>
+      );
+    }, [loadingMore]);
 
-  if (loading && !reels.length) {
+  /*
+   * INITIAL LOADING
+   */
+  if (
+    loading &&
+    !reels.length
+  ) {
     return (
-      <View style={styles.loadingScreen}>
+      <View
+        style={styles.loadingScreen}
+      >
         <ActivityIndicator
           size="large"
           color="#fff"
@@ -561,10 +804,17 @@ export default function ReelsScreen() {
     );
   }
 
+  /*
+   * EMPTY
+   */
   if (!reels.length) {
     return (
-      <View style={styles.emptyScreen}>
-        <View style={styles.emptyIcon}>
+      <View
+        style={styles.emptyScreen}
+      >
+        <View
+          style={styles.emptyIcon}
+        >
           <Ionicons
             name="film-outline"
             size={42}
@@ -572,13 +822,19 @@ export default function ReelsScreen() {
           />
         </View>
 
-        <Text style={styles.emptyTitle}>
+        <Text
+          style={styles.emptyTitle}
+        >
           {error
             ? "Couldn't load Reels"
             : "No Reels yet"}
         </Text>
 
-        <Text style={styles.emptyDescription}>
+        <Text
+          style={
+            styles.emptyDescription
+          }
+        >
           {error ||
             "Be the first to share a Reel on Snapgram."}
         </Text>
@@ -595,7 +851,9 @@ export default function ReelsScreen() {
               );
             }
           }}
-          style={styles.createButton}
+          style={
+            styles.createButton
+          }
         >
           <Ionicons
             name={
@@ -607,7 +865,11 @@ export default function ReelsScreen() {
             color="#000"
           />
 
-          <Text style={styles.createButtonText}>
+          <Text
+            style={
+              styles.createButtonText
+            }
+          >
             {error
               ? "Try again"
               : "Create a Reel"}
@@ -617,18 +879,24 @@ export default function ReelsScreen() {
     );
   }
 
+  /*
+   * REELS
+   */
   return (
-    <View style={styles.container}>
+    <View
+      style={styles.container}
+    >
       <FlatList
         ref={listRef}
         data={reels}
         renderItem={renderItem}
-        keyExtractor={(item, index) =>
-          item?._id
-            ? item._id.toString()
-            : `reel-${index}`
-        }
+        keyExtractor={(item, index) => {
+          const id = getId(item);
 
+          return id
+            ? `reel-${id}`
+            : `reel-${index}`;
+        }}
         pagingEnabled
         snapToInterval={height}
         snapToAlignment="start"
@@ -639,52 +907,54 @@ export default function ReelsScreen() {
         initialNumToRender={2}
         maxToRenderPerBatch={2}
         updateCellsBatchingPeriod={50}
-
         getItemLayout={(_, index) => ({
           length: height,
-          offset: height * index,
+          offset:
+            height * index,
           index,
         })}
-
         onViewableItemsChanged={
           handleViewableItemsChanged
         }
         viewabilityConfig={
           VIEWABILITY_CONFIG
         }
-
         onEndReached={
           handleEndReached
         }
         onEndReachedThreshold={0.75}
-
         refreshControl={
           <RefreshControl
             refreshing={refreshing}
-            onRefresh={handleRefresh}
+            onRefresh={
+              handleRefresh
+            }
             tintColor="#fff"
             colors={["#fff"]}
             progressBackgroundColor="#000"
           />
         }
-
-        showsVerticalScrollIndicator={false}
-        showsHorizontalScrollIndicator={false}
-
+        showsVerticalScrollIndicator={
+          false
+        }
+        showsHorizontalScrollIndicator={
+          false
+        }
         contentContainerStyle={
           styles.listContent
         }
-
         ListFooterComponent={
           renderFooter
         }
       />
 
+      {/* TOP GRADIENT/SCRIM */}
       <View
         pointerEvents="none"
         style={styles.topScrim}
       />
 
+      {/* BOTTOM GRADIENT/SCRIM */}
       <View
         pointerEvents="none"
         style={styles.bottomScrim}
@@ -692,12 +962,17 @@ export default function ReelsScreen() {
 
       {renderHeader()}
 
+      {/* GLOBAL MUTE BUTTON */}
       <Pressable
         onPress={toggleMute}
         hitSlop={10}
         style={styles.soundButton}
       >
-        <View style={styles.soundButtonBackground}>
+        <View
+          style={
+            styles.soundButtonBackground
+          }
+        >
           <Ionicons
             name={
               muted
@@ -732,6 +1007,7 @@ const styles = StyleSheet.create({
 
   header: {
     position: "absolute",
+
     top: 0,
     left: 0,
     right: 0,
@@ -748,21 +1024,13 @@ const styles = StyleSheet.create({
     zIndex: 100,
   },
 
-  headerLeft: {
-    flexDirection: "row",
-    alignItems: "center",
-  },
-
   headerTitle: {
     color: "#fff",
+
     fontSize: 20,
     fontWeight: "700",
-    letterSpacing: -0.3,
-  },
 
-  headerRight: {
-    flexDirection: "row",
-    alignItems: "center",
+    letterSpacing: -0.3,
   },
 
   headerButton: {
@@ -845,7 +1113,6 @@ const styles = StyleSheet.create({
 
     left: 0,
     right: 0,
-
     bottom: 20,
 
     height: 35,
