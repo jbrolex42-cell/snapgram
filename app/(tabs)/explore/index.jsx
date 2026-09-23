@@ -1,4 +1,5 @@
 import React, {
+  memo,
   useCallback,
   useEffect,
   useMemo,
@@ -14,18 +15,15 @@ import {
   Keyboard,
   Pressable,
   RefreshControl,
+  SafeAreaView,
   StyleSheet,
   Text,
   TextInput,
   View,
 } from "react-native";
 
-import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
-import {
-  useFocusEffect,
-  useRouter,
-} from "expo-router";
+import { useFocusEffect, useRouter } from "expo-router";
 
 import {
   getExplorePosts,
@@ -35,16 +33,15 @@ import {
 import VerifiedBadge from "../../../components/common/VerifiedBadge";
 
 const COLORS = {
-  black: "#000000",
-  white: "#FFFFFF",
-  text: "#262626",
-  secondary: "#737373",
-  border: "#DBDBDB",
   background: "#FFFFFF",
-  searchBackground: "#EFEFEF",
+  text: "#111111",
+  secondaryText: "#737373",
+  border: "#DBDBDB",
+  muted: "#F5F5F5",
+  blue: "#0095F6",
+  white: "#FFFFFF",
+  black: "#000000",
   placeholder: "#8E8E8E",
-  tileBackground: "#EFEFEF",
-  danger: "#ED4956",
 };
 
 const GRID_COLUMNS = 3;
@@ -52,65 +49,70 @@ const GRID_GAP = 2;
 const PAGE_LIMIT = 30;
 const GRID_BLOCK_SIZE = 6;
 
-const { width: SCREEN_WIDTH } =
-  Dimensions.get("window");
+const { width: SCREEN_WIDTH } = Dimensions.get("window");
 
 const TILE_SIZE =
-  (SCREEN_WIDTH -
-    GRID_GAP * (GRID_COLUMNS - 1)) /
+  (SCREEN_WIDTH - GRID_GAP * (GRID_COLUMNS - 1)) /
   GRID_COLUMNS;
 
-const BIG_TILE_SIZE =
-  TILE_SIZE * 2 + GRID_GAP;
+const BIG_TILE_SIZE = TILE_SIZE * 2 + GRID_GAP;
 
-function getPostId(post, fallback = "") {
+/* -------------------------------------------------------------------------- */
+/* Helpers                                                                    */
+/* -------------------------------------------------------------------------- */
+
+function getPostId(post) {
   return String(
-    post?._id ||
-      post?.id ||
-      post?.postId ||
-      fallback
+    post?.id ??
+      post?._id ??
+      post?.postId ??
+      post?.post?._id ??
+      post?.post?.id ??
+      ""
   );
 }
 
 function getUserId(user) {
-  return (
-    user?._id ||
-    user?.id ||
-    user?.userId ||
-    user?.uid ||
-    null
+  return String(
+    user?.id ??
+      user?._id ??
+      user?.userId ??
+      user?.user?._id ??
+      user?.user?.id ??
+      ""
   );
 }
 
 function getUsername(user) {
   return (
-    user?.username ||
-    user?.handle ||
-    null
+    user?.username ??
+    user?.user?.username ??
+    user?.profile?.username ??
+    ""
   );
 }
 
 function getDisplayName(user) {
   return (
-    user?.name ||
-    user?.displayName ||
-    user?.fullName ||
-    user?.username ||
-    user?.handle ||
-    "User"
+    user?.name ??
+    user?.displayName ??
+    user?.fullName ??
+    user?.user?.name ??
+    user?.user?.displayName ??
+    getUsername(user)
   );
 }
 
 function getAvatar(user) {
   return (
-    user?.avatar ||
-    user?.avatarUrl ||
-    user?.profilePicture ||
-    user?.profileImage ||
-    user?.photoURL ||
-    user?.photoUrl ||
-    user?.image ||
-    null
+    user?.avatar ??
+    user?.avatarUrl ??
+    user?.profilePicture ??
+    user?.profilePic ??
+    user?.photoURL ??
+    user?.user?.avatar ??
+    user?.user?.avatarUrl ??
+    ""
   );
 }
 
@@ -118,85 +120,58 @@ function isVerified(user) {
   return Boolean(
     user?.isVerified ??
       user?.verified ??
-      user?.verification?.isVerified
+      user?.verification?.verified ??
+      user?.user?.isVerified ??
+      false
   );
 }
 
 function getPostMedia(post) {
   if (!post) {
-    return null;
+    return [];
   }
 
-  const media =
-    post?.media ||
-    post?.images ||
-    post?.photos ||
-    post?.attachments ||
-    [];
-
-  let item = null;
-
-  if (Array.isArray(media)) {
-    item = media[0];
-  } else if (typeof media === "string") {
-    item = media;
+  if (Array.isArray(post.media)) {
+    return post.media.filter(Boolean);
   }
 
-  if (!item) {
-    item =
-      post?.image ||
-      post?.imageUrl ||
-      post?.thumbnail ||
-      post?.thumbnailUrl ||
-      post?.coverImage ||
-      null;
+  if (post.media) {
+    return [post.media];
   }
 
-  if (!item) {
-    return null;
+  if (post.image) {
+    return [{ url: post.image, type: "image" }];
   }
 
-  if (typeof item === "string") {
-    return {
-      url: item,
-      thumbnail: item,
-      type: "image",
-    };
+  if (post.imageUrl) {
+    return [{ url: post.imageUrl, type: "image" }];
   }
 
-  if (typeof item === "object") {
-    const url =
-      item?.url ||
-      item?.secure_url ||
-      item?.secureUrl ||
-      item?.uri ||
-      item?.src ||
-      item?.imageUrl ||
-      item?.thumbnailUrl ||
-      null;
-
-    if (!url) {
-      return null;
-    }
-
-    return {
-      url,
-      thumbnail:
-        item?.thumbnail ||
-        item?.thumbnailUrl ||
-        item?.secure_url ||
-        item?.secureUrl ||
-        item?.url ||
-        null,
-      type:
-        item?.type ||
-        item?.resource_type ||
-        item?.mediaType ||
-        "image",
-    };
+  if (post.thumbnailUrl) {
+    return [{ url: post.thumbnailUrl, type: "image" }];
   }
 
-  return null;
+  return [];
+}
+
+function getMediaUrl(media) {
+  if (!media) {
+    return "";
+  }
+
+  if (typeof media === "string") {
+    return media;
+  }
+
+  return String(
+    media?.url ??
+      media?.secure_url ??
+      media?.secureUrl ??
+      media?.uri ??
+      media?.thumbnailUrl ??
+      media?.thumbnail ??
+      ""
+  );
 }
 
 function isVideoMedia(media) {
@@ -205,7 +180,10 @@ function isVideoMedia(media) {
   }
 
   const type = String(
-    media?.type || ""
+    media?.type ??
+      media?.resource_type ??
+      media?.resourceType ??
+      ""
   ).toLowerCase();
 
   if (
@@ -215,299 +193,310 @@ function isVideoMedia(media) {
     return true;
   }
 
-  return /\.(mp4|mov|m4v|webm)(\?.*)?$/i.test(
-    String(media?.url || "")
-  );
+  const url = getMediaUrl(media);
+
+  return /\.(mp4|mov|m4v|webm)(\?.*)?$/i.test(url);
 }
 
 function getMediaCount(post) {
-  if (Array.isArray(post?.media)) {
-    return post.media.length;
-  }
-
-  if (Array.isArray(post?.images)) {
-    return post.images.length;
-  }
-
-  if (Array.isArray(post?.photos)) {
-    return post.photos.length;
-  }
-
-  if (Array.isArray(post?.attachments)) {
-    return post.attachments.length;
-  }
-
-  return 1;
+  return getPostMedia(post).length;
 }
 
-function chunkPosts(posts) {
-  const blocks = [];
+function getFirstMedia(post) {
+  const media = getPostMedia(post);
 
-  for (
-    let index = 0;
-    index < posts.length;
-    index += GRID_BLOCK_SIZE
-  ) {
-    blocks.push(
-      posts.slice(
-        index,
-        index + GRID_BLOCK_SIZE
-      )
-    );
-  }
-
-  return blocks;
+  return media[0] ?? null;
 }
 
-function mergeUniquePosts(
-  current,
-  incoming
-) {
-  const map = new Map();
+function getThumbnail(post) {
+  const media = getFirstMedia(post);
 
-  [...current, ...incoming].forEach(
-    (post, index) => {
-      const id = getPostId(
-        post,
-        `fallback-${index}`
-      );
+  if (!media) {
+    return "";
+  }
 
-      if (!map.has(id)) {
-        map.set(id, post);
-      }
-    }
+  return String(
+    media?.thumbnailUrl ??
+      media?.thumbnail ??
+      media?.poster ??
+      media?.previewUrl ??
+      getMediaUrl(media)
   );
+}
 
-  return Array.from(map.values());
+function chunkPosts(posts, size) {
+  const chunks = [];
+
+  for (let i = 0; i < posts.length; i += size) {
+    chunks.push(posts.slice(i, i + size));
+  }
+
+  return chunks;
+}
+
+function mergeUniquePosts(existing, incoming) {
+  const result = [];
+  const seen = new Set();
+
+  [...existing, ...incoming].forEach((post) => {
+    const id = getPostId(post);
+
+    if (!id) {
+      return;
+    }
+
+    if (seen.has(id)) {
+      return;
+    }
+
+    seen.add(id);
+    result.push(post);
+  });
+
+  return result;
+}
+
+function getHasMore(result) {
+  return Boolean(
+    result?.pagination?.hasMore ??
+      result?.pagination?.has_more ??
+      result?.hasMore ??
+      result?.has_more ??
+      false
+  );
+}
+
+function getResultPosts(result) {
+  if (Array.isArray(result?.posts)) {
+    return result.posts;
+  }
+
+  if (Array.isArray(result?.data?.posts)) {
+    return result.data.posts;
+  }
+
+  if (Array.isArray(result?.data)) {
+    return result.data;
+  }
+
+  return [];
+}
+
+function getResultUsers(result) {
+  if (Array.isArray(result?.users)) {
+    return result.users;
+  }
+
+  if (Array.isArray(result?.data?.users)) {
+    return result.data.users;
+  }
+
+  return [];
+}
+
+function getResultHashtags(result) {
+  if (Array.isArray(result?.hashtags)) {
+    return result.hashtags;
+  }
+
+  if (Array.isArray(result?.data?.hashtags)) {
+    return result.data.hashtags;
+  }
+
+  return [];
+}
+
+/* -------------------------------------------------------------------------- */
+/* Skeleton                                                                    */
+/* -------------------------------------------------------------------------- */
+
+function SkeletonTile({ size = TILE_SIZE }) {
+  return (
+    <View
+      style={[
+        styles.skeletonTile,
+        {
+          width: size,
+          height: size,
+        },
+      ]}
+    />
+  );
 }
 
 function ExploreSkeleton() {
   return (
     <View style={styles.skeletonContainer}>
-      {Array.from({ length: 15 }).map(
-        (_, index) => (
-          <View
-            key={`skeleton-${index}`}
-            style={styles.skeletonTile}
-          />
-        )
-      )}
+      {Array.from({ length: 12 }).map((_, index) => (
+        <SkeletonTile key={index} />
+      ))}
     </View>
   );
 }
 
-function ExploreTile({
+/* -------------------------------------------------------------------------- */
+/* Explore tile                                                                */
+/* -------------------------------------------------------------------------- */
+
+const ExploreTile = memo(function ExploreTile({
   post,
   size = TILE_SIZE,
   onPress,
-  style,
 }) {
-  const media = getPostMedia(post);
-
+  const media = getFirstMedia(post);
+  const imageUri = getThumbnail(post);
   const video = isVideoMedia(media);
+  const mediaCount = getMediaCount(post);
 
-  const mediaCount =
-    getMediaCount(post);
+  if (!imageUri) {
+    return (
+      <Pressable
+        onPress={() => onPress(post)}
+        style={[
+          styles.tile,
+          {
+            width: size,
+            height: size,
+          },
+        ]}
+      >
+        <View style={styles.emptyTile}>
+          <Ionicons
+            name="image-outline"
+            size={30}
+            color="#BDBDBD"
+          />
+        </View>
+      </Pressable>
+    );
+  }
 
   return (
     <Pressable
+      onPress={() => onPress(post)}
       style={[
         styles.tile,
         {
           width: size,
           height: size,
         },
-        style,
       ]}
-      onPress={() => onPress?.(post)}
-      android_ripple={{
-        color: "rgba(255,255,255,0.15)",
-      }}
     >
-      {media?.url ? (
-        <Image
-          source={{
-            uri:
-              media.thumbnail ||
-              media.url,
-          }}
-          style={styles.tileImage}
-          resizeMode="cover"
-        />
-      ) : (
-        <View style={styles.emptyTile}>
-          <Ionicons
-            name="image-outline"
-            size={27}
-            color="#A0A0A0"
-          />
-        </View>
-      )}
+      <Image
+        source={{ uri: imageUri }}
+        style={styles.tileImage}
+        resizeMode="cover"
+      />
 
-      {video && (
-        <View style={styles.mediaIcon}>
+      <View style={styles.tileOverlay}>
+        {video ? (
           <Ionicons
             name="play"
-            size={13}
+            size={18}
             color={COLORS.white}
           />
-        </View>
-      )}
+        ) : null}
 
-      {!video && mediaCount > 1 && (
-        <View style={styles.mediaIcon}>
+        {mediaCount > 1 ? (
           <Ionicons
             name="copy-outline"
-            size={15}
+            size={18}
             color={COLORS.white}
+            style={video ? styles.overlaySpacing : undefined}
           />
-        </View>
-      )}
+        ) : null}
+      </View>
     </Pressable>
   );
-}
+});
 
-function ExploreGridBlock({
-  items,
-  blockIndex,
-  onPress,
-}) {
-  if (items.length < 6) {
-    return (
-      <View style={styles.plainRow}>
-        {items.map((post, index) => (
-          <ExploreTile
-            key={getPostId(
-              post,
-              `post-${index}`
-            )}
-            post={post}
-            size={TILE_SIZE}
-            onPress={onPress}
-            style={
-              index <
-              items.length - 1
-                ? styles.rightGap
-                : undefined
-            }
-          />
-        ))}
-      </View>
-    );
+/* -------------------------------------------------------------------------- */
+/* Instagram-style grid                                                        */
+/* -------------------------------------------------------------------------- */
+
+function ExploreGridBlock({ posts, onPostPress }) {
+  if (!posts.length) {
+    return null;
   }
 
-  const [
-    first,
-    second,
-    large,
-    fourth,
-    fifth,
-    sixth,
-  ] = items;
-
-  const largeOnRight =
-    blockIndex % 2 === 0;
+  const first = posts[0];
+  const second = posts[1];
+  const third = posts[2];
+  const fourth = posts[3];
+  const fifth = posts[4];
+  const sixth = posts[5];
 
   return (
-    <View>
-      <View style={styles.mixedRow}>
-        {largeOnRight ? (
-          <>
-            <View
-              style={[
-                styles.stackColumn,
-                styles.rightGap,
-              ]}
-            >
-              <ExploreTile
-                post={first}
-                size={TILE_SIZE}
-                onPress={onPress}
-                style={styles.bottomGap}
-              />
+    <View style={styles.gridBlock}>
+      <View style={styles.gridColumn}>
+        {first ? (
+          <ExploreTile
+            post={first}
+            onPress={onPostPress}
+          />
+        ) : null}
 
-              <ExploreTile
-                post={second}
-                size={TILE_SIZE}
-                onPress={onPress}
-              />
-            </View>
+        {second ? (
+          <ExploreTile
+            post={second}
+            onPress={onPostPress}
+          />
+        ) : null}
 
-            <ExploreTile
-              post={large}
-              size={BIG_TILE_SIZE}
-              onPress={onPress}
-            />
-          </>
-        ) : (
-          <>
-            <ExploreTile
-              post={large}
-              size={BIG_TILE_SIZE}
-              onPress={onPress}
-              style={styles.rightGap}
-            />
-
-            <View style={styles.stackColumn}>
-              <ExploreTile
-                post={first}
-                size={TILE_SIZE}
-                onPress={onPress}
-                style={styles.bottomGap}
-              />
-
-              <ExploreTile
-                post={second}
-                size={TILE_SIZE}
-                onPress={onPress}
-              />
-            </View>
-          </>
-        )}
+        {third ? (
+          <ExploreTile
+            post={third}
+            onPress={onPostPress}
+          />
+        ) : null}
       </View>
 
-      <View style={styles.plainRow}>
-        <ExploreTile
-          post={fourth}
-          size={TILE_SIZE}
-          onPress={onPress}
-          style={styles.rightGap}
-        />
+      <View style={styles.gridColumn}>
+        {fourth ? (
+          <ExploreTile
+            post={fourth}
+            size={BIG_TILE_SIZE}
+            onPress={onPostPress}
+          />
+        ) : null}
+      </View>
 
-        <ExploreTile
-          post={fifth}
-          size={TILE_SIZE}
-          onPress={onPress}
-          style={styles.rightGap}
-        />
+      <View style={styles.gridColumn}>
+        {fifth ? (
+          <ExploreTile
+            post={fifth}
+            onPress={onPostPress}
+          />
+        ) : null}
 
-        <ExploreTile
-          post={sixth}
-          size={TILE_SIZE}
-          onPress={onPress}
-        />
+        {sixth ? (
+          <ExploreTile
+            post={sixth}
+            onPress={onPostPress}
+          />
+        ) : null}
       </View>
     </View>
   );
 }
 
-function SearchUserRow({
+/* -------------------------------------------------------------------------- */
+/* Search user row                                                             */
+/* -------------------------------------------------------------------------- */
+
+const SearchUserRow = memo(function SearchUserRow({
   user,
   onPress,
 }) {
-  const avatar = getAvatar(user);
   const username = getUsername(user);
-  const name = getDisplayName(user);
+  const displayName = getDisplayName(user);
+  const avatar = getAvatar(user);
+  const verified = isVerified(user);
 
   return (
     <Pressable
-      onPress={() =>
-        onPress?.(user)
-      }
-      style={({ pressed }) => [
-        styles.userRow,
-        pressed && styles.pressed,
-      ]}
+      onPress={() => onPress(user)}
+      style={styles.userRow}
     >
       {avatar ? (
         <Image
@@ -515,70 +504,61 @@ function SearchUserRow({
           style={styles.userAvatar}
         />
       ) : (
-        <View
-          style={
-            styles.userAvatarFallback
-          }
-        >
+        <View style={styles.userAvatarPlaceholder}>
           <Ionicons
             name="person"
-            size={23}
-            color={COLORS.secondary}
+            size={22}
+            color="#A0A0A0"
           />
         </View>
       )}
 
-      <View style={styles.userInfo}>
-        <View style={styles.nameRow}>
+      <View style={styles.userTextContainer}>
+        <View style={styles.usernameLine}>
           <Text
-            style={styles.name}
+            style={styles.username}
             numberOfLines={1}
           >
-            {name}
+            {username || displayName || "User"}
           </Text>
 
-          {isVerified(user) && (
+          {verified ? (
             <VerifiedBadge
-              size={16}
+              size={14}
               style={styles.verifiedBadge}
             />
-          )}
+          ) : null}
         </View>
 
-        {!!username && (
+        {displayName &&
+        displayName !== username ? (
           <Text
-            style={styles.searchUsername}
+            style={styles.displayName}
             numberOfLines={1}
           >
-            @{username}
+            {displayName}
           </Text>
-        )}
+        ) : null}
       </View>
-
-      <Ionicons
-        name="chevron-forward"
-        size={18}
-        color={COLORS.secondary}
-      />
     </Pressable>
   );
-}
+});
+
+/* -------------------------------------------------------------------------- */
+/* Empty state                                                                 */
+/* -------------------------------------------------------------------------- */
 
 function EmptyState({
-  icon = "images-outline",
+  icon = "search-outline",
   title,
   message,
-  actionLabel,
-  onAction,
 }) {
   return (
     <View style={styles.emptyState}>
-      <View
-        style={styles.emptyIconCircle}
-      >
+      <View style={styles.emptyIconCircle}>
         <Ionicons
           name={icon}
-          size={31}
+          size={34}
           color={COLORS.text}
         />
       </View>
@@ -587,108 +567,81 @@ function EmptyState({
         {title}
       </Text>
 
-      {!!message && (
+      {message ? (
         <Text style={styles.emptyMessage}>
           {message}
         </Text>
-      )}
-
-      {!!actionLabel && (
-        <Pressable
-          onPress={onAction}
-          style={({ pressed }) => [
-            styles.emptyButton,
-            pressed &&
-              styles.emptyButtonPressed,
-          ]}
-        >
-          <Text
-            style={styles.emptyButtonText}
-          >
-            {actionLabel}
-          </Text>
-        </Pressable>
-      )}
+      ) : null}
     </View>
   );
 }
+
+/* -------------------------------------------------------------------------- */
+/* Search section title                                                        */
+/* -------------------------------------------------------------------------- */
 
 function SearchSectionTitle({
-  children,
+  title,
+  count,
 }) {
   return (
-    <View style={styles.sectionHeader}>
+    <View style={styles.sectionTitleContainer}>
       <Text style={styles.sectionTitle}>
-        {children}
+        {title}
       </Text>
+
+      {typeof count === "number" ? (
+        <Text style={styles.sectionCount}>
+          {count}
+        </Text>
+      ) : null}
     </View>
   );
 }
+
+/* -------------------------------------------------------------------------- */
+/* Main screen                                                                 */
+/* -------------------------------------------------------------------------- */
 
 export default function ExploreScreen() {
   const router = useRouter();
 
-  const [query, setQuery] =
-    useState("");
+  const [query, setQuery] = useState("");
 
-  const [posts, setPosts] =
-    useState([]);
+  const [posts, setPosts] = useState([]);
+  const [users, setUsers] = useState([]);
+  const [hashtags, setHashtags] = useState([]);
+  const [searchPosts, setSearchPosts] = useState([]);
 
-  const [users, setUsers] =
-    useState([]);
+  const [loading, setLoading] = useState(true);
+  const [searching, setSearching] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
 
-  const [hashtags, setHashtags] =
-    useState([]);
+  const [error, setError] = useState("");
 
-  const [searchPosts, setSearchPosts] =
-    useState([]);
-
-  const [loading, setLoading] =
-    useState(true);
-
-  const [searching, setSearching] =
-    useState(false);
-
-  const [refreshing, setRefreshing] =
-    useState(false);
-
-  const [loadingMore, setLoadingMore] =
-    useState(false);
-
-  const [error, setError] =
-    useState("");
-
-  const [hasMore, setHasMore] =
-    useState(false);
-
+  const [hasMore, setHasMore] = useState(true);
   const [searchHasMore, setSearchHasMore] =
     useState(false);
 
   const pageRef = useRef(1);
+  const searchPageRef = useRef(1);
 
-  const searchPageRef =
-    useRef(1);
+  const mountedRef = useRef(true);
 
-  const mountedRef =
-    useRef(true);
+  const searchTimerRef = useRef(null);
 
-  const searchTimerRef =
-    useRef(null);
+  const exploreRequestRef = useRef(0);
+  const searchRequestRef = useRef(0);
 
-  const exploreRequestRef =
-    useRef(false);
+  const loadingMoreRef = useRef(false);
+  const searchLoadingMoreRef = useRef(false);
 
-  const searchRequestRef =
-    useRef(false);
+  const isSearching = query.trim().length > 0;
 
-  const loadingMoreRef =
-    useRef(false);
-
-  const searchLoadingMoreRef =
-    useRef(false);
-
-  const isSearching =
-    query.trim().length > 0;
+  /* ------------------------------------------------------------------------ */
+  /* Lifecycle                                                                */
+  /* ------------------------------------------------------------------------ */
 
   useEffect(() => {
     mountedRef.current = true;
@@ -697,356 +650,224 @@ export default function ExploreScreen() {
       mountedRef.current = false;
 
       if (searchTimerRef.current) {
-        clearTimeout(
-          searchTimerRef.current
-        );
+        clearTimeout(searchTimerRef.current);
       }
     };
   }, []);
 
+  /* ------------------------------------------------------------------------ */
+  /* Load Explore                                                              */
+  /* ------------------------------------------------------------------------ */
+
   const loadExplore = useCallback(
-    async (
-      requestedPage = 1,
-      append = false
-    ) => {
-      if (
-        exploreRequestRef.current
-      ) {
+    async ({
+      page = 1,
+      replace = false,
+      refresh = false,
+    } = {}) => {
+      if (!mountedRef.current) {
         return;
       }
 
-      if (
-        append &&
-        loadingMoreRef.current
-      ) {
-        return;
-      }
+      const requestId =
+        ++exploreRequestRef.current;
 
-      exploreRequestRef.current = true;
+      if (replace) {
+        if (refresh) {
+          setRefreshing(true);
+        } else {
+          setLoading(true);
+        }
 
-      if (append) {
-        loadingMoreRef.current = true;
-        setLoadingMore(true);
-      } else {
-        setLoading(true);
         setError("");
-      }
-
-      try {
-        const result =
-          await getExplorePosts(
-            requestedPage,
-            PAGE_LIMIT
-          );
-
-        if (!mountedRef.current) {
+      } else {
+        if (loadingMoreRef.current) {
           return;
         }
 
-        const incoming =
-          Array.isArray(
-            result?.posts
-          )
-            ? result.posts.filter(Boolean)
-            : [];
+        loadingMoreRef.current = true;
+        setLoadingMore(true);
+      }
 
-        const pagination =
-          result?.pagination || {};
-
-        const more = Boolean(
-          pagination?.hasMore ??
-            pagination?.has_more ??
-            false
+      try {
+        const result = await getExplorePosts(
+          page,
+          PAGE_LIMIT
         );
+
+        if (
+          !mountedRef.current ||
+          requestId !== exploreRequestRef.current
+        ) {
+          return;
+        }
+
+        const nextPosts = getResultPosts(result);
 
         setPosts((current) =>
-          append
-            ? mergeUniquePosts(
-                current,
-                incoming
-              )
-            : incoming
+          replace
+            ? nextPosts
+            : mergeUniquePosts(current, nextPosts)
         );
 
-        setHasMore(more);
+        setHasMore(getHasMore(result));
 
-        pageRef.current =
-          requestedPage;
+        pageRef.current = page;
       } catch (err) {
         console.error(
-          "[EXPLORE] LOAD ERROR:",
-          err?.response?.data ||
-            err
+          "[Explore] load error:",
+          err
         );
 
         if (
           mountedRef.current &&
-          !append
+          requestId === exploreRequestRef.current
         ) {
-          setPosts([]);
-
           setError(
-            err?.response?.data
-              ?.message ||
+            err?.message ||
               "Unable to load Explore right now."
           );
         }
       } finally {
-        exploreRequestRef.current =
-          false;
-
-        loadingMoreRef.current =
-          false;
-
-        if (mountedRef.current) {
+        if (
+          mountedRef.current &&
+          requestId === exploreRequestRef.current
+        ) {
           setLoading(false);
+          setRefreshing(false);
           setLoadingMore(false);
+          loadingMoreRef.current = false;
         }
       }
     },
     []
   );
 
-  const executeSearch =
-    useCallback(
-      async (
-        value,
-        requestedPage = 1,
-        append = false
-      ) => {
-        const cleanQuery =
-          String(value || "").trim();
+  /* ------------------------------------------------------------------------ */
+  /* Search                                                                    */
+  /* ------------------------------------------------------------------------ */
 
-        if (!cleanQuery) {
-          setUsers([]);
-          setHashtags([]);
-          setSearchPosts([]);
-          setSearchHasMore(false);
-          setSearching(false);
-          return;
-        }
+  const executeSearch = useCallback(
+    async ({
+      value,
+      page = 1,
+      replace = true,
+    }) => {
+      const cleanQuery = String(
+        value || ""
+      ).trim();
 
-        if (
-          searchRequestRef.current
-        ) {
-          return;
-        }
-
-        if (
-          append &&
-          searchLoadingMoreRef.current
-        ) {
-          return;
-        }
-
-        searchRequestRef.current =
-          true;
-
-        if (append) {
-          searchLoadingMoreRef.current =
-            true;
-
-          setLoadingMore(true);
-        } else {
-          setSearching(true);
-          setError("");
-
-          setUsers([]);
-          setHashtags([]);
-          setSearchPosts([]);
-        }
-
-        try {
-          const result =
-            await searchExplore(
-              cleanQuery,
-              requestedPage,
-              PAGE_LIMIT
-            );
-
-          if (!mountedRef.current) {
-            return;
-          }
-
-          const incomingUsers =
-            Array.isArray(
-              result?.users
-            )
-              ? result.users
-              : [];
-
-          const incomingHashtags =
-            Array.isArray(
-              result?.hashtags
-            )
-              ? result.hashtags
-              : [];
-
-          const incomingPosts =
-            Array.isArray(
-              result?.posts
-            )
-              ? result.posts.filter(Boolean)
-              : [];
-
-          const pagination =
-            result?.pagination || {};
-
-          const more = Boolean(
-            pagination?.hasMore ??
-              pagination?.has_more ??
-              false
-          );
-
-          setUsers((current) =>
-            append
-              ? [
-                  ...current,
-                  ...incomingUsers,
-                ]
-              : incomingUsers
-          );
-
-          setHashtags((current) =>
-            append
-              ? [
-                  ...current,
-                  ...incomingHashtags,
-                ]
-              : incomingHashtags
-          );
-
-          setSearchPosts((current) =>
-            append
-              ? mergeUniquePosts(
-                  current,
-                  incomingPosts
-                )
-              : incomingPosts
-          );
-
-          setSearchHasMore(more);
-
-          searchPageRef.current =
-            requestedPage;
-        } catch (err) {
-          console.error(
-            "[EXPLORE] SEARCH ERROR:",
-            err?.response?.data ||
-              err
-          );
-
-          if (
-            mountedRef.current &&
-            !append
-          ) {
-            setUsers([]);
-            setHashtags([]);
-            setSearchPosts([]);
-
-            setError(
-              err?.response?.data
-                ?.message ||
-                "Search failed. Please try again."
-            );
-          }
-        } finally {
-          searchRequestRef.current =
-            false;
-
-          searchLoadingMoreRef.current =
-            false;
-
-          if (mountedRef.current) {
-            setSearching(false);
-            setLoadingMore(false);
-          }
-        }
-      },
-      []
-    );
-
-  const handleQueryChange =
-    useCallback(
-      (value) => {
-        setQuery(value);
-        setError("");
-
-        if (searchTimerRef.current) {
-          clearTimeout(
-            searchTimerRef.current
-          );
-        }
-
-        const clean =
-          value.trim();
-
-        if (!clean) {
-          setUsers([]);
-          setHashtags([]);
-          setSearchPosts([]);
-          setSearchHasMore(false);
-          setSearching(false);
-
-          searchPageRef.current = 1;
-
-          return;
-        }
-
-        searchTimerRef.current =
-          setTimeout(() => {
-            searchPageRef.current = 1;
-
-            executeSearch(
-              clean,
-              1,
-              false
-            );
-          }, 300);
-      },
-      [executeSearch]
-    );
-
-  const submitSearch =
-    useCallback(() => {
-      const clean =
-        query.trim();
-
-      if (!clean) {
+      if (!cleanQuery) {
         return;
       }
 
-      Keyboard.dismiss();
+      const requestId =
+        ++searchRequestRef.current;
 
-      if (searchTimerRef.current) {
-        clearTimeout(
-          searchTimerRef.current
-        );
+      if (replace) {
+        setSearching(true);
+      } else {
+        if (searchLoadingMoreRef.current) {
+          return;
+        }
+
+        searchLoadingMoreRef.current = true;
+        setLoadingMore(true);
       }
 
-      searchPageRef.current = 1;
-
-      executeSearch(
-        clean,
-        1,
-        false
-      );
-    }, [
-      executeSearch,
-      query,
-    ]);
-
-  const clearSearch =
-    useCallback(() => {
-      if (searchTimerRef.current) {
-        clearTimeout(
-          searchTimerRef.current
+      try {
+        const result = await searchExplore(
+          cleanQuery,
+          page,
+          PAGE_LIMIT
         );
+
+        if (
+          !mountedRef.current ||
+          requestId !== searchRequestRef.current
+        ) {
+          return;
+        }
+
+        const nextUsers =
+          getResultUsers(result);
+
+        const nextHashtags =
+          getResultHashtags(result);
+
+        const nextPosts =
+          getResultPosts(result);
+
+        setUsers((current) =>
+          replace
+            ? nextUsers
+            : [...current, ...nextUsers]
+        );
+
+        setHashtags((current) =>
+          replace
+            ? nextHashtags
+            : [...current, ...nextHashtags]
+        );
+
+        setSearchPosts((current) =>
+          replace
+            ? nextPosts
+            : mergeUniquePosts(
+                current,
+                nextPosts
+              )
+        );
+
+        setSearchHasMore(
+          getHasMore(result)
+        );
+
+        searchPageRef.current = page;
+      } catch (err) {
+        console.error(
+          "[Explore] search error:",
+          err
+        );
+
+        if (
+          mountedRef.current &&
+          requestId === searchRequestRef.current
+        ) {
+          setError(
+            err?.message ||
+              "Search failed. Please try again."
+          );
+        }
+      } finally {
+        if (
+          mountedRef.current &&
+          requestId === searchRequestRef.current
+        ) {
+          setSearching(false);
+          setLoadingMore(false);
+          searchLoadingMoreRef.current =
+            false;
+        }
       }
+    },
+    []
+  );
 
-      Keyboard.dismiss();
+  /* ------------------------------------------------------------------------ */
+  /* Search debounce                                                           */
+  /* ------------------------------------------------------------------------ */
 
-      setQuery("");
+  useEffect(() => {
+    const cleanQuery = query.trim();
+
+    if (searchTimerRef.current) {
+      clearTimeout(searchTimerRef.current);
+    }
+
+    if (!cleanQuery) {
+      searchRequestRef.current += 1;
+
       setUsers([]);
       setHashtags([]);
       setSearchPosts([]);
@@ -1054,897 +875,716 @@ export default function ExploreScreen() {
       setSearching(false);
       setError("");
 
+      return;
+    }
+
+    searchTimerRef.current = setTimeout(() => {
       searchPageRef.current = 1;
-    }, []);
 
-  const refresh =
-    useCallback(async () => {
-      if (refreshing) {
-        return;
+      executeSearch({
+        value: cleanQuery,
+        page: 1,
+        replace: true,
+      });
+    }, 300);
+
+    return () => {
+      if (searchTimerRef.current) {
+        clearTimeout(searchTimerRef.current);
       }
+    };
+  }, [query, executeSearch]);
 
-      setRefreshing(true);
+  /* ------------------------------------------------------------------------ */
+  /* Initial load / focus                                                      */
+  /* ------------------------------------------------------------------------ */
 
-      try {
-        if (isSearching) {
-          searchPageRef.current = 1;
-
-          await executeSearch(
-            query.trim(),
-            1,
-            false
-          );
-        } else {
-          pageRef.current = 1;
-
-          await loadExplore(
-            1,
-            false
-          );
-        }
-      } finally {
-        if (mountedRef.current) {
-          setRefreshing(false);
-        }
-      }
-    }, [
-      executeSearch,
-      isSearching,
-      loadExplore,
-      query,
-      refreshing,
-    ]);
-
-  const loadMore =
-    useCallback(() => {
-      if (loadingMore) {
-        return;
-      }
-
-      if (isSearching) {
-        if (
-          !searchHasMore ||
-          searching ||
-          searchLoadingMoreRef.current
-        ) {
-          return;
-        }
-
-        executeSearch(
-          query.trim(),
-          searchPageRef.current + 1,
-          true
-        );
-
-        return;
-      }
-
-      if (
-        !hasMore ||
-        loading ||
-        loadingMoreRef.current
-      ) {
-        return;
-      }
-
-      loadExplore(
-        pageRef.current + 1,
-        true
-      );
-    }, [
-      executeSearch,
-      hasMore,
-      isSearching,
-      loadExplore,
-      loading,
-      loadingMore,
-      query,
-      searchHasMore,
-      searching,
-    ]);
+  useEffect(() => {
+    loadExplore({
+      page: 1,
+      replace: true,
+    });
+  }, [loadExplore]);
 
   useFocusEffect(
     useCallback(() => {
+      if (!query.trim()) {
+        loadExplore({
+          page: 1,
+          replace: true,
+        });
+      }
+    }, [loadExplore, query])
+  );
 
-      if (isSearching) {
+  /* ------------------------------------------------------------------------ */
+  /* Actions                                                                   */
+  /* ------------------------------------------------------------------------ */
+
+  const handleRefresh = useCallback(() => {
+    if (isSearching) {
+      const cleanQuery = query.trim();
+
+      if (!cleanQuery) {
         return;
       }
 
-      pageRef.current = 1;
+      searchPageRef.current = 1;
 
-      loadExplore(
-        1,
-        false
-      );
-    }, [
-      isSearching,
-      loadExplore,
-    ])
+      executeSearch({
+        value: cleanQuery,
+        page: 1,
+        replace: true,
+      });
+
+      return;
+    }
+
+    pageRef.current = 1;
+
+    loadExplore({
+      page: 1,
+      replace: true,
+      refresh: true,
+    });
+  }, [
+    executeSearch,
+    isSearching,
+    loadExplore,
+    query,
+  ]);
+
+  const handleLoadMore = useCallback(() => {
+    if (isSearching) {
+      if (
+        !searchHasMore ||
+        searching ||
+        searchLoadingMoreRef.current
+      ) {
+        return;
+      }
+
+      const nextPage =
+        searchPageRef.current + 1;
+
+      executeSearch({
+        value: query,
+        page: nextPage,
+        replace: false,
+      });
+
+      return;
+    }
+
+    if (
+      !hasMore ||
+      loading ||
+      loadingMoreRef.current
+    ) {
+      return;
+    }
+
+    const nextPage = pageRef.current + 1;
+
+    loadExplore({
+      page: nextPage,
+      replace: false,
+    });
+  }, [
+    executeSearch,
+    hasMore,
+    isSearching,
+    loadExplore,
+    loading,
+    query,
+    searchHasMore,
+    searching,
+  ]);
+
+  const clearSearch = useCallback(() => {
+    Keyboard.dismiss();
+    setQuery("");
+  }, []);
+
+  const handlePostPress = useCallback(
+    (post) => {
+      const id = getPostId(post);
+
+      if (!id) {
+        return;
+      }
+
+      router.push({
+        pathname: "/post/[id]",
+        params: {
+          id,
+        },
+      });
+    },
+    [router]
   );
 
-  const openPost =
-    useCallback(
-      (post) => {
-        const id =
-          getPostId(post);
+  const handleUserPress = useCallback(
+    (user) => {
+      const username = getUsername(user);
 
-        if (
-          !id ||
-          id.startsWith(
-            "explore-post-"
-          )
-        ) {
-          console.warn(
-            "[EXPLORE] Missing real post ID:",
-            post
-          );
-
-          return;
-        }
-
-        router.push({
-          pathname: "/post/[id]",
-          params: {
-            id,
-          },
-        });
-      },
-      [router]
-    );
-
-  const openUser =
-    useCallback(
-      (user) => {
-        const username =
-          getUsername(user);
-
-        if (!username) {
-          console.warn(
-            "[EXPLORE] Missing username:",
-            user
-          );
-
-          return;
-        }
-
-        router.push({
-          pathname:
-            "/profile/[username]",
-          params: {
-            username: String(
-              username
-            ),
-          },
-        });
-      },
-      [router]
-    );
-
-  const exploreBlocks =
-    useMemo(
-      () => chunkPosts(posts),
-      [posts]
-    );
-
-  const renderBlock =
-    useCallback(
-      ({ item, index }) => (
-        <ExploreGridBlock
-          items={item}
-          blockIndex={index}
-          onPress={openPost}
-        />
-      ),
-      [openPost]
-    );
-
-  const renderSearchPost =
-    useCallback(
-      ({ item }) => (
-        <ExploreTile
-          post={item}
-          size={TILE_SIZE}
-          onPress={openPost}
-        />
-      ),
-      [openPost]
-    );
-
-  const searchHeader =
-    useMemo(() => {
-      const hasResults =
-        users.length > 0 ||
-        hashtags.length > 0 ||
-        searchPosts.length > 0;
-
-      if (
-        searching &&
-        !hasResults
-      ) {
-        return (
-          <View
-            style={
-              styles.searchLoading
-            }
-          >
-            <ActivityIndicator
-              size="small"
-              color={
-                COLORS.secondary
-              }
-            />
-
-            <Text
-              style={
-                styles.searchLoadingText
-              }
-            >
-              Searching...
-            </Text>
-          </View>
-        );
+      if (!username) {
+        return;
       }
 
-      if (
-        !searching &&
-        !hasResults &&
-        query.trim()
-      ) {
-        return (
-          <EmptyState
-            icon="search-outline"
-            title="No results found"
-            message={`We couldn't find anything for "${query.trim()}".`}
-            actionLabel="Clear search"
-            onAction={clearSearch}
+      router.push({
+        pathname: "/profile/[username]",
+        params: {
+          username: String(username),
+        },
+      });
+    },
+    [router]
+  );
+
+  /* ------------------------------------------------------------------------ */
+  /* Explore grid                                                              */
+  /* ------------------------------------------------------------------------ */
+
+  const gridBlocks = useMemo(
+    () => chunkPosts(posts, GRID_BLOCK_SIZE),
+    [posts]
+  );
+
+  const renderExploreGrid = useMemo(() => {
+    return (
+      <View style={styles.exploreContainer}>
+        {gridBlocks.map((block, index) => (
+          <ExploreGridBlock
+            key={`block-${index}`}
+            posts={block}
+            onPostPress={handlePostPress}
           />
-        );
-      }
+        ))}
+      </View>
+    );
+  }, [gridBlocks, handlePostPress]);
 
-      return (
-        <View>
-          
-          {users.length > 0 && (
-            <View>
-              <SearchSectionTitle>
-                People
-              </SearchSectionTitle>
+  /* ------------------------------------------------------------------------ */
+  /* Search results                                                            */
+  /* ------------------------------------------------------------------------ */
 
-              {users.map(
-                (user, index) => (
-                  <SearchUserRow
-                    key={
-                      getUserId(user) ||
-                      getUsername(user) ||
-                      `user-${index}`
-                    }
-                    user={user}
-                    onPress={openUser}
-                  />
-                )
-              )}
-            </View>
-          )}
+  const renderSearchPosts = useCallback(() => {
+    if (!searchPosts.length) {
+      return null;
+    }
 
-          {hashtags.length > 0 && (
-            <View>
-              <SearchSectionTitle>
-                Hashtags
-              </SearchSectionTitle>
+    return (
+      <View style={styles.searchPostsGrid}>
+        {searchPosts.map((post) => (
+          <ExploreTile
+            key={getPostId(post)}
+            post={post}
+            onPress={handlePostPress}
+          />
+        ))}
+      </View>
+    );
+  }, [handlePostPress, searchPosts]);
 
-              {hashtags.map(
-                (
-                  hashtag,
-                  index
-                ) => {
-                  const value =
-                    typeof hashtag ===
-                    "string"
-                      ? hashtag
-                      : hashtag?.name ||
-                        hashtag?.tag ||
-                        hashtag?.hashtag ||
-                        "";
+  /* ------------------------------------------------------------------------ */
+  /* Footer                                                                    */
+  /* ------------------------------------------------------------------------ */
 
-                  if (!value) {
-                    return null;
-                  }
+  const renderFooter = useCallback(() => {
+    if (!loadingMore) {
+      return <View style={styles.footerSpace} />;
+    }
 
-                  const display =
-                    value.startsWith(
-                      "#"
-                    )
-                      ? value
-                      : `#${value}`;
-
-                  const count =
-                    hashtag?.count ??
-                    hashtag?.postsCount ??
-                    hashtag?.postCount ??
-                    null;
-
-                  return (
-                    <Pressable
-                      key={`${display}-${index}`}
-                      style={({
-                        pressed,
-                      }) => [
-                        styles.hashtagRow,
-                        pressed &&
-                          styles.pressed,
-                      ]}
-                      onPress={() =>
-                        handleQueryChange(
-                          display
-                        )
-                      }
-                    >
-                      <View
-                        style={
-                          styles.hashtagIcon
-                        }
-                      >
-                        <Ionicons
-                          name="pricetag-outline"
-                          size={20}
-                          color={
-                            COLORS.text
-                          }
-                        />
-                      </View>
-
-                      <View
-                        style={
-                          styles.hashtagInfo
-                        }
-                      >
-                        <Text
-                          style={
-                            styles.hashtagName
-                          }
-                        >
-                          {display}
-                        </Text>
-
-                        {count !==
-                          null && (
-                          <Text
-                            style={
-                              styles.hashtagCount
-                            }
-                          >
-                            {count}{" "}
-                            {count ===
-                            1
-                              ? "post"
-                              : "posts"}
-                          </Text>
-                        )}
-                      </View>
-
-                      <Ionicons
-                        name="chevron-forward"
-                        size={18}
-                        color={
-                          COLORS.secondary
-                        }
-                      />
-                    </Pressable>
-                  );
-                }
-              )}
-            </View>
-          )}
-
-          {searchPosts.length > 0 && (
-            <SearchSectionTitle>
-              Posts
-            </SearchSectionTitle>
-          )}
-        </View>
-      );
-    }, [
-      clearSearch,
-      handleQueryChange,
-      hashtags,
-      openUser,
-      query,
-      searchPosts.length,
-      searching,
-      users,
-    ]);
-
-  const footer =
-    loadingMore ? (
-      <View
-        style={styles.footerLoader}
-      >
+    return (
+      <View style={styles.loadingMoreContainer}>
         <ActivityIndicator
           size="small"
-          color={COLORS.secondary}
+          color={COLORS.secondaryText}
         />
       </View>
-    ) : null;
+    );
+  }, [loadingMore]);
 
-  const renderSearchBar = () => (
-    <View
-      style={styles.searchContainer}
-    >
-      <View style={styles.searchBox}>
+  /* ------------------------------------------------------------------------ */
+  /* Header                                                                    */
+  /* ------------------------------------------------------------------------ */
+
+  const header = (
+    <View style={styles.header}>
+      <View style={styles.searchContainer}>
         <Ionicons
-          name="search-outline"
-          size={20}
-          color={COLORS.secondary}
+          name="search"
+          size={19}
+          color={COLORS.secondaryText}
         />
 
         <TextInput
           value={query}
-          onChangeText={
-            handleQueryChange
-          }
-          onSubmitEditing={
-            submitSearch
-          }
+          onChangeText={setQuery}
           placeholder="Search"
           placeholderTextColor={
-            COLORS.placeholder
+            COLORS.secondaryText
           }
-          style={styles.searchInput}
-          returnKeyType="search"
-          autoCorrect={false}
           autoCapitalize="none"
+          autoCorrect={false}
+          returnKeyType="search"
+          style={styles.searchInput}
         />
 
-        {query.length > 0 && (
+        {query.length > 0 ? (
           <Pressable
             onPress={clearSearch}
             hitSlop={10}
+            style={styles.clearButton}
           >
             <Ionicons
               name="close-circle"
               size={19}
-              color={
-                COLORS.secondary
-              }
+              color="#8E8E8E"
             />
           </Pressable>
-        )}
+        ) : null}
       </View>
     </View>
   );
 
-  if (
-    loading &&
-    !isSearching
-  ) {
+  /* ------------------------------------------------------------------------ */
+  /* Search content                                                            */
+  /* ------------------------------------------------------------------------ */
+
+  if (isSearching) {
     return (
-      <SafeAreaView
-        style={styles.safeArea}
-        edges={["top"]}
-      >
-        <View style={styles.header}>
-          <Text
-            style={styles.headerTitle}
-          >
-            Explore
-          </Text>
-        </View>
+      <SafeAreaView style={styles.safeArea}>
+        {header}
 
-        {renderSearchBar()}
+        {searching &&
+        !users.length &&
+        !hashtags.length &&
+        !searchPosts.length ? (
+          <View style={styles.searchLoading}>
+            <ActivityIndicator
+              size="small"
+              color={COLORS.text}
+            />
+          </View>
+        ) : null}
 
-        <ExploreSkeleton />
+        {!searching &&
+        !users.length &&
+        !hashtags.length &&
+        !searchPosts.length ? (
+          <EmptyState
+            icon="search-outline"
+            title="No results found"
+            message={`Try searching for another username, hashtag, or post.`}
+          />
+        ) : null}
+
+        {error ? (
+          <View style={styles.errorBanner}>
+            <Ionicons
+              name="alert-circle-outline"
+              size={18}
+              color="#D00"
+            />
+
+            <Text style={styles.errorText}>
+              {error}
+            </Text>
+          </View>
+        ) : null}
+
+        <FlatList
+          data={[{ key: "search-content" }]}
+          keyExtractor={(item) => item.key}
+          renderItem={() => (
+            <View>
+              {users.length > 0 ? (
+                <View>
+                  <SearchSectionTitle
+                    title="People"
+                    count={users.length}
+                  />
+
+                  <View>
+                    {users.map((user, index) => (
+                      <SearchUserRow
+                        key={
+                          getUserId(user) ||
+                          getUsername(user) ||
+                          `user-${index}`
+                        }
+                        user={user}
+                        onPress={
+                          handleUserPress
+                        }
+                      />
+                    ))}
+                  </View>
+                </View>
+              ) : null}
+
+              {hashtags.length > 0 ? (
+                <View>
+                  <SearchSectionTitle
+                    title="Hashtags"
+                    count={hashtags.length}
+                  />
+
+                  <View>
+                    {hashtags.map(
+                      (hashtag, index) => {
+                        const value =
+                          typeof hashtag ===
+                          "string"
+                            ? hashtag
+                            : hashtag?.name ??
+                              hashtag?.tag ??
+                              hashtag?.hashtag ??
+                              "";
+
+                        if (!value) {
+                          return null;
+                        }
+
+                        return (
+                          <View
+                            key={`${value}-${index}`}
+                            style={
+                              styles.hashtagRow
+                            }
+                          >
+                            <View
+                              style={
+                                styles.hashtagIcon
+                              }
+                            >
+                              <Ionicons
+                                name="pricetag-outline"
+                                size={21}
+                                color={
+                                  COLORS.text
+                                }
+                              />
+                            </View>
+
+                            <View
+                              style={
+                                styles.hashtagTextContainer
+                              }
+                            >
+                              <Text
+                                style={
+                                  styles.hashtagName
+                                }
+                              >
+                                #
+                                {String(
+                                  value
+                                ).replace(
+                                  /^#/,
+                                  ""
+                                )}
+                              </Text>
+
+                              {hashtag?.postsCount !=
+                              null ? (
+                                <Text
+                                  style={
+                                    styles.hashtagCount
+                                  }
+                                >
+                                  {
+                                    hashtag.postsCount
+                                  }{" "}
+                                  posts
+                                </Text>
+                              ) : null}
+                            </View>
+                          </View>
+                        );
+                      }
+                    )}
+                  </View>
+                </View>
+              ) : null}
+
+              {searchPosts.length > 0 ? (
+                <View>
+                  <SearchSectionTitle
+                    title="Posts"
+                    count={
+                      searchPosts.length
+                    }
+                  />
+
+                  {renderSearchPosts()}
+                </View>
+              ) : null}
+
+              {searching ? (
+                <View
+                  style={
+                    styles.searchBottomLoader
+                  }
+                >
+                  <ActivityIndicator
+                    size="small"
+                    color={
+                      COLORS.secondaryText
+                    }
+                  />
+                </View>
+              ) : null}
+            </View>
+          )}
+          refreshControl={
+            <RefreshControl
+              refreshing={false}
+              onRefresh={handleRefresh}
+              tintColor={COLORS.text}
+            />
+          }
+          onEndReached={handleLoadMore}
+          onEndReachedThreshold={0.6}
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
+          contentContainerStyle={
+            styles.searchContentContainer
+          }
+        />
       </SafeAreaView>
     );
   }
 
+  /* ------------------------------------------------------------------------ */
+  /* Normal Explore                                                            */
+  /* ------------------------------------------------------------------------ */
+
   return (
-    <SafeAreaView
-      style={styles.safeArea}
-      edges={["top"]}
-    >
-      <View style={styles.header}>
-        <Text
-          style={styles.headerTitle}
-        >
-          Explore
-        </Text>
-      </View>
+    <SafeAreaView style={styles.safeArea}>
+      {header}
 
-      {renderSearchBar()}
-
-      {!!error && (
-        <View
-          style={styles.errorBanner}
-        >
+      {error ? (
+        <View style={styles.errorBanner}>
           <Ionicons
             name="alert-circle-outline"
-            size={19}
-            color={COLORS.danger}
+            size={18}
+            color="#D00"
           />
 
-          <Text
-            style={styles.errorText}
-          >
+          <Text style={styles.errorText}>
             {error}
           </Text>
-
-          <Pressable
-            onPress={() => {
-              if (isSearching) {
-                executeSearch(
-                  query.trim(),
-                  1,
-                  false
-                );
-              } else {
-                loadExplore(
-                  1,
-                  false
-                );
-              }
-            }}
-          >
-            <Text
-              style={styles.retryText}
-            >
-              Retry
-            </Text>
-          </Pressable>
         </View>
-      )}
+      ) : null}
 
-      {isSearching ? (
-        <FlatList
-          key="search"
-          data={searchPosts}
-          renderItem={
-            renderSearchPost
-          }
-          keyExtractor={(
-            item,
-            index
-          ) =>
-            getPostId(
-              item,
-              `search-${index}`
-            )
-          }
-          ListHeaderComponent={
-            searchHeader
-          }
-          ListFooterComponent={
-            footer
-          }
-          contentContainerStyle={[
-            styles.searchListContent,
-            searchPosts.length ===
-              0 &&
-              styles.searchListEmpty,
-          ]}
-          numColumns={3}
-          columnWrapperStyle={
-            searchPosts.length > 0
-              ? styles.searchColumn
-              : undefined
-          }
-          showsVerticalScrollIndicator={
-            false
-          }
-          keyboardShouldPersistTaps="handled"
-          refreshControl={
-            <RefreshControl
-              refreshing={
-                refreshing
-              }
-              onRefresh={refresh}
-              tintColor={
-                COLORS.text
-              }
-              colors={[
-                COLORS.text,
-              ]}
-            />
-          }
-          onEndReached={
-            loadMore
-          }
-          onEndReachedThreshold={
-            0.7
-          }
+      {loading && !posts.length ? (
+        <ExploreSkeleton />
+      ) : posts.length === 0 ? (
+        <EmptyState
+          icon="compass-outline"
+          title="Nothing to explore yet"
+          message="New posts and reels will appear here."
         />
       ) : (
         <FlatList
-          key="explore"
-          data={exploreBlocks}
-          renderItem={
-            renderBlock
-          }
-          keyExtractor={(
-            item,
-            index
-          ) =>
-            `explore-block-${index}-${getPostId(
-              item?.[0],
-              index
-            )}`
-          }
-          ListFooterComponent={
-            footer
-          }
-          ListEmptyComponent={
-            !loading ? (
-              <EmptyState
-                icon="images-outline"
-                title="No posts yet"
-                message="Explore posts will appear here."
-                actionLabel="Refresh"
-                onAction={() =>
-                  loadExplore(
-                    1,
-                    false
-                  )
-                }
-              />
-            ) : null
-          }
-          contentContainerStyle={
-            posts.length === 0
-              ? styles.emptyList
-              : styles.exploreList
-          }
-          showsVerticalScrollIndicator={
-            false
-          }
-          removeClippedSubviews
+          data={[{ key: "explore" }]}
+          keyExtractor={(item) => item.key}
+          renderItem={() => renderExploreGrid}
           refreshControl={
             <RefreshControl
-              refreshing={
-                refreshing
-              }
-              onRefresh={refresh}
-              tintColor={
-                COLORS.text
-              }
-              colors={[
-                COLORS.text,
-              ]}
+              refreshing={refreshing}
+              onRefresh={handleRefresh}
+              tintColor={COLORS.text}
             />
           }
-          onEndReached={
-            loadMore
+          onEndReached={handleLoadMore}
+          onEndReachedThreshold={0.7}
+          showsVerticalScrollIndicator={false}
+          contentContainerStyle={
+            styles.exploreContent
           }
-          onEndReachedThreshold={
-            0.7
-          }
+          ListFooterComponent={renderFooter}
         />
       )}
     </SafeAreaView>
   );
 }
 
+/* -------------------------------------------------------------------------- */
+/* Styles                                                                      */
+/* -------------------------------------------------------------------------- */
+
 const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
-    backgroundColor:
-      COLORS.background,
+    backgroundColor: COLORS.background,
   },
 
   header: {
-    height: 50,
-    paddingHorizontal: 16,
-    alignItems: "center",
-    justifyContent: "center",
-    borderBottomWidth:
-      StyleSheet.hairlineWidth,
-    borderBottomColor:
-      COLORS.border,
-    backgroundColor:
-      COLORS.white,
-  },
-
-  headerTitle: {
-    color: COLORS.text,
-    fontSize: 20,
-    fontWeight: "700",
+    backgroundColor: COLORS.background,
+    paddingHorizontal: 12,
+    paddingTop: 8,
+    paddingBottom: 8,
   },
 
   searchContainer: {
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    backgroundColor:
-      COLORS.white,
-  },
-
-  searchBox: {
-    height: 38,
+    height: 40,
     borderRadius: 10,
-    backgroundColor:
-      COLORS.searchBackground,
-    paddingHorizontal: 10,
+    backgroundColor: "#EFEFEF",
     flexDirection: "row",
     alignItems: "center",
+    paddingHorizontal: 12,
   },
 
   searchInput: {
     flex: 1,
-    height: "100%",
+    height: 40,
     marginLeft: 8,
     paddingVertical: 0,
-    color: COLORS.text,
     fontSize: 16,
+    color: COLORS.text,
   },
 
-  exploreList: {
-    paddingBottom: 20,
+  clearButton: {
+    paddingLeft: 8,
   },
 
-  emptyList: {
-    flexGrow: 1,
-    paddingBottom: 20,
+  exploreContent: {
+    paddingBottom: 24,
   },
 
-  mixedRow: {
+  exploreContainer: {
+    width: SCREEN_WIDTH,
+    backgroundColor: COLORS.background,
+  },
+
+  gridBlock: {
     flexDirection: "row",
-  },
-
-  stackColumn: {
-    justifyContent:
-      "space-between",
-  },
-
-  plainRow: {
-    flexDirection: "row",
-    marginTop: GRID_GAP,
-  },
-
-  rightGap: {
-    marginRight: GRID_GAP,
-  },
-
-  bottomGap: {
+    gap: GRID_GAP,
     marginBottom: GRID_GAP,
   },
 
+  gridColumn: {
+    flex: 1,
+    gap: GRID_GAP,
+  },
+
   tile: {
-    backgroundColor:
-      COLORS.tileBackground,
     overflow: "hidden",
+    backgroundColor: "#EFEFEF",
   },
 
   tileImage: {
     width: "100%",
     height: "100%",
-    backgroundColor:
-      COLORS.tileBackground,
+  },
+
+  tileOverlay: {
+    position: "absolute",
+    top: 8,
+    right: 8,
+    flexDirection: "row",
+    alignItems: "center",
+  },
+
+  overlaySpacing: {
+    marginLeft: 7,
   },
 
   emptyTile: {
     flex: 1,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor:
-      COLORS.tileBackground,
+    backgroundColor: "#F2F2F2",
   },
 
-  mediaIcon: {
-    position: "absolute",
-    top: 8,
-    right: 8,
-    width: 26,
-    height: 26,
-    borderRadius: 13,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor:
-      "rgba(0,0,0,0.58)",
-  },
-
-  errorBanner: {
-    minHeight: 46,
-    marginHorizontal: 12,
-    marginBottom: 6,
-    paddingHorizontal: 12,
-    borderRadius: 10,
-    backgroundColor: "#FFF2F2",
+  skeletonContainer: {
     flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
+    flexWrap: "wrap",
+    gap: GRID_GAP,
   },
 
-  errorText: {
-    flex: 1,
-    color: COLORS.text,
-    fontSize: 13,
-  },
-
-  retryText: {
-    color: COLORS.text,
-    fontSize: 13,
-    fontWeight: "700",
+  skeletonTile: {
+    backgroundColor: "#EEEEEE",
   },
 
   userRow: {
-    minHeight: 70,
+    minHeight: 68,
     paddingHorizontal: 16,
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor:
-      COLORS.white,
-  },
-
-  pressed: {
-    opacity: 0.65,
   },
 
   userAvatar: {
     width: 48,
     height: 48,
     borderRadius: 24,
-    backgroundColor:
-      COLORS.tileBackground,
+    backgroundColor: "#EEEEEE",
   },
 
-  userAvatarFallback: {
+  userAvatarPlaceholder: {
     width: 48,
     height: 48,
     borderRadius: 24,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor:
-      COLORS.tileBackground,
+    backgroundColor: "#EFEFEF",
   },
 
-  userInfo: {
+  userTextContainer: {
     flex: 1,
     marginLeft: 12,
-    marginRight: 10,
   },
 
-  nameRow: {
+  usernameLine: {
     flexDirection: "row",
     alignItems: "center",
-    flexShrink: 1,
-    gap: 5,
   },
 
-  name: {
+  username: {
     flexShrink: 1,
-    color: COLORS.text,
     fontSize: 14,
     fontWeight: "700",
+    color: COLORS.text,
   },
 
   verifiedBadge: {
-    flexShrink: 0,
+    marginLeft: 4,
   },
 
-  searchUsername: {
-    marginTop: 3,
-    color: COLORS.secondary,
-    fontSize: 13,
+  displayName: {
+    marginTop: 2,
+    fontSize: 14,
+    color: COLORS.secondaryText,
   },
 
-  sectionHeader: {
-    height: 44,
-    paddingHorizontal: 16,
-    justifyContent: "center",
-    backgroundColor:
-      COLORS.white,
-  },
-
-  sectionTitle: {
-    color: COLORS.text,
-    fontSize: 16,
-    fontWeight: "700",
-  },
-
-  hashtagRow: {
-    minHeight: 64,
+  sectionTitleContainer: {
+    minHeight: 48,
     paddingHorizontal: 16,
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor:
-      COLORS.white,
+    justifyContent: "space-between",
+  },
+
+  sectionTitle: {
+    fontSize: 16,
+    fontWeight: "700",
+    color: COLORS.text,
+  },
+
+  sectionCount: {
+    fontSize: 13,
+    color: COLORS.secondaryText,
+  },
+
+  hashtagRow: {
+    minHeight: 62,
+    paddingHorizontal: 16,
+    flexDirection: "row",
+    alignItems: "center",
   },
 
   hashtagIcon: {
@@ -1953,127 +1593,100 @@ const styles = StyleSheet.create({
     borderRadius: 21,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor:
-      COLORS.searchBackground,
+    backgroundColor: "#EFEFEF",
   },
 
-  hashtagInfo: {
-    flex: 1,
+  hashtagTextContainer: {
     marginLeft: 12,
   },
 
   hashtagName: {
-    color: COLORS.text,
     fontSize: 14,
     fontWeight: "600",
+    color: COLORS.text,
   },
 
   hashtagCount: {
     marginTop: 3,
-    color: COLORS.secondary,
-    fontSize: 12,
+    fontSize: 13,
+    color: COLORS.secondaryText,
   },
 
-  searchListContent: {
-    paddingBottom: 30,
-  },
-
-  searchListEmpty: {
-    flexGrow: 1,
-  },
-
-  searchColumn: {
+  searchPostsGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
     gap: GRID_GAP,
   },
 
   searchLoading: {
-    minHeight: 180,
+    paddingVertical: 18,
     alignItems: "center",
-    justifyContent: "center",
-    gap: 10,
   },
 
-  searchLoadingText: {
-    color: COLORS.secondary,
-    fontSize: 14,
+  searchBottomLoader: {
+    paddingVertical: 24,
+    alignItems: "center",
+  },
+
+  searchContentContainer: {
+    paddingBottom: 30,
   },
 
   emptyState: {
     flex: 1,
-    minHeight: 320,
-    paddingHorizontal: 30,
     alignItems: "center",
     justifyContent: "center",
+    paddingHorizontal: 36,
   },
 
   emptyIconCircle: {
-    width: 70,
-    height: 70,
-    borderRadius: 35,
-    borderWidth: 1.5,
+    width: 76,
+    height: 76,
+    borderRadius: 38,
+    borderWidth: 2,
     borderColor: COLORS.text,
     alignItems: "center",
     justifyContent: "center",
-    marginBottom: 16,
+    marginBottom: 18,
   },
 
   emptyTitle: {
-    color: COLORS.text,
     fontSize: 18,
     fontWeight: "700",
+    color: COLORS.text,
     textAlign: "center",
   },
 
   emptyMessage: {
-    maxWidth: 300,
     marginTop: 8,
-    color: COLORS.secondary,
     fontSize: 14,
     lineHeight: 20,
+    color: COLORS.secondaryText,
     textAlign: "center",
   },
 
-  emptyButton: {
-    height: 38,
-    marginTop: 18,
-    paddingHorizontal: 18,
-    borderRadius: 8,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor:
-      COLORS.text,
-  },
-
-  emptyButtonPressed: {
-    opacity: 0.7,
-  },
-
-  emptyButtonText: {
-    color: COLORS.white,
-    fontSize: 14,
-    fontWeight: "700",
-  },
-
-  footerLoader: {
-    height: 55,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-
-  skeletonContainer: {
+  errorBanner: {
+    minHeight: 42,
+    paddingHorizontal: 14,
     flexDirection: "row",
-    flexWrap: "wrap",
-    gap: GRID_GAP,
-    backgroundColor:
-      COLORS.white,
+    alignItems: "center",
+    backgroundColor: "#FFF3F3",
   },
 
-  skeletonTile: {
-    width:
-      (SCREEN_WIDTH -
-        GRID_GAP * 2) /
-      3,
-    aspectRatio: 1,
-    backgroundColor: "#EEEEEE",
+  errorText: {
+    flex: 1,
+    marginLeft: 8,
+    fontSize: 13,
+    color: "#C00",
+  },
+
+  loadingMoreContainer: {
+    height: 60,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  footerSpace: {
+    height: 20,
   },
 });

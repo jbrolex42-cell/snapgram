@@ -1,4 +1,5 @@
 import React, {
+  useEffect,
   useMemo,
   useState,
 } from "react";
@@ -72,10 +73,17 @@ const VISIBILITY_OPTIONS = [
   },
 ];
 
+/**
+ * Parse media passed through Expo Router.
+ */
 function parseMedia(params) {
   try {
     if (params?.media) {
-      const parsed = JSON.parse(params.media);
+      const rawMedia = Array.isArray(params.media)
+        ? params.media[0]
+        : params.media;
+
+      const parsed = JSON.parse(rawMedia);
 
       if (Array.isArray(parsed)) {
         return parsed.filter(
@@ -87,7 +95,9 @@ function parseMedia(params) {
     if (params?.uri) {
       return [
         {
-          uri: params.uri,
+          uri: Array.isArray(params.uri)
+            ? params.uri[0]
+            : params.uri,
 
           type:
             params.type === "video"
@@ -108,7 +118,7 @@ function parseMedia(params) {
     }
   } catch (error) {
     console.error(
-      "CREATE MEDIA PARSE ERROR:",
+      "[CREATE POST] Media parse error:",
       error
     );
   }
@@ -116,6 +126,9 @@ function parseMedia(params) {
   return [];
 }
 
+/**
+ * Determine whether media is a video.
+ */
 function isVideoMedia(media) {
   return (
     media?.type === "video" ||
@@ -125,23 +138,67 @@ function isVideoMedia(media) {
   );
 }
 
+/**
+ * Parse selected music from navigation params.
+ */
+function parseMusic(params) {
+  if (!params?.music) {
+    return null;
+  }
+
+  try {
+    const rawMusic = Array.isArray(params.music)
+      ? params.music[0]
+      : params.music;
+
+    const parsed = JSON.parse(rawMusic);
+
+    if (!parsed?.id) {
+      return null;
+    }
+
+    return parsed;
+  } catch (error) {
+    console.error(
+      "[CREATE POST] Music parse error:",
+      error
+    );
+
+    return null;
+  }
+}
+
 export default function CreatePostScreen() {
   const params = useLocalSearchParams();
   const insets = useSafeAreaInsets();
 
+  /**
+   * Initial media.
+   */
   const initialMedia = useMemo(
     () => parseMedia(params),
     [params]
   );
 
-  const [media, setMedia] =
-    useState(initialMedia);
+  /**
+   * Selected music returned from MusicSelectScreen.
+   */
+  const initialMusic = useMemo(
+    () => parseMusic(params),
+    [params]
+  );
+
+  const [media, setMedia] = useState(
+    initialMedia
+  );
+
+  const [selectedMusic, setSelectedMusic] =
+    useState(initialMusic);
 
   const [currentIndex, setCurrentIndex] =
     useState(0);
 
-  const [caption, setCaption] =
-    useState("");
+  const [caption, setCaption] = useState("");
 
   const [activeTool, setActiveTool] =
     useState("filter");
@@ -185,6 +242,18 @@ export default function CreatePostScreen() {
   const [uploadProgress, setUploadProgress] =
     useState(0);
 
+  /**
+   * Keep music synchronized if the screen
+   * receives a new music navigation param.
+   */
+  useEffect(() => {
+    const music = parseMusic(params);
+
+    if (music) {
+      setSelectedMusic(music);
+    }
+  }, [params]);
+
   const currentMedia =
     media[currentIndex] || null;
 
@@ -194,6 +263,9 @@ export default function CreatePostScreen() {
         item.value === visibility
     );
 
+  /**
+   * Update currently selected media.
+   */
   function updateCurrentMedia(updater) {
     setMedia((previous) =>
       previous.map((item, index) => {
@@ -215,6 +287,31 @@ export default function CreatePostScreen() {
     );
   }
 
+  /**
+   * Open music picker.
+   */
+  function handleAddMusic() {
+    if (posting) {
+      return;
+    }
+
+    router.push("/music");
+  }
+
+  /**
+   * Remove currently selected music.
+   */
+  function handleRemoveMusic() {
+    if (posting) {
+      return;
+    }
+
+    setSelectedMusic(null);
+  }
+
+  /**
+   * Crop current image.
+   */
   async function handleCrop(ratio) {
     if (posting) {
       return;
@@ -257,13 +354,14 @@ export default function CreatePostScreen() {
         uri: result.uri,
         type: "image",
         mimeType: "image/jpeg",
-        fileName: `snapgram-${Date.now()}.jpg`,
+        fileName:
+          `snapgram-${Date.now()}.jpg`,
         width: result.width,
         height: result.height,
       });
     } catch (error) {
       console.error(
-        "CROP ERROR:",
+        "[CREATE POST] Crop error:",
         error
       );
 
@@ -274,6 +372,9 @@ export default function CreatePostScreen() {
     }
   }
 
+  /**
+   * Rotate current image.
+   */
   async function handleRotate() {
     if (posting) {
       return;
@@ -314,13 +415,14 @@ export default function CreatePostScreen() {
         uri: result.uri,
         type: "image",
         mimeType: "image/jpeg",
-        fileName: `snapgram-${Date.now()}.jpg`,
+        fileName:
+          `snapgram-${Date.now()}.jpg`,
         width: result.width,
         height: result.height,
       });
     } catch (error) {
       console.error(
-        "ROTATE ERROR:",
+        "[CREATE POST] Rotate error:",
         error
       );
 
@@ -331,6 +433,9 @@ export default function CreatePostScreen() {
     }
   }
 
+  /**
+   * Remove current media.
+   */
   function removeCurrentMedia() {
     if (posting) {
       return;
@@ -362,6 +467,9 @@ export default function CreatePostScreen() {
     );
   }
 
+  /**
+   * Save location.
+   */
   function saveLocation() {
     if (posting) {
       return;
@@ -385,6 +493,9 @@ export default function CreatePostScreen() {
     setLocationModal(false);
   }
 
+  /**
+   * Save tagged users.
+   */
   function saveTags() {
     if (posting) {
       return;
@@ -408,6 +519,9 @@ export default function CreatePostScreen() {
     setTagModal(false);
   }
 
+  /**
+   * Create the post.
+   */
   async function handleShare() {
     if (posting) {
       return;
@@ -445,6 +559,53 @@ export default function CreatePostScreen() {
           ? "reel"
           : "post";
 
+      const music = selectedMusic
+        ? {
+            id: selectedMusic.id,
+            trackId:
+              selectedMusic.trackId ||
+              selectedMusic.id,
+
+            title:
+              selectedMusic.title ||
+              "",
+
+            artist:
+              selectedMusic.artist ||
+              "",
+
+            album:
+              selectedMusic.album ||
+              "",
+
+            artworkUrl:
+              selectedMusic.artworkUrl ||
+              "",
+
+            audioUrl:
+              selectedMusic.audioUrl ||
+              "",
+
+            provider:
+              selectedMusic.provider ||
+              "snapgram",
+
+            providerTrackId:
+              selectedMusic.providerTrackId ||
+              selectedMusic.id,
+
+            startMs:
+              Number(
+                selectedMusic.startMs
+              ) || 0,
+
+            durationMs:
+              Number(
+                selectedMusic.durationMs
+              ) || 15000,
+          }
+        : null;
+
       const response =
         await createPost({
           media: validMedia,
@@ -459,6 +620,8 @@ export default function CreatePostScreen() {
           visibility,
 
           postType,
+
+          music,
 
           edit: {
             filter,
@@ -484,7 +647,7 @@ export default function CreatePostScreen() {
         });
 
       console.log(
-        "POST CREATED:",
+        "[CREATE POST] Created:",
         response
       );
 
@@ -503,7 +666,7 @@ export default function CreatePostScreen() {
       router.replace("/(tabs)");
     } catch (error) {
       console.error(
-        "CREATE POST ERROR:",
+        "[CREATE POST] Error:",
         error?.response?.data ||
           error
       );
@@ -521,6 +684,9 @@ export default function CreatePostScreen() {
     }
   }
 
+  /**
+   * No media state.
+   */
   if (!media.length) {
     return (
       <SafeAreaView
@@ -573,6 +739,7 @@ export default function CreatePostScreen() {
             : undefined
         }
       >
+        {/* Header */}
         <View style={styles.header}>
           <TouchableOpacity
             onPress={() =>
@@ -613,6 +780,7 @@ export default function CreatePostScreen() {
           </TouchableOpacity>
         </View>
 
+        {/* Upload progress */}
         {posting && (
           <View
             style={
@@ -623,7 +791,8 @@ export default function CreatePostScreen() {
               style={[
                 styles.progressBar,
                 {
-                  width: `${uploadProgress}%`,
+                  width:
+                    `${uploadProgress}%`,
                 },
               ]}
             />
@@ -641,6 +810,7 @@ export default function CreatePostScreen() {
             false
           }
         >
+          {/* Media preview */}
           <View
             style={
               styles.mediaContainer
@@ -723,6 +893,7 @@ export default function CreatePostScreen() {
             )}
           </View>
 
+          {/* Media thumbnails */}
           {media.length > 1 && (
             <ScrollView
               horizontal
@@ -781,6 +952,7 @@ export default function CreatePostScreen() {
             </ScrollView>
           )}
 
+          {/* Editor */}
           <EditorToolbar
             activeTool={activeTool}
             onToolChange={
@@ -834,6 +1006,7 @@ export default function CreatePostScreen() {
             />
           )}
 
+          {/* Caption */}
           <CaptionInput
             value={caption}
             onChangeText={
@@ -843,10 +1016,101 @@ export default function CreatePostScreen() {
             }
           />
 
+          {/* Post options */}
           <View
             style={styles.optionsCard}
           >
+            {/* Music */}
+            <TouchableOpacity
+              style={styles.optionRow}
+              onPress={handleAddMusic}
+              disabled={posting}
+            >
+              <View
+                style={styles.optionLeft}
+              >
+                <View
+                  style={
+                    styles.musicIconContainer
+                  }
+                >
+                  <Ionicons
+                    name="musical-notes"
+                    size={21}
+                    color="#111"
+                  />
+                </View>
 
+                <View
+                  style={
+                    styles.optionContent
+                  }
+                >
+                  <Text
+                    style={
+                      styles.optionTitle
+                    }
+                  >
+                    {selectedMusic
+                      ? "Music"
+                      : "Add music"}
+                  </Text>
+
+                  {selectedMusic ? (
+                    <Text
+                      style={
+                        styles.optionValue
+                      }
+                      numberOfLines={1}
+                    >
+                      {selectedMusic.title}
+                      {selectedMusic.artist
+                        ? ` • ${selectedMusic.artist}`
+                        : ""}
+                    </Text>
+                  ) : (
+                    <Text
+                      style={
+                        styles.optionHint
+                      }
+                    >
+                      Add a song to your post
+                    </Text>
+                  )}
+                </View>
+              </View>
+
+              {selectedMusic ? (
+                <TouchableOpacity
+                  onPress={
+                    handleRemoveMusic
+                  }
+                  disabled={posting}
+                  style={
+                    styles.musicRemoveButton
+                  }
+                  hitSlop={8}
+                >
+                  <Ionicons
+                    name="close-circle"
+                    size={22}
+                    color="#8e8e8e"
+                  />
+                </TouchableOpacity>
+              ) : (
+                <Ionicons
+                  name="chevron-forward"
+                  size={20}
+                  color="#8e8e8e"
+                />
+              )}
+            </TouchableOpacity>
+
+            <View
+              style={styles.divider}
+            />
+
+            {/* Location */}
             <TouchableOpacity
               style={styles.optionRow}
               onPress={() => {
@@ -873,7 +1137,11 @@ export default function CreatePostScreen() {
                   color="#111"
                 />
 
-                <View>
+                <View
+                  style={
+                    styles.optionContent
+                  }
+                >
                   <Text
                     style={
                       styles.optionTitle
@@ -887,6 +1155,7 @@ export default function CreatePostScreen() {
                       style={
                         styles.optionValue
                       }
+                      numberOfLines={1}
                     >
                       {location.name}
                     </Text>
@@ -905,6 +1174,7 @@ export default function CreatePostScreen() {
               style={styles.divider}
             />
 
+            {/* Tags */}
             <TouchableOpacity
               style={styles.optionRow}
               onPress={() => {
@@ -934,7 +1204,11 @@ export default function CreatePostScreen() {
                   color="#111"
                 />
 
-                <View>
+                <View
+                  style={
+                    styles.optionContent
+                  }
+                >
                   <Text
                     style={
                       styles.optionTitle
@@ -949,6 +1223,7 @@ export default function CreatePostScreen() {
                       style={
                         styles.optionValue
                       }
+                      numberOfLines={2}
                     >
                       {taggedUsers
                         .map(
@@ -972,6 +1247,7 @@ export default function CreatePostScreen() {
               style={styles.divider}
             />
 
+            {/* Audience */}
             <TouchableOpacity
               style={styles.optionRow}
               onPress={() => {
@@ -997,7 +1273,11 @@ export default function CreatePostScreen() {
                   color="#111"
                 />
 
-                <View>
+                <View
+                  style={
+                    styles.optionContent
+                  }
+                >
                   <Text
                     style={
                       styles.optionTitle
@@ -1027,6 +1307,7 @@ export default function CreatePostScreen() {
         </ScrollView>
       </KeyboardAvoidingView>
 
+      {/* Location modal */}
       <Modal
         visible={locationModal}
         transparent
@@ -1098,6 +1379,7 @@ export default function CreatePostScreen() {
         </View>
       </Modal>
 
+      {/* Tag modal */}
       <Modal
         visible={tagModal}
         transparent
@@ -1172,6 +1454,7 @@ export default function CreatePostScreen() {
         </View>
       </Modal>
 
+      {/* Audience modal */}
       <Modal
         visible={audienceModal}
         transparent
@@ -1365,8 +1648,7 @@ const styles = StyleSheet.create({
     left: 12,
     right: 12,
     flexDirection: "row",
-    justifyContent:
-      "space-between",
+    justifyContent: "space-between",
     alignItems: "center",
   },
 
@@ -1468,12 +1750,11 @@ const styles = StyleSheet.create({
   },
 
   optionRow: {
-    minHeight: 64,
+    minHeight: 68,
     paddingHorizontal: 16,
     flexDirection: "row",
     alignItems: "center",
-    justifyContent:
-      "space-between",
+    justifyContent: "space-between",
   },
 
   optionLeft: {
@@ -1481,6 +1762,12 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 14,
     flex: 1,
+    minWidth: 0,
+  },
+
+  optionContent: {
+    flex: 1,
+    minWidth: 0,
   },
 
   optionTitle: {
@@ -1495,11 +1782,30 @@ const styles = StyleSheet.create({
     color: "#8e8e8e",
   },
 
+  optionHint: {
+    marginTop: 2,
+    fontSize: 12,
+    color: "#8e8e8e",
+  },
+
+  musicIconContainer: {
+    width: 30,
+    height: 30,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  musicRemoveButton: {
+    width: 32,
+    height: 32,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
   divider: {
-    height:
-      StyleSheet.hairlineWidth,
+    height: StyleSheet.hairlineWidth,
     backgroundColor: "#efefef",
-    marginLeft: 53,
+    marginLeft: 60,
   },
 
   modalOverlay: {
@@ -1530,8 +1836,7 @@ const styles = StyleSheet.create({
   sheetHeader: {
     flexDirection: "row",
     alignItems: "center",
-    justifyContent:
-      "space-between",
+    justifyContent: "space-between",
     marginBottom: 18,
   },
 

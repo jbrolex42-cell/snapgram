@@ -57,17 +57,34 @@ export async function restoreApiToken() {
 const api = axios.create({
   baseURL: API_URL,
   timeout: 15000,
+
   headers: {
     Accept: "application/json",
-    "Content-Type": "application/json",
   },
 });
 
 api.interceptors.request.use(
   (config) => {
-    if (memoryToken) {
-      config.headers = config.headers || {};
+    config.headers = config.headers || {};
 
+    const isFormData =
+      typeof FormData !== "undefined" &&
+      config.data instanceof FormData;
+
+    if (isFormData) {
+      delete config.headers["Content-Type"];
+      delete config.headers["content-type"];
+
+      if (__DEV__) {
+        console.log("[API] MULTIPART REQUEST");
+      }
+    } else {
+      
+      config.headers["Content-Type"] =
+        "application/json";
+    }
+
+    if (memoryToken) {
       config.headers.Authorization =
         `Bearer ${memoryToken}`;
     }
@@ -77,6 +94,9 @@ api.interceptors.request.use(
         "[API]",
         config.method?.toUpperCase(),
         config.baseURL + config.url,
+        isFormData
+          ? "[MULTIPART]"
+          : "[JSON]",
         memoryToken
           ? "[TOKEN ATTACHED]"
           : "[NO TOKEN]"
@@ -85,6 +105,7 @@ api.interceptors.request.use(
 
     return config;
   },
+
   (error) => {
     return Promise.reject(error);
   }

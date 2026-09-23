@@ -399,28 +399,30 @@ export default function ConversationInfoScreen() {
     loadData();
   }, [loadData]);
 
-  const openProfile =
-    useCallback(() => {
-      if (!profileUsername) {
-        Alert.alert(
-          "Profile unavailable",
-          "This user's profile could not be opened."
-        );
+  const openProfile = useCallback(() => {
+   const username =
+    getUsername(otherUser);
 
-        return;
-      }
+    if (!username) {
+      Alert.alert(
+       "Profile unavailable",
+       "This user's username is not available."
+      );
+    return;
+    }
 
-      router.push({
-        pathname:
-          "/profile/[username]",
-        params: {
-          username:
-            profileUsername,
-        },
-      });
-    }, [
-      profileUsername,
-    ]);
+    console.log(
+     "[CONVERSATION INFO] Opening profile:",
+     username
+    );
+
+    router.push({
+      pathname: "/profile/[username]",
+      params: {
+      username: username,
+    },
+    });
+  }, [otherUser]);
 
   const openSearch =
     useCallback(() => {

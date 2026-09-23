@@ -34,10 +34,6 @@ import {
 
 const AuthContext = createContext(null);
 
-/* -------------------------------------------------------------------------- */
-/* Helpers                                                                    */
-/* -------------------------------------------------------------------------- */
-
 function getUserId(user) {
   return (
     user?._id?.toString() ||
@@ -68,18 +64,10 @@ function getUserLabel(user) {
   );
 }
 
-/* -------------------------------------------------------------------------- */
-/* Provider                                                                   */
-/* -------------------------------------------------------------------------- */
-
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-
-  /* ------------------------------------------------------------------------ */
-  /* E2EE                                                                     */
-  /* ------------------------------------------------------------------------ */
 
   const initializeE2EE = useCallback(
     async (authenticatedUser) => {
@@ -129,10 +117,6 @@ export function AuthProvider({ children }) {
     []
   );
 
-  /* ------------------------------------------------------------------------ */
-  /* Close E2EE safely                                                        */
-  /* ------------------------------------------------------------------------ */
-
   const safelyCloseE2EE = useCallback(
     async (label = "CLOSE") => {
       try {
@@ -147,10 +131,6 @@ export function AuthProvider({ children }) {
     },
     []
   );
-
-  /* ------------------------------------------------------------------------ */
-  /* Restore saved authentication session                                     */
-  /* ------------------------------------------------------------------------ */
 
   const restoreSession = useCallback(
     async () => {
@@ -168,10 +148,6 @@ export function AuthProvider({ children }) {
           Boolean(token)
         );
 
-        /* ------------------------------------------------------------------ */
-        /* No saved token                                                     */
-        /* ------------------------------------------------------------------ */
-
         if (!token) {
           console.log(
             "[AUTH] NO SAVED AUTH TOKEN."
@@ -187,10 +163,6 @@ export function AuthProvider({ children }) {
 
           return null;
         }
-
-        /* ------------------------------------------------------------------ */
-        /* Validate token against backend                                     */
-        /* ------------------------------------------------------------------ */
 
         console.log(
           "[AUTH] VALIDATING SAVED SESSION..."
@@ -210,17 +182,9 @@ export function AuthProvider({ children }) {
           getUserLabel(currentUser)
         );
 
-        /* ------------------------------------------------------------------ */
-        /* Initialize encryption device                                       */
-        /* ------------------------------------------------------------------ */
-
         await initializeE2EE(
           currentUser
         );
-
-        /* ------------------------------------------------------------------ */
-        /* Update React authentication state                                  */
-        /* ------------------------------------------------------------------ */
 
         setUser(currentUser);
 
@@ -240,9 +204,6 @@ export function AuthProvider({ children }) {
             "Unable to restore your session."
           );
 
-        /* ------------------------------------------------------------------ */
-        /* Invalid/expired token                                              */
-        /* ------------------------------------------------------------------ */
 
         if (
           status === 401 ||
@@ -252,9 +213,6 @@ export function AuthProvider({ children }) {
             "[AUTH] SAVED AUTH TOKEN IS INVALID OR EXPIRED."
           );
         } else {
-          /* ---------------------------------------------------------------- */
-          /* Detailed diagnostics                                             */
-          /* ---------------------------------------------------------------- */
 
           console.error(
             "[AUTH] RESTORE SESSION ERROR:",
@@ -292,10 +250,6 @@ export function AuthProvider({ children }) {
           );
         }
 
-        /* ------------------------------------------------------------------ */
-        /* Clean up authentication resources                                  */
-        /* ------------------------------------------------------------------ */
-
         disconnectSocket();
 
         await safelyCloseE2EE(
@@ -316,17 +270,9 @@ export function AuthProvider({ children }) {
     ]
   );
 
-  /* ------------------------------------------------------------------------ */
-  /* Restore authentication on app startup                                   */
-  /* ------------------------------------------------------------------------ */
-
   useEffect(() => {
     restoreSession();
   }, [restoreSession]);
-
-  /* ------------------------------------------------------------------------ */
-  /* Socket lifecycle                                                        */
-  /* ------------------------------------------------------------------------ */
 
   useEffect(() => {
     if (loading) {
@@ -387,10 +333,6 @@ export function AuthProvider({ children }) {
       cancelled = true;
     };
   }, [user, loading]);
-
-  /* ------------------------------------------------------------------------ */
-  /* Login                                                                    */
-  /* ------------------------------------------------------------------------ */
 
   const login = useCallback(
     async (identifier, password) => {
@@ -477,10 +419,6 @@ export function AuthProvider({ children }) {
     [initializeE2EE]
   );
 
-  /* ------------------------------------------------------------------------ */
-  /* Google login                                                             */
-  /* ------------------------------------------------------------------------ */
-
   const loginWithGoogleAccount =
     useCallback(
       async (idToken) => {
@@ -547,10 +485,6 @@ export function AuthProvider({ children }) {
       },
       [initializeE2EE]
     );
-
-  /* ------------------------------------------------------------------------ */
-  /* Facebook login                                                           */
-  /* ------------------------------------------------------------------------ */
 
   const loginWithFacebookAccount =
     useCallback(
@@ -619,10 +553,6 @@ export function AuthProvider({ children }) {
       [initializeE2EE]
     );
 
-  /* ------------------------------------------------------------------------ */
-  /* Generic social login                                                    */
-  /* ------------------------------------------------------------------------ */
-
   const loginWithSocial = useCallback(
     async (result) => {
       try {
@@ -678,10 +608,6 @@ export function AuthProvider({ children }) {
     },
     [initializeE2EE]
   );
-
-  /* ------------------------------------------------------------------------ */
-  /* Register                                                                 */
-  /* ------------------------------------------------------------------------ */
 
   const register = useCallback(
     async (data = {}) => {
@@ -744,10 +670,6 @@ export function AuthProvider({ children }) {
     },
     []
   );
-
-  /* ------------------------------------------------------------------------ */
-  /* Switch saved account                                                     */
-  /* ------------------------------------------------------------------------ */
 
   const switchAccount = useCallback(
     async (accountId) => {
@@ -819,10 +741,6 @@ export function AuthProvider({ children }) {
     ]
   );
 
-  /* ------------------------------------------------------------------------ */
-  /* Logout                                                                   */
-  /* ------------------------------------------------------------------------ */
-
   const logout = useCallback(
     async () => {
       try {
@@ -878,10 +796,6 @@ export function AuthProvider({ children }) {
     [safelyCloseE2EE]
   );
 
-  /* ------------------------------------------------------------------------ */
-  /* Context value                                                            */
-  /* ------------------------------------------------------------------------ */
-
   const contextValue = useMemo(
     () => ({
       user,
@@ -924,10 +838,6 @@ export function AuthProvider({ children }) {
     ]
   );
 
-  /* ------------------------------------------------------------------------ */
-  /* Provider                                                                 */
-  /* ------------------------------------------------------------------------ */
-
   return (
     <AuthContext.Provider
       value={contextValue}
@@ -936,10 +846,6 @@ export function AuthProvider({ children }) {
     </AuthContext.Provider>
   );
 }
-
-/* -------------------------------------------------------------------------- */
-/* Hook                                                                       */
-/* -------------------------------------------------------------------------- */
 
 export function useAuth() {
   const context =

@@ -14,8 +14,8 @@ import {
   RefreshControl,
   ScrollView,
   StyleSheet,
-  Switch,
   Text,
+  TextInput,
   View,
 } from "react-native";
 
@@ -29,6 +29,8 @@ import {
   getVerificationStatus,
 } from "../../../services/verificationService";
 
+import VerifiedBadge from "../../../components/common/VerifiedBadge";
+
 const COLORS = {
   background: "#FFFFFF",
   card: "#F7F7F7",
@@ -36,12 +38,16 @@ const COLORS = {
   text: "#111111",
   secondary: "#737373",
   muted: "#9A9A9A",
+
   blue: "#0095F6",
-  blueDark: "#1877F2",
+  blueLight: "#EAF4FF",
+
   green: "#2E7D32",
   greenBackground: "#EAF7EC",
+
   orange: "#C77700",
   orangeBackground: "#FFF4DF",
+
   red: "#D93025",
   redBackground: "#FDECEC",
 };
@@ -55,6 +61,7 @@ const CATEGORIES = [
 ];
 
 const MAX_REASON_LENGTH = 2000;
+const MIN_REASON_LENGTH = 10;
 
 function getErrorMessage(error, fallback) {
   return (
@@ -95,9 +102,12 @@ function normalizeStatus(value) {
   }
 
   if (
-    ["pending", "submitted", "under_review", "review"].includes(
-      status
-    )
+    [
+      "pending",
+      "submitted",
+      "under_review",
+      "review",
+    ].includes(status)
   ) {
     return "pending";
   }
@@ -114,9 +124,7 @@ function normalizeStatus(value) {
 function formatStatus(value) {
   return String(value || "")
     .replace(/_/g, " ")
-    .replace(/\b\w/g, (letter) =>
-      letter.toUpperCase()
-    );
+    .replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 
 export default function VerificationScreen() {
@@ -127,9 +135,7 @@ export default function VerificationScreen() {
 
   const [category, setCategory] = useState("Creator");
   const [reason, setReason] = useState("");
-  const [website, setWebsite] = useState(
-    user?.website || ""
-  );
+  const [website, setWebsite] = useState("");
 
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -163,6 +169,10 @@ export default function VerificationScreen() {
 
         if (result?.request?.category) {
           setCategory(result.request.category);
+        }
+
+        if (result?.request?.website) {
+          setWebsite(result.request.website);
         }
       } catch (requestError) {
         console.error(
@@ -206,7 +216,7 @@ export default function VerificationScreen() {
   const canSubmit =
     !submitting &&
     category.trim().length > 0 &&
-    normalizedReason.length >= 10 &&
+    normalizedReason.length >= MIN_REASON_LENGTH &&
     normalizedReason.length <= MAX_REASON_LENGTH;
 
   async function submitApplication() {
@@ -230,10 +240,10 @@ export default function VerificationScreen() {
       return;
     }
 
-    if (normalizedReason.length < 10) {
+    if (normalizedReason.length < MIN_REASON_LENGTH) {
       Alert.alert(
         "More information required",
-        "Please provide at least 10 characters explaining why you should be verified."
+        `Please provide at least ${MIN_REASON_LENGTH} characters explaining why you should be verified.`
       );
       return;
     }
@@ -289,14 +299,7 @@ export default function VerificationScreen() {
   }
 
   if (loading || status === "loading") {
-    return (
-      <View style={styles.loadingScreen}>
-        <ActivityIndicator
-          size="small"
-          color={COLORS.blue}
-        />
-      </View>
-    );
+    return <LoadingScreen />;
   }
 
   return (
@@ -395,6 +398,25 @@ export default function VerificationScreen() {
   );
 }
 
+/* -------------------------------------------------------------------------- */
+/* Loading                                                                    */
+/* -------------------------------------------------------------------------- */
+
+function LoadingScreen() {
+  return (
+    <View style={styles.loadingScreen}>
+      <ActivityIndicator
+        size="small"
+        color={COLORS.blue}
+      />
+    </View>
+  );
+}
+
+/* -------------------------------------------------------------------------- */
+/* Approved                                                                   */
+/* -------------------------------------------------------------------------- */
+
 function VerifiedState({ user, request }) {
   const displayName =
     user?.fullName ||
@@ -405,6 +427,11 @@ function VerifiedState({ user, request }) {
   const username = user?.username
     ? `@${user.username}`
     : "";
+
+  const initial = String(displayName)
+    .trim()
+    .charAt(0)
+    .toUpperCase();
 
   return (
     <>
@@ -435,12 +462,7 @@ function VerifiedState({ user, request }) {
       <View style={styles.profileCard}>
         <View style={styles.profileAvatar}>
           <Text style={styles.profileAvatarText}>
-            {String(
-              displayName
-            )
-              .trim()
-              .charAt(0)
-              .toUpperCase()}
+            {initial || "S"}
           </Text>
         </View>
 
@@ -453,11 +475,7 @@ function VerifiedState({ user, request }) {
               {displayName}
             </Text>
 
-            <Ionicons
-              name="checkmark-circle"
-              size={18}
-              color={COLORS.blue}
-            />
+            <VerifiedBadge size={18} />
           </View>
 
           {username ? (
@@ -507,6 +525,10 @@ function VerifiedState({ user, request }) {
     </>
   );
 }
+
+/* -------------------------------------------------------------------------- */
+/* Pending                                                                    */
+/* -------------------------------------------------------------------------- */
 
 function PendingState({ request }) {
   return (
@@ -567,6 +589,10 @@ function PendingState({ request }) {
     </>
   );
 }
+
+/* -------------------------------------------------------------------------- */
+/* Rejected                                                                   */
+/* -------------------------------------------------------------------------- */
 
 function RejectedState({
   request,
@@ -636,6 +662,10 @@ function RejectedState({
     </>
   );
 }
+
+/* -------------------------------------------------------------------------- */
+/* Initial application                                                        */
+/* -------------------------------------------------------------------------- */
 
 function ApplicationState({
   category,
@@ -716,6 +746,10 @@ function ApplicationState({
   );
 }
 
+/* -------------------------------------------------------------------------- */
+/* Application form                                                           */
+/* -------------------------------------------------------------------------- */
+
 function ApplicationForm({
   category,
   setCategory,
@@ -795,7 +829,8 @@ function ApplicationForm({
           <Text
             style={[
               styles.characterCount,
-              reason.length > MAX_REASON_LENGTH - 100 &&
+              reason.length >
+                MAX_REASON_LENGTH - 100 &&
                 styles.characterCountWarning,
             ]}
           >
@@ -819,7 +854,7 @@ function ApplicationForm({
           editable={!submitting}
         />
 
-        <Text style={styles.helperText}>
+        <Text style={styles.helperTextStandalone}>
           Optional. Add a website that supports
           your identity or public presence.
         </Text>
@@ -857,13 +892,18 @@ function ApplicationForm({
 
       {!canSubmit && !submitting ? (
         <Text style={styles.validationText}>
-          Select a category and provide at least
-          10 characters explaining your request.
+          Select a category and provide at least{" "}
+          {MIN_REASON_LENGTH} characters explaining
+          your request.
         </Text>
       ) : null}
     </>
   );
 }
+
+/* -------------------------------------------------------------------------- */
+/* Request summary                                                            */
+/* -------------------------------------------------------------------------- */
 
 function RequestSummary({ request }) {
   if (!request) {
@@ -902,6 +942,14 @@ function RequestSummary({ request }) {
         />
       ) : null}
 
+      {request.website ? (
+        <InfoRow
+          icon="globe-outline"
+          title="Website"
+          value={request.website}
+        />
+      ) : null}
+
       {request.reason ? (
         <View style={styles.reasonBlock}>
           <Text style={styles.reasonLabel}>
@@ -916,6 +964,10 @@ function RequestSummary({ request }) {
     </SectionCard>
   );
 }
+
+/* -------------------------------------------------------------------------- */
+/* Error                                                                      */
+/* -------------------------------------------------------------------------- */
 
 function ErrorCard({ message, onRetry }) {
   return (
@@ -949,6 +1001,10 @@ function ErrorCard({ message, onRetry }) {
     </View>
   );
 }
+
+/* -------------------------------------------------------------------------- */
+/* Reusable cards                                                             */
+/* -------------------------------------------------------------------------- */
 
 function SectionCard({ children }) {
   return (
@@ -1043,6 +1099,10 @@ function NoticeCard({ icon, text }) {
   );
 }
 
+/* -------------------------------------------------------------------------- */
+/* Text input                                                                 */
+/* -------------------------------------------------------------------------- */
+
 function TextInputBox({
   value,
   onChangeText,
@@ -1056,7 +1116,8 @@ function TextInputBox({
     <View
       style={[
         styles.inputContainer,
-        multiline && styles.multilineInputContainer,
+        multiline &&
+          styles.multilineInputContainer,
       ]}
     >
       <TextInput
@@ -1076,6 +1137,10 @@ function TextInputBox({
     </View>
   );
 }
+
+/* -------------------------------------------------------------------------- */
+/* Styles                                                                     */
+/* -------------------------------------------------------------------------- */
 
 const styles = StyleSheet.create({
   screen: {
@@ -1099,8 +1164,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    borderBottomWidth:
-      StyleSheet.hairlineWidth,
+    borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: COLORS.border,
     backgroundColor: COLORS.background,
   },
@@ -1146,7 +1210,7 @@ const styles = StyleSheet.create({
     borderRadius: 33,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "#EAF4FF",
+    backgroundColor: COLORS.blueLight,
     marginBottom: 15,
   },
 
@@ -1155,8 +1219,7 @@ const styles = StyleSheet.create({
   },
 
   heroIconPending: {
-    backgroundColor:
-      COLORS.orangeBackground,
+    backgroundColor: COLORS.orangeBackground,
   },
 
   heroIconRejected: {
@@ -1260,8 +1323,7 @@ const styles = StyleSheet.create({
   },
 
   infoRowBorder: {
-    borderBottomWidth:
-      StyleSheet.hairlineWidth,
+    borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: COLORS.border,
   },
 
@@ -1291,8 +1353,7 @@ const styles = StyleSheet.create({
     padding: 15,
     marginBottom: 14,
     borderRadius: 14,
-    backgroundColor:
-      COLORS.orangeBackground,
+    backgroundColor: COLORS.orangeBackground,
   },
 
   statusBannerIcon: {
@@ -1519,6 +1580,13 @@ const styles = StyleSheet.create({
     color: COLORS.muted,
   },
 
+  helperTextStandalone: {
+    marginTop: 8,
+    fontSize: 12,
+    lineHeight: 17,
+    color: COLORS.muted,
+  },
+
   characterCount: {
     fontSize: 12,
     color: COLORS.muted,
@@ -1531,8 +1599,7 @@ const styles = StyleSheet.create({
 
   reasonBlock: {
     padding: 16,
-    borderTopWidth:
-      StyleSheet.hairlineWidth,
+    borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: COLORS.border,
   },
 

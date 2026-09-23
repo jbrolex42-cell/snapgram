@@ -25,10 +25,6 @@ const COLUMNS = 3;
 const ITEM_SIZE =
   (SCREEN_WIDTH - GAP * (COLUMNS - 1)) / COLUMNS;
 
-/* -------------------------------------------------------
-   Helpers
-------------------------------------------------------- */
-
 function getPostId(post) {
   return String(
     post?._id ||
@@ -160,10 +156,6 @@ function isRepost(post) {
     !!post?.repostOf
   );
 }
-
-/* -------------------------------------------------------
-   Profile Grid Item
-------------------------------------------------------- */
 
 const ProfileGridItem = memo(
   function ProfileGridItem({
@@ -298,10 +290,6 @@ const ProfileGridItem = memo(
   }
 );
 
-/* -------------------------------------------------------
-   Main Profile Grid
-------------------------------------------------------- */
-
 function ProfileGrid({
   posts = [],
   loading = false,
@@ -322,10 +310,6 @@ function ProfileGrid({
 
     return posts.filter(Boolean);
   }, [posts]);
-
-  /* -----------------------------------------------------
-     Open post/reel
-  ----------------------------------------------------- */
 
   const openPost = useCallback(
     (post) => {
@@ -379,10 +363,6 @@ function ProfileGrid({
     []
   );
 
-  /* -----------------------------------------------------
-     Render item
-  ----------------------------------------------------- */
-
   const renderItem = useCallback(
     ({ item }) => (
       <ProfileGridItem
@@ -392,10 +372,6 @@ function ProfileGrid({
     ),
     [openPost]
   );
-
-  /* -----------------------------------------------------
-     Keys
-  ----------------------------------------------------- */
 
   const keyExtractor = useCallback(
     (item, index) => {
@@ -407,10 +383,6 @@ function ProfileGrid({
     },
     []
   );
-
-  /* -----------------------------------------------------
-     Loading
-  ----------------------------------------------------- */
 
   if (loading) {
     return (
@@ -427,10 +399,6 @@ function ProfileGrid({
       </View>
     );
   }
-
-  /* -----------------------------------------------------
-     Empty
-  ----------------------------------------------------- */
 
   if (data.length === 0) {
     return (
@@ -458,10 +426,6 @@ function ProfileGrid({
     );
   }
 
-  /* -----------------------------------------------------
-     Grid
-  ----------------------------------------------------- */
-
   return (
     <FlatList
       data={data}
@@ -484,10 +448,6 @@ function ProfileGrid({
 }
 
 export default memo(ProfileGrid);
-
-/* -------------------------------------------------------
-   Styles
-------------------------------------------------------- */
 
 const styles = StyleSheet.create({
   grid: {
