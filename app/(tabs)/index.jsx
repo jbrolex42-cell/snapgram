@@ -275,11 +275,6 @@ export default function HomeScreen() {
     setStories,
   ] = useState([]);
 
-  /*
-   * Cursor for the next feed request.
-   *
-   * null = first page.
-   */
   const [
     nextCursor,
     setNextCursor,
@@ -325,9 +320,6 @@ export default function HomeScreen() {
     };
   }, []);
 
-  /*
-   * Initial Home load / refresh.
-   */
   const loadHome =
     useCallback(
       async ({
@@ -394,9 +386,6 @@ export default function HomeScreen() {
             return;
           }
 
-          /*
-           * FEED
-           */
           if (
             feedResult.status ===
             "fulfilled"
@@ -450,9 +439,6 @@ export default function HomeScreen() {
             }
           }
 
-          /*
-           * STORIES
-           */
           if (
             storiesResult.status ===
             "fulfilled"
@@ -507,9 +493,6 @@ export default function HomeScreen() {
       [user]
     );
 
-  /*
-   * Infinite scroll.
-   */
   const loadMore =
     useCallback(
       async () => {
@@ -619,9 +602,6 @@ export default function HomeScreen() {
       ]
     );
 
-  /*
-   * Refresh whenever Home gets focus.
-   */
   useFocusEffect(
     useCallback(
       () => {

@@ -32,10 +32,6 @@ import {
 
 import VerifiedBadge from "../../../components/common/VerifiedBadge";
 
-/* -------------------------------------------------------------------------- */
-/* Constants                                                                  */
-/* -------------------------------------------------------------------------- */
-
 const COLORS = {
   background: "#FFFFFF",
   text: "#111111",
@@ -59,10 +55,6 @@ const TILE_SIZE =
 
 const DOUBLE_TILE_SIZE =
   TILE_SIZE * 2 + GRID_GAP;
-
-/* -------------------------------------------------------------------------- */
-/* Safe helpers                                                               */
-/* -------------------------------------------------------------------------- */
 
 function getPostId(post) {
   return String(
@@ -338,23 +330,6 @@ function mergeUniquePosts(existing, incoming) {
   return result;
 }
 
-/* -------------------------------------------------------------------------- */
-/* Explore grid placement                                                     */
-/* -------------------------------------------------------------------------- */
-
-/*
- * We maintain a 3-column occupancy grid.
- *
- * normal = 1x1
- * wide   = 2x1
- * tall   = 1x2
- * large  = 2x2
- *
- * The algorithm finds the first available location where the tile fits.
- * This produces a much more organic Explore layout than grouping every
- * five posts into the same fixed pattern.
- */
-
 function canPlace(grid, row, column, width, height) {
   if (
     column + width >
@@ -533,12 +508,6 @@ function buildExploreRows(posts) {
     );
   });
 
-  /*
-   * We don't want sorting to completely destroy chronological order.
-   *
-   * Therefore only use the backend layout as a placement hint.
-   * The final visual ordering is reconstructed below.
-   */
   const placementGrid = [];
   const placementMap = new Map();
 
@@ -592,11 +561,6 @@ function buildExploreRows(posts) {
     );
   }
 
-  /*
-   * Build actual rows from the occupancy grid.
-   *
-   * Each row is a 3-column horizontal strip.
-   */
   const maxRow =
     placementGrid.length;
 
@@ -621,18 +585,10 @@ function buildExploreRows(posts) {
     }
   }
 
-  /*
-   * Keep React stable and ensure unused placementMap
-   * doesn't affect output.
-   */
   placementMap.clear();
 
   return rows;
 }
-
-/* -------------------------------------------------------------------------- */
-/* Explore tile                                                               */
-/* -------------------------------------------------------------------------- */
 
 const ExploreTile = memo(
   function ExploreTile({
@@ -746,10 +702,6 @@ const ExploreTile = memo(
   }
 );
 
-/* -------------------------------------------------------------------------- */
-/* Explore row                                                                */
-/* -------------------------------------------------------------------------- */
-
 const ExploreGridRow = memo(
   function ExploreGridRow({
     row,
@@ -779,10 +731,6 @@ const ExploreGridRow = memo(
     );
   }
 );
-
-/* -------------------------------------------------------------------------- */
-/* Skeleton                                                                   */
-/* -------------------------------------------------------------------------- */
 
 function ExploreSkeleton() {
   const skeletons =
@@ -815,10 +763,6 @@ function ExploreSkeleton() {
     </View>
   );
 }
-
-/* -------------------------------------------------------------------------- */
-/* Search user                                                                */
-/* -------------------------------------------------------------------------- */
 
 const SearchUserRow = memo(
   function SearchUserRow({
@@ -918,10 +862,6 @@ const SearchUserRow = memo(
   }
 );
 
-/* -------------------------------------------------------------------------- */
-/* Search section title                                                       */
-/* -------------------------------------------------------------------------- */
-
 function SearchSectionTitle({
   title,
   count,
@@ -953,10 +893,6 @@ function SearchSectionTitle({
     </View>
   );
 }
-
-/* -------------------------------------------------------------------------- */
-/* Empty state                                                                */
-/* -------------------------------------------------------------------------- */
 
 function EmptyState({
   icon = "search-outline",
@@ -997,10 +933,6 @@ function EmptyState({
     </View>
   );
 }
-
-/* -------------------------------------------------------------------------- */
-/* Main screen                                                                */
-/* -------------------------------------------------------------------------- */
 
 export default function ExploreScreen() {
   const router = useRouter();
@@ -1073,10 +1005,6 @@ export default function ExploreScreen() {
   const isSearching =
     query.trim().length > 0;
 
-  /* ---------------------------------------------------------------------- */
-  /* Lifecycle                                                              */
-  /* ---------------------------------------------------------------------- */
-
   useEffect(() => {
     mountedRef.current = true;
 
@@ -1093,10 +1021,6 @@ export default function ExploreScreen() {
       }
     };
   }, []);
-
-  /* ---------------------------------------------------------------------- */
-  /* Explore                                                                */
-  /* ---------------------------------------------------------------------- */
 
   const loadExplore =
     useCallback(
@@ -1204,10 +1128,6 @@ export default function ExploreScreen() {
       },
       []
     );
-
-  /* ---------------------------------------------------------------------- */
-  /* Search                                                                 */
-  /* ---------------------------------------------------------------------- */
 
   const executeSearch =
     useCallback(
@@ -1352,10 +1272,6 @@ export default function ExploreScreen() {
       []
     );
 
-  /* ---------------------------------------------------------------------- */
-  /* Search debounce                                                        */
-  /* ---------------------------------------------------------------------- */
-
   useEffect(() => {
     const cleanQuery =
       query.trim();
@@ -1407,10 +1323,6 @@ export default function ExploreScreen() {
     executeSearch,
   ]);
 
-  /* ---------------------------------------------------------------------- */
-  /* Initial load                                                           */
-  /* ---------------------------------------------------------------------- */
-
   useEffect(() => {
     loadExplore({
       page: 1,
@@ -1431,10 +1343,6 @@ export default function ExploreScreen() {
       query,
     ])
   );
-
-  /* ---------------------------------------------------------------------- */
-  /* Actions                                                                */
-  /* ---------------------------------------------------------------------- */
 
   const handleRefresh =
     useCallback(() => {
@@ -1565,10 +1473,6 @@ export default function ExploreScreen() {
       [router]
     );
 
-  /* ---------------------------------------------------------------------- */
-  /* Grid                                                                    */
-  /* ---------------------------------------------------------------------- */
-
   const exploreRows =
     useMemo(
       () =>
@@ -1577,10 +1481,6 @@ export default function ExploreScreen() {
         ),
       [posts]
     );
-
-  /* ---------------------------------------------------------------------- */
-  /* Header                                                                  */
-  /* ---------------------------------------------------------------------- */
 
   const header = (
     <View
@@ -1637,10 +1537,6 @@ export default function ExploreScreen() {
     </View>
   );
 
-  /* ---------------------------------------------------------------------- */
-  /* Search grid                                                             */
-  /* ---------------------------------------------------------------------- */
-
   const renderSearchGrid =
     (items) => {
       if (!items.length) {
@@ -1676,10 +1572,6 @@ export default function ExploreScreen() {
         </View>
       );
     };
-
-  /* ---------------------------------------------------------------------- */
-  /* Search screen                                                           */
-  /* ---------------------------------------------------------------------- */
 
   if (isSearching) {
     const hasSearchResults =
@@ -1963,10 +1855,6 @@ export default function ExploreScreen() {
     );
   }
 
-  /* ---------------------------------------------------------------------- */
-  /* Normal Explore                                                         */
-  /* ---------------------------------------------------------------------- */
-
   return (
     <SafeAreaView
       style={
@@ -2078,10 +1966,6 @@ export default function ExploreScreen() {
   );
 }
 
-/* -------------------------------------------------------------------------- */
-/* Styles                                                                     */
-/* -------------------------------------------------------------------------- */
-
 const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
@@ -2119,10 +2003,6 @@ const styles = StyleSheet.create({
   clearButton: {
     paddingLeft: 8,
   },
-
-  /* ---------------------------------------------------------------------- */
-  /* Instagram-style Explore grid                                           */
-  /* ---------------------------------------------------------------------- */
 
   gridRow: {
     width: SCREEN_WIDTH,
@@ -2181,10 +2061,6 @@ const styles = StyleSheet.create({
       "rgba(0,0,0,0.08)",
   },
 
-  /* ---------------------------------------------------------------------- */
-  /* Skeleton                                                                */
-  /* ---------------------------------------------------------------------- */
-
   skeletonContainer: {
     flexDirection: "row",
     flexWrap: "wrap",
@@ -2194,10 +2070,6 @@ const styles = StyleSheet.create({
   skeletonTile: {
     backgroundColor: "#EEEEEE",
   },
-
-  /* ---------------------------------------------------------------------- */
-  /* Search                                                                  */
-  /* ---------------------------------------------------------------------- */
 
   userRow: {
     minHeight: 68,
@@ -2320,10 +2192,6 @@ const styles = StyleSheet.create({
     paddingBottom: 30,
   },
 
-  /* ---------------------------------------------------------------------- */
-  /* Empty                                                                   */
-  /* ---------------------------------------------------------------------- */
-
   emptyState: {
     flex: 1,
     alignItems: "center",
@@ -2357,10 +2225,6 @@ const styles = StyleSheet.create({
     textAlign: "center",
   },
 
-  /* ---------------------------------------------------------------------- */
-  /* Error                                                                   */
-  /* ---------------------------------------------------------------------- */
-
   errorBanner: {
     minHeight: 42,
     paddingHorizontal: 14,
@@ -2375,11 +2239,7 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: COLORS.danger,
   },
-
-  /* ---------------------------------------------------------------------- */
-  /* Footer                                                                  */
-  /* ---------------------------------------------------------------------- */
-
+  
   loadingMoreContainer: {
     height: 60,
     alignItems: "center",

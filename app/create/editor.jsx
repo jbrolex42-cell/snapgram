@@ -73,9 +73,6 @@ const VISIBILITY_OPTIONS = [
   },
 ];
 
-/**
- * Parse media passed through Expo Router.
- */
 function parseMedia(params) {
   try {
     if (params?.media) {
@@ -126,9 +123,6 @@ function parseMedia(params) {
   return [];
 }
 
-/**
- * Determine whether media is a video.
- */
 function isVideoMedia(media) {
   return (
     media?.type === "video" ||
@@ -138,9 +132,6 @@ function isVideoMedia(media) {
   );
 }
 
-/**
- * Parse selected music from navigation params.
- */
 function parseMusic(params) {
   if (!params?.music) {
     return null;
@@ -172,17 +163,11 @@ export default function CreatePostScreen() {
   const params = useLocalSearchParams();
   const insets = useSafeAreaInsets();
 
-  /**
-   * Initial media.
-   */
   const initialMedia = useMemo(
     () => parseMedia(params),
     [params]
   );
 
-  /**
-   * Selected music returned from MusicSelectScreen.
-   */
   const initialMusic = useMemo(
     () => parseMusic(params),
     [params]
@@ -242,10 +227,6 @@ export default function CreatePostScreen() {
   const [uploadProgress, setUploadProgress] =
     useState(0);
 
-  /**
-   * Keep music synchronized if the screen
-   * receives a new music navigation param.
-   */
   useEffect(() => {
     const music = parseMusic(params);
 
@@ -263,9 +244,6 @@ export default function CreatePostScreen() {
         item.value === visibility
     );
 
-  /**
-   * Update currently selected media.
-   */
   function updateCurrentMedia(updater) {
     setMedia((previous) =>
       previous.map((item, index) => {
@@ -287,9 +265,6 @@ export default function CreatePostScreen() {
     );
   }
 
-  /**
-   * Open music picker.
-   */
   function handleAddMusic() {
     if (posting) {
       return;
@@ -298,9 +273,6 @@ export default function CreatePostScreen() {
     router.push("/music");
   }
 
-  /**
-   * Remove currently selected music.
-   */
   function handleRemoveMusic() {
     if (posting) {
       return;
@@ -309,9 +281,6 @@ export default function CreatePostScreen() {
     setSelectedMusic(null);
   }
 
-  /**
-   * Crop current image.
-   */
   async function handleCrop(ratio) {
     if (posting) {
       return;
@@ -372,9 +341,6 @@ export default function CreatePostScreen() {
     }
   }
 
-  /**
-   * Rotate current image.
-   */
   async function handleRotate() {
     if (posting) {
       return;
@@ -433,9 +399,6 @@ export default function CreatePostScreen() {
     }
   }
 
-  /**
-   * Remove current media.
-   */
   function removeCurrentMedia() {
     if (posting) {
       return;
@@ -467,9 +430,6 @@ export default function CreatePostScreen() {
     );
   }
 
-  /**
-   * Save location.
-   */
   function saveLocation() {
     if (posting) {
       return;
@@ -493,9 +453,6 @@ export default function CreatePostScreen() {
     setLocationModal(false);
   }
 
-  /**
-   * Save tagged users.
-   */
   function saveTags() {
     if (posting) {
       return;
@@ -519,9 +476,6 @@ export default function CreatePostScreen() {
     setTagModal(false);
   }
 
-  /**
-   * Create the post.
-   */
   async function handleShare() {
     if (posting) {
       return;
@@ -683,10 +637,7 @@ export default function CreatePostScreen() {
       setPosting(false);
     }
   }
-
-  /**
-   * No media state.
-   */
+  
   if (!media.length) {
     return (
       <SafeAreaView
@@ -739,7 +690,7 @@ export default function CreatePostScreen() {
             : undefined
         }
       >
-        {/* Header */}
+
         <View style={styles.header}>
           <TouchableOpacity
             onPress={() =>
@@ -780,7 +731,6 @@ export default function CreatePostScreen() {
           </TouchableOpacity>
         </View>
 
-        {/* Upload progress */}
         {posting && (
           <View
             style={
@@ -810,7 +760,7 @@ export default function CreatePostScreen() {
             false
           }
         >
-          {/* Media preview */}
+
           <View
             style={
               styles.mediaContainer
@@ -893,7 +843,6 @@ export default function CreatePostScreen() {
             )}
           </View>
 
-          {/* Media thumbnails */}
           {media.length > 1 && (
             <ScrollView
               horizontal
@@ -952,7 +901,6 @@ export default function CreatePostScreen() {
             </ScrollView>
           )}
 
-          {/* Editor */}
           <EditorToolbar
             activeTool={activeTool}
             onToolChange={
@@ -1006,7 +954,6 @@ export default function CreatePostScreen() {
             />
           )}
 
-          {/* Caption */}
           <CaptionInput
             value={caption}
             onChangeText={
@@ -1016,11 +963,10 @@ export default function CreatePostScreen() {
             }
           />
 
-          {/* Post options */}
           <View
             style={styles.optionsCard}
           >
-            {/* Music */}
+
             <TouchableOpacity
               style={styles.optionRow}
               onPress={handleAddMusic}
@@ -1110,7 +1056,6 @@ export default function CreatePostScreen() {
               style={styles.divider}
             />
 
-            {/* Location */}
             <TouchableOpacity
               style={styles.optionRow}
               onPress={() => {
@@ -1174,7 +1119,6 @@ export default function CreatePostScreen() {
               style={styles.divider}
             />
 
-            {/* Tags */}
             <TouchableOpacity
               style={styles.optionRow}
               onPress={() => {
@@ -1247,7 +1191,6 @@ export default function CreatePostScreen() {
               style={styles.divider}
             />
 
-            {/* Audience */}
             <TouchableOpacity
               style={styles.optionRow}
               onPress={() => {
@@ -1307,7 +1250,6 @@ export default function CreatePostScreen() {
         </ScrollView>
       </KeyboardAvoidingView>
 
-      {/* Location modal */}
       <Modal
         visible={locationModal}
         transparent
@@ -1379,7 +1321,6 @@ export default function CreatePostScreen() {
         </View>
       </Modal>
 
-      {/* Tag modal */}
       <Modal
         visible={tagModal}
         transparent
@@ -1454,7 +1395,6 @@ export default function CreatePostScreen() {
         </View>
       </Modal>
 
-      {/* Audience modal */}
       <Modal
         visible={audienceModal}
         transparent

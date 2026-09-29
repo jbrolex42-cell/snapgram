@@ -103,10 +103,6 @@ export default function ReelScreen() {
     });
   }
 
-  /*
-   * If a video was already selected, immediately
-   * send it to the existing editor.
-   */
   if (selectedMedia.length > 0) {
     const video = selectedMedia.find(
       (item) =>

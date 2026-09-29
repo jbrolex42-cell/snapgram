@@ -15,6 +15,7 @@ import {
 import {
   router,
   useLocalSearchParams,
+  useFocusEffect,
 } from "expo-router";
 
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -28,150 +29,108 @@ export default function ReelScreen() {
   const { id } = useLocalSearchParams();
   const insets = useSafeAreaInsets();
 
-  const [reel, setReel] =
-    useState(null);
+  const [reel, setReel] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
 
-  const [loading, setLoading] =
-    useState(true);
+  const [muted, setMuted] = useState(false);
+  const [liked, setLiked] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [following, setFollowing] = useState(false);
 
-  const [error, setError] =
-    useState("");
+  const loadReel = useCallback(async () => {
+    if (!id) {
+      setLoading(false);
+      setError("Reel not found.");
+      return;
+    }
 
-  const [muted, setMuted] =
-    useState(false);
+    try {
+      setLoading(true);
+      setError("");
 
-  const [liked, setLiked] =
-    useState(false);
+      const result = await getReelById(id);
 
-  const [saved, setSaved] =
-    useState(false);
+      const data = result?.reel || result;
 
-  const [following, setFollowing] =
-    useState(false);
-
-  const loadReel = useCallback(
-    async () => {
-      if (!id) {
-        setLoading(false);
-        setError("Reel not found.");
-        return;
+      if (!data?._id) {
+        throw new Error("Reel not found");
       }
 
-      try {
-        setLoading(true);
-        setError("");
+      setReel(data);
 
-        const result =
-          await getReelById(id);
+      setLiked(Boolean(data?.isLiked));
+      setSaved(Boolean(data?.isSaved));
 
-        const data =
-          result?.reel || result;
+      setFollowing(
+        Boolean(data?.user?.isFollowing)
+      );
+    } catch (err) {
+      console.error("Load reel error:", err);
 
-        if (!data?._id) {
-          throw new Error(
-            "Reel not found"
-          );
-        }
-
-        setReel(data);
-        setLiked(
-          Boolean(data?.isLiked)
-        );
-        setSaved(
-          Boolean(data?.isSaved)
-        );
-        setFollowing(
-          Boolean(
-            data?.user?.isFollowing
-          )
-        );
-      } catch (err) {
-        console.error(
-          "Load reel error:",
-          err
-        );
-
-        setReel(null);
-        setError(
-          "This Reel isn't available."
-        );
-      } finally {
-        setLoading(false);
-      }
-    },
-    [id]
-  );
+      setReel(null);
+      setError("This Reel isn't available.");
+    } finally {
+      setLoading(false);
+    }
+  }, [id]);
 
   useEffect(() => {
     loadReel();
   }, [loadReel]);
 
-  const toggleMute = useCallback(
-    () =>
-      setMuted(
-        (previous) => !previous
-      ),
-    []
-  );
-
-  const toggleLike = useCallback(
-    () =>
-      setLiked(
-        (previous) => !previous
-      ),
-    []
-  );
-
-  const toggleSave = useCallback(
-    () =>
-      setSaved(
-        (previous) => !previous
-      ),
-    []
-  );
-
-  const toggleFollow = useCallback(
-    () =>
-      setFollowing(
-        (previous) => !previous
-      ),
-    []
-  );
-
-  const openComments = useCallback(
-    () => {
-      if (!reel?._id) {
-        return;
+  useFocusEffect(
+    useCallback(() => {
+      if (id) {
+        loadReel();
       }
 
-      router.push({
-        pathname:
-          "/reels/comments",
-        params: {
-          reelId:
-            reel._id.toString(),
-        },
-      });
-    },
-    [reel?._id]
+      return undefined;
+    }, [id, loadReel])
   );
 
-  const handleShare = useCallback(
-    () => {
-      if (!reel?._id) {
-        return;
-      }
+  const toggleMute = useCallback(() => {
+    setMuted((previous) => !previous);
+  }, []);
 
-      router.push({
-        pathname: "/share",
-        params: {
-          type: "reel",
-          id: reel._id.toString(),
-        },
-      });
-    },
-    [reel?._id]
-  );
+  const toggleLike = useCallback(() => {
+    setLiked((previous) => !previous);
+  }, []);
+
+  const toggleSave = useCallback(() => {
+    setSaved((previous) => !previous);
+  }, []);
+
+  const toggleFollow = useCallback(() => {
+    setFollowing((previous) => !previous);
+  }, []);
+
+  const openComments = useCallback(() => {
+    if (!reel?._id) {
+      return;
+    }
+
+    router.push({
+      pathname: "/reels/comments",
+      params: {
+        reelId: reel._id.toString(),
+      },
+    });
+  }, [reel?._id]);
+
+  const handleShare = useCallback(() => {
+    if (!reel?._id) {
+      return;
+    }
+
+    router.push({
+      pathname: "/share",
+      params: {
+        type: "reel",
+        id: reel._id.toString(),
+      },
+    });
+  }, [reel?._id]);
 
   const openProfile = useCallback(
     (user) => {
@@ -185,8 +144,7 @@ export default function ReelScreen() {
       }
 
       router.push({
-        pathname:
-          "/profile/[id]",
+        pathname: "/profile/[id]",
         params: {
           id: userId.toString(),
         },
@@ -225,16 +183,10 @@ export default function ReelScreen() {
         </Text>
 
         <Pressable
-          onPress={() =>
-            router.back()
-          }
+          onPress={() => router.back()}
           style={styles.backPill}
         >
-          <Text
-            style={
-              styles.backPillText
-            }
-          >
+          <Text style={styles.backPillText}>
             Go back
           </Text>
         </Pressable>
@@ -257,9 +209,7 @@ export default function ReelScreen() {
         onComment={openComments}
         onShare={handleShare}
         onProfile={openProfile}
-        onDoubleTap={() =>
-          setLiked(true)
-        }
+        onDoubleTap={() => setLiked(true)}
       />
 
       <LinearGradient
@@ -272,12 +222,12 @@ export default function ReelScreen() {
       />
 
       <Pressable
-        onPress={() =>
-          router.back()
-        }
+        onPress={() => router.back()}
         style={[
           styles.backButton,
-          { top: insets.top + 8 },
+          {
+            top: insets.top + 8,
+          },
         ]}
         hitSlop={12}
       >
@@ -292,7 +242,9 @@ export default function ReelScreen() {
         onPress={toggleMute}
         style={[
           styles.muteButton,
-          { top: insets.top + 8 },
+          {
+            top: insets.top + 8,
+          },
         ]}
         hitSlop={12}
       >

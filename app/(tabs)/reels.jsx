@@ -139,12 +139,6 @@ export default function ReelsScreen() {
 
   const [error, setError] = useState("");
 
-  /*
-   * These are UI states for optimistic interaction.
-   *
-   * Your backend should eventually be called from
-   * handleLike / handleSave / handleFollow.
-   */
   const [likedIds, setLikedIds] = useState(
     () => new Set()
   );
@@ -164,9 +158,6 @@ export default function ReelsScreen() {
     };
   }, []);
 
-  /*
-   * Load a page of Reels.
-   */
   const loadReels = useCallback(
     async ({
       refresh = false,
@@ -203,18 +194,11 @@ export default function ReelsScreen() {
         const incoming =
           normalizeReels(result);
 
-        /*
-         * FIRST PAGE
-         */
         if (requestedPage === 1) {
           setReels(incoming);
           setPage(1);
           setActiveIndex(0);
 
-          /*
-           * Initialize interaction state from
-           * backend response.
-           */
           const initialLiked = new Set();
           const initialSaved = new Set();
           const initialFollowing = new Set();
@@ -267,9 +251,6 @@ export default function ReelsScreen() {
           );
         }
 
-        /*
-         * NEXT PAGE
-         */
         else {
           setReels((previous) => {
             const existingIds = new Set(
@@ -282,11 +263,6 @@ export default function ReelsScreen() {
               incoming.filter((item) => {
                 const id = getId(item);
 
-                /*
-                 * If there is no ID, retain it.
-                 * Normally every MongoDB Reel should
-                 * have an _id.
-                 */
                 if (!id) {
                   return true;
                 }
@@ -352,12 +328,6 @@ export default function ReelsScreen() {
     []
   );
 
-  /*
-   * Initial load.
-   *
-   * Do not repeatedly reload the entire Reel feed
-   * every time the tab receives focus.
-   */
   useFocusEffect(
     useCallback(() => {
       if (!initialLoadedRef.current) {
@@ -370,9 +340,6 @@ export default function ReelsScreen() {
     }, [loadReels])
   );
 
-  /*
-   * Pull to refresh.
-   */
   const handleRefresh = useCallback(() => {
     if (
       refreshing ||
@@ -387,9 +354,6 @@ export default function ReelsScreen() {
     });
   }, [loadReels, refreshing]);
 
-  /*
-   * Infinite scroll.
-   */
   const handleEndReached = useCallback(() => {
     if (
       loading ||
@@ -415,10 +379,6 @@ export default function ReelsScreen() {
     refreshing,
   ]);
 
-  /*
-   * Detect the Reel currently occupying
-   * the screen.
-   */
   const handleViewableItemsChanged =
     useRef(
       ({ viewableItems }) => {
@@ -440,9 +400,6 @@ export default function ReelsScreen() {
       }
     ).current;
 
-  /*
-   * LIKE
-   */
   const handleLike = useCallback(
     (reelId) => {
       const id = getId(reelId);
@@ -467,9 +424,6 @@ export default function ReelsScreen() {
     []
   );
 
-  /*
-   * SAVE
-   */
   const handleSave = useCallback(
     (reelId) => {
       const id = getId(reelId);
@@ -494,9 +448,6 @@ export default function ReelsScreen() {
     []
   );
 
-  /*
-   * FOLLOW
-   */
   const handleFollow = useCallback(
     (userId) => {
       const id = getId(userId);
@@ -523,9 +474,6 @@ export default function ReelsScreen() {
     []
   );
 
-  /*
-   * Double tap = like.
-   */
   const handleDoubleTap =
     useCallback((reel) => {
       const reelId = getId(reel);
@@ -544,9 +492,6 @@ export default function ReelsScreen() {
       });
     }, []);
 
-  /*
-   * COMMENTS
-   */
   const openComments =
     useCallback((reel) => {
       const id = getId(reel);
@@ -563,9 +508,6 @@ export default function ReelsScreen() {
       });
     }, []);
 
-  /*
-   * SHARE
-   */
   const handleShare =
     useCallback((reel) => {
       const id = getId(reel);
@@ -583,9 +525,6 @@ export default function ReelsScreen() {
       });
     }, []);
 
-  /*
-   * PROFILE
-   */
   const openProfile =
     useCallback((user) => {
       const userId = getId(user);
@@ -602,9 +541,6 @@ export default function ReelsScreen() {
       });
     }, []);
 
-  /*
-   * MUTE
-   */
   const toggleMute =
     useCallback(() => {
       setMuted(
@@ -612,9 +548,6 @@ export default function ReelsScreen() {
       );
     }, []);
 
-  /*
-   * HEADER
-   */
   const renderHeader =
     useCallback(() => {
       return (
@@ -647,9 +580,6 @@ export default function ReelsScreen() {
       );
     }, []);
 
-  /*
-   * REEL ITEM
-   */
   const renderItem = useCallback(
     ({ item, index }) => {
       const reelId =
@@ -693,10 +623,6 @@ export default function ReelsScreen() {
           <ReelItem
             reel={item}
 
-            /*
-             * ONLY THE CURRENTLY VISIBLE
-             * REEL SHOULD PLAY.
-             */
             active={
               index === activeIndex
             }
@@ -764,9 +690,6 @@ export default function ReelsScreen() {
     ]
   );
 
-  /*
-   * LOAD MORE FOOTER
-   */
   const renderFooter =
     useCallback(() => {
       if (!loadingMore) {
@@ -785,9 +708,6 @@ export default function ReelsScreen() {
       );
     }, [loadingMore]);
 
-  /*
-   * INITIAL LOADING
-   */
   if (
     loading &&
     !reels.length
@@ -804,9 +724,6 @@ export default function ReelsScreen() {
     );
   }
 
-  /*
-   * EMPTY
-   */
   if (!reels.length) {
     return (
       <View
@@ -878,10 +795,7 @@ export default function ReelsScreen() {
       </View>
     );
   }
-
-  /*
-   * REELS
-   */
+  
   return (
     <View
       style={styles.container}
@@ -948,13 +862,11 @@ export default function ReelsScreen() {
         }
       />
 
-      {/* TOP GRADIENT/SCRIM */}
       <View
         pointerEvents="none"
         style={styles.topScrim}
       />
 
-      {/* BOTTOM GRADIENT/SCRIM */}
       <View
         pointerEvents="none"
         style={styles.bottomScrim}
@@ -962,7 +874,6 @@ export default function ReelsScreen() {
 
       {renderHeader()}
 
-      {/* GLOBAL MUTE BUTTON */}
       <Pressable
         onPress={toggleMute}
         hitSlop={10}

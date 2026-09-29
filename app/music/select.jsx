@@ -38,9 +38,6 @@ export default function MusicSelectScreen() {
   const [playing, setPlaying] = useState(false);
   const [usingMusic, setUsingMusic] = useState(false);
 
-  /**
-   * Parse selected track from navigation params.
-   */
   useEffect(() => {
     const rawTrack = params?.track;
 
@@ -67,9 +64,6 @@ export default function MusicSelectScreen() {
     }
   }, [params?.track]);
 
-  /**
-   * Initialize music player when track changes.
-   */
   useEffect(() => {
     if (!track?.audioUrl) {
       return undefined;
@@ -89,18 +83,12 @@ export default function MusicSelectScreen() {
     };
   }, [track]);
 
-  /**
-   * Stop playback when leaving the screen.
-   */
   useEffect(() => {
     return () => {
       stopMusic();
     };
   }, []);
 
-  /**
-   * Preview / pause selected music.
-   */
   const handlePlay = async () => {
     if (!track?.audioUrl) {
       return;
@@ -126,9 +114,6 @@ export default function MusicSelectScreen() {
     }
   };
 
-  /**
-   * Handle music trim changes.
-   */
   const handleTrimChange = ({
     startMs: nextStartMs,
     durationMs: nextDurationMs,
@@ -141,10 +126,6 @@ export default function MusicSelectScreen() {
     }
   };
 
-  /**
-   * Confirm selected music and return
-   * to the create-post screen.
-   */
   const handleUseMusic = async () => {
     if (!track || usingMusic) {
       return;
@@ -201,9 +182,6 @@ export default function MusicSelectScreen() {
     }
   };
 
-  /**
-   * Track unavailable state.
-   */
   if (!track) {
     return (
       <SafeAreaView style={styles.safe}>
@@ -231,7 +209,7 @@ export default function MusicSelectScreen() {
 
   return (
     <SafeAreaView style={styles.safe}>
-      {/* Header */}
+
       <View style={styles.header}>
         <Pressable
           onPress={() => {
@@ -253,15 +231,13 @@ export default function MusicSelectScreen() {
         <View style={styles.headerSpacer} />
       </View>
 
-      {/* Content */}
       <View style={styles.content}>
-        {/* Artwork */}
+
         <Image
           source={artworkSource}
           style={styles.artwork}
         />
 
-        {/* Track information */}
         <Text
           style={styles.title}
           numberOfLines={1}
@@ -276,7 +252,6 @@ export default function MusicSelectScreen() {
           {track.artist || "Unknown artist"}
         </Text>
 
-        {/* Preview */}
         <Pressable
           onPress={handlePlay}
           style={[
@@ -293,7 +268,6 @@ export default function MusicSelectScreen() {
           </Text>
         </Pressable>
 
-        {/* Trim selector */}
         <View style={styles.trimContainer}>
           <MusicTrimSelector
             durationMs={
@@ -305,14 +279,12 @@ export default function MusicSelectScreen() {
           />
         </View>
 
-        {/* Selected clip information */}
         <View style={styles.clipInfo}>
           <Text style={styles.clipInfoText}>
             {Math.round(clipDurationMs / 1000)}s clip
           </Text>
         </View>
 
-        {/* Use music */}
         <Pressable
           style={[
             styles.useButton,

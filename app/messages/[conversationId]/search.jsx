@@ -7,7 +7,6 @@ import React, {
 import {
   ActivityIndicator,
   FlatList,
-  Image,
   Pressable,
   StyleSheet,
   Text,
@@ -29,6 +28,13 @@ import {
 } from "react-native-safe-area-context";
 
 import { useAuth } from "../../../context/AuthContext";
+
+// IMPORTANT:
+// Change this import path/function name if your message service
+// is located somewhere else in your project.
+import {
+  searchConversationMessages,
+} from "../../../services/messageService";
 
 function normalizeParam(value) {
   if (Array.isArray(value)) {
@@ -125,36 +131,19 @@ export default function ConversationSearchScreen() {
           return;
         }
 
-        /*
-         * IMPORTANT:
-         *
-         * This screen is intentionally kept independent
-         * from a nonexistent search service endpoint.
-         *
-         * If your backend already has a conversation-search
-         * endpoint, connect it here.
-         */
         setLoading(true);
 
         try {
-          /*
-           * Replace this section with your actual
-           * conversation message search service.
-           *
-           * Example:
-           *
-           * const result =
-           *   await searchConversationMessages(
-           *     conversationId,
-           *     trimmed
-           *   );
-           *
-           * setMessages(
-           *   result?.messages || []
-           * );
-           */
+          const result =
+            await searchConversationMessages(
+              conversationId,
+              trimmed
+            );
 
-          setMessages([]);
+          setMessages(
+            result?.messages || []
+          );
+
           setSearched(true);
         } catch (error) {
           console.error(
@@ -163,6 +152,7 @@ export default function ConversationSearchScreen() {
           );
 
           setMessages([]);
+          setSearched(true);
         } finally {
           setLoading(false);
         }

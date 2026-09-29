@@ -236,7 +236,6 @@ const ProfileGridItem = memo(
           </View>
         )}
 
-        {/* Reel indicator */}
         {isReel && (
           <View style={styles.reelBadge}>
             <Ionicons
@@ -247,7 +246,6 @@ const ProfileGridItem = memo(
           </View>
         )}
 
-        {/* Video indicator for normal posts */}
         {video && !isReel && (
           <View style={styles.topRightBadge}>
             <Ionicons
@@ -258,7 +256,6 @@ const ProfileGridItem = memo(
           </View>
         )}
 
-        {/* Multiple media indicator */}
         {multiple && (
           <View
             style={[
@@ -275,7 +272,6 @@ const ProfileGridItem = memo(
           </View>
         )}
 
-        {/* Repost indicator */}
         {repost && (
           <View style={styles.repostBadge}>
             <Ionicons

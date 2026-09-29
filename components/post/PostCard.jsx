@@ -407,7 +407,6 @@ function PostCard({
 
   return (
     <View style={styles.container}>
-      {/* HEADER */}
       <View style={styles.header}>
         <TouchableOpacity
           activeOpacity={0.8}
@@ -470,7 +469,6 @@ function PostCard({
         </TouchableOpacity>
       </View>
 
-      {/* MEDIA */}
       <Pressable
         style={styles.mediaContainer}
         onPress={handleMediaPress}
@@ -527,7 +525,6 @@ function PostCard({
         ) : null}
       </Pressable>
 
-      {/* ACTIONS */}
       <View style={styles.actions}>
         <View style={styles.leftActions}>
           <TouchableOpacity
@@ -580,7 +577,6 @@ function PostCard({
         </TouchableOpacity>
       </View>
 
-      {/* LIKES */}
       {likesCount > 0 ? (
         <View style={styles.likesContainer}>
           <Text style={styles.likesText}>
@@ -590,7 +586,6 @@ function PostCard({
         </View>
       ) : null}
 
-      {/* CAPTION */}
       {caption ? (
         <View style={styles.captionContainer}>
           <TranslatableCaption
@@ -601,7 +596,6 @@ function PostCard({
         </View>
       ) : null}
 
-      {/* COMMENTS */}
       {commentsCount > 0 ? (
         <TouchableOpacity
           onPress={handleComment}
@@ -615,7 +609,6 @@ function PostCard({
         </TouchableOpacity>
       ) : null}
 
-      {/* DATE */}
       {post?.createdAt ? (
         <Text style={styles.dateText}>
           {formatPostDate(post.createdAt)}

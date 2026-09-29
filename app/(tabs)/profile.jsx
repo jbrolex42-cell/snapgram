@@ -1559,7 +1559,6 @@ export default function ProfileScreen() {
           />
         </ScrollView>
 
-        {/* PROFILE QR */}
         <Modal
           visible={showProfileQR}
           transparent
@@ -1668,7 +1667,6 @@ export default function ProfileScreen() {
           </View>
         </Modal>
 
-        {/* QR SCANNER */}
         <Modal
           visible={showQRScanner}
           animationType="slide"
@@ -1697,7 +1695,6 @@ export default function ProfileScreen() {
           />
         </Modal>
 
-        {/* MENU */}
         <Modal
           visible={menuVisible}
           transparent
@@ -1773,7 +1770,6 @@ export default function ProfileScreen() {
           </Pressable>
         </Modal>
 
-        {/* EDIT PROFILE */}
         <Modal
           visible={editVisible}
           animationType="slide"
@@ -1922,7 +1918,6 @@ export default function ProfileScreen() {
           </SafeAreaView>
         </Modal>
 
-        {/* CREATE HIGHLIGHT */}
         <Modal
           visible={highlightVisible}
           animationType="slide"
